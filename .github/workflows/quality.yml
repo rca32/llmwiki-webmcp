@@ -6,8 +6,9 @@ on:
     branches: [main]
 
 jobs:
-  verify:
+  validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,7 +16,14 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run db:check
       - run: npm run build
+      - run: npm audit --omit=dev
+      - if: github.ref == 'refs/heads/main'
+        run: npx playwright install --with-deps chromium
+      - if: github.ref == 'refs/heads/main'
+        run: npm run test:ui:ci

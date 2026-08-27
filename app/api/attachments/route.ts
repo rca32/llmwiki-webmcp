@@ -1,10 +1,96 @@
-import { AppError,success } from '../../../lib/contracts';
-import { listAttachments,uploadAttachment } from '../../../db/wiki-repository';
-import { errorResponse,originFrom,requestId } from '../../../lib/http';
-import { requireWikiSession } from '../../../lib/server-session';
-import { operationId,optionalNullableString,requiredString } from '../../../lib/validation';
+import { AppError, success } from "../../../lib/contracts";
+import { listAttachments, uploadAttachment } from "../../../db/wiki-repository";
+import { errorResponse, originFrom, requestId } from "../../../lib/http";
+import { requireWikiSession } from "../../../lib/server-session";
+import {
+  operationId,
+  optionalNullableString,
+  requiredString,
+} from "../../../lib/validation";
 
-const MAX_ATTACHMENT_BYTES=25*1024*1024;
-const BLOCKED_MIME=new Set(['text/html','application/xhtml+xml','image/svg+xml','application/x-msdownload','application/x-sh','application/javascript','text/javascript']);
-export async function GET(request:Request){const id=requestId();try{const session=await requireWikiSession('can_read'),url=new URL(request.url),pageId=optionalNullableString(url.searchParams.get('page_id'),'page_id'),includeDeleted=url.searchParams.get('include_deleted')==='true'&&session.capabilities.can_manage_attachments;return Response.json(success({attachments:await listAttachments(session.wikiId!,pageId,includeDeleted)},id),{headers:{'cache-control':'no-store'}});}catch(error){return errorResponse(error,id);}}
-export async function POST(request:Request){const id=requestId();try{const session=await requireWikiSession('can_manage_attachments'),form=await request.formData(),file=form.get('file');if(!(file instanceof File))throw new AppError('validation_error','A file field is required.',400,{field:'file'});if(file.size<1||file.size>MAX_ATTACHMENT_BYTES)throw new AppError('validation_error','Attachment size must be between 1 byte and 25 MB.',413,{max_bytes:MAX_ATTACHMENT_BYTES});const mime=(file.type||'application/octet-stream').toLowerCase();if(BLOCKED_MIME.has(mime))throw new AppError('validation_error','This active-content file type is not allowed.',415,{mime_type:mime});const filename=requiredString(file.name.replace(/[\\/\u0000-\u001f\u007f]/g,'_'),'filename',1,200);const result=await uploadAttachment({wikiId:session.wikiId!,email:session.email,pageId:optionalNullableString(form.get('page_id'),'page_id'),filename,mimeType:mime,data:await file.arrayBuffer(),operationId:operationId(form.get('operation_id')),requestId:id,origin:originFrom(request)});return Response.json(success(result,id),{status:201});}catch(error){return errorResponse(error,id);}}
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const BLOCKED_MIME = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "application/x-msdownload",
+  "application/x-sh",
+  "application/javascript",
+  "text/javascript",
+]);
+export async function GET(request: Request) {
+  const id = requestId();
+  try {
+    const session = await requireWikiSession("can_read"),
+      url = new URL(request.url),
+      pageId = optionalNullableString(
+        url.searchParams.get("page_id"),
+        "page_id",
+      ),
+      includeDeleted =
+        url.searchParams.get("include_deleted") === "true" &&
+        session.capabilities.can_manage_attachments;
+    return Response.json(
+      success(
+        {
+          attachments: await listAttachments(
+            session.wikiId!,
+            pageId,
+            includeDeleted,
+          ),
+        },
+        id,
+      ),
+      { headers: { "cache-control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error, id);
+  }
+}
+export async function POST(request: Request) {
+  const id = requestId();
+  try {
+    const session = await requireWikiSession("can_manage_attachments"),
+      form = await request.formData(),
+      file = form.get("file");
+    if (!(file instanceof File))
+      throw new AppError("validation_error", "A file field is required.", 400, {
+        field: "file",
+      });
+    if (file.size < 1 || file.size > MAX_ATTACHMENT_BYTES)
+      throw new AppError(
+        "validation_error",
+        "Attachment size must be between 1 byte and 25 MB.",
+        413,
+        { max_bytes: MAX_ATTACHMENT_BYTES },
+      );
+    const mime = (file.type || "application/octet-stream").toLowerCase();
+    if (BLOCKED_MIME.has(mime))
+      throw new AppError(
+        "validation_error",
+        "This active-content file type is not allowed.",
+        415,
+        { mime_type: mime },
+      );
+    const filename = requiredString(
+      file.name.replace(/[\\/\u0000-\u001f\u007f]/g, "_"),
+      "filename",
+      1,
+      200,
+    );
+    const result = await uploadAttachment({
+      wikiId: session.wikiId!,
+      email: session.email,
+      pageId: optionalNullableString(form.get("page_id"), "page_id"),
+      filename,
+      mimeType: mime,
+      data: await file.arrayBuffer(),
+      operationId: operationId(form.get("operation_id")),
+      requestId: id,
+      origin: originFrom(request),
+    });
+    return Response.json(success(result, id), { status: 201 });
+  } catch (error) {
+    return errorResponse(error, id);
+  }
+}

@@ -95,9 +95,7 @@
       "indexes": {
         "attachments_object_key_unique": {
           "name": "attachments_object_key_unique",
-          "columns": [
-            "object_key"
-          ],
+          "columns": ["object_key"],
           "isUnique": true
         }
       },
@@ -191,10 +189,7 @@
       "indexes": {
         "idx_audit_events_wiki_recent": {
           "name": "idx_audit_events_wiki_recent",
-          "columns": [
-            "wiki_id",
-            "created_at"
-          ],
+          "columns": ["wiki_id", "created_at"],
           "isUnique": false
         }
       },
@@ -225,10 +220,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "backup_revision_coverage_backup_run_id_revision_id_pk": {
-          "columns": [
-            "backup_run_id",
-            "revision_id"
-          ],
+          "columns": ["backup_run_id", "revision_id"],
           "name": "backup_revision_coverage_backup_run_id_revision_id_pk"
         }
       },
@@ -494,10 +486,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "import_batches_session_id_batch_index_pk": {
-          "columns": [
-            "session_id",
-            "batch_index"
-          ],
+          "columns": ["session_id", "batch_index"],
           "name": "import_batches_session_id_batch_index_pk"
         }
       },
@@ -641,18 +630,12 @@
       "indexes": {
         "idx_page_links_source": {
           "name": "idx_page_links_source",
-          "columns": [
-            "wiki_id",
-            "source_page_id"
-          ],
+          "columns": ["wiki_id", "source_page_id"],
           "isUnique": false
         },
         "idx_page_links_target": {
           "name": "idx_page_links_target",
-          "columns": [
-            "wiki_id",
-            "target_page_id"
-          ],
+          "columns": ["wiki_id", "target_page_id"],
           "isUnique": false
         }
       },
@@ -783,18 +766,12 @@
       "indexes": {
         "uq_page_revisions_version": {
           "name": "uq_page_revisions_version",
-          "columns": [
-            "page_id",
-            "version"
-          ],
+          "columns": ["page_id", "version"],
           "isUnique": true
         },
         "idx_page_revisions_recent": {
           "name": "idx_page_revisions_recent",
-          "columns": [
-            "page_id",
-            "created_at"
-          ],
+          "columns": ["page_id", "created_at"],
           "isUnique": false
         }
       },
@@ -803,12 +780,8 @@
           "name": "page_revisions_page_id_pages_id_fk",
           "tableFrom": "page_revisions",
           "tableTo": "pages",
-          "columnsFrom": [
-            "page_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["page_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -945,28 +918,17 @@
       "indexes": {
         "uq_pages_sibling_slug": {
           "name": "uq_pages_sibling_slug",
-          "columns": [
-            "wiki_id",
-            "parent_key",
-            "slug"
-          ],
+          "columns": ["wiki_id", "parent_key", "slug"],
           "isUnique": true
         },
         "idx_pages_wiki_parent": {
           "name": "idx_pages_wiki_parent",
-          "columns": [
-            "wiki_id",
-            "parent_id",
-            "sort_order"
-          ],
+          "columns": ["wiki_id", "parent_id", "sort_order"],
           "isUnique": false
         },
         "idx_pages_wiki_updated": {
           "name": "idx_pages_wiki_updated",
-          "columns": [
-            "wiki_id",
-            "updated_at"
-          ],
+          "columns": ["wiki_id", "updated_at"],
           "isUnique": false
         }
       },
@@ -975,12 +937,8 @@
           "name": "pages_wiki_id_wikis_id_fk",
           "tableFrom": "pages",
           "tableTo": "wikis",
-          "columnsFrom": [
-            "wiki_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["wiki_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1171,9 +1129,7 @@
       "indexes": {
         "idx_wiki_members_email": {
           "name": "idx_wiki_members_email",
-          "columns": [
-            "user_email"
-          ],
+          "columns": ["user_email"],
           "isUnique": false
         }
       },
@@ -1182,22 +1138,15 @@
           "name": "wiki_members_wiki_id_wikis_id_fk",
           "tableFrom": "wiki_members",
           "tableTo": "wikis",
-          "columnsFrom": [
-            "wiki_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["wiki_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "wiki_members_wiki_id_user_email_pk": {
-          "columns": [
-            "wiki_id",
-            "user_email"
-          ],
+          "columns": ["wiki_id", "user_email"],
           "name": "wiki_members_wiki_id_user_email_pk"
         }
       },
@@ -1372,9 +1321,7 @@
       "indexes": {
         "wikis_slug_unique": {
           "name": "wikis_slug_unique",
-          "columns": [
-            "slug"
-          ],
+          "columns": ["slug"],
           "isUnique": true
         }
       },
