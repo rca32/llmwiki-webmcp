@@ -25,3 +25,5 @@ export async function requireWikiSession(capability:keyof Capabilities):Promise<
   if(capability!=='can_bootstrap'&&!session.wikiId)throw new AppError('not_found','There is no active wiki for this session.',404);
   return session;
 }
+
+export async function requireImportAuthority():Promise<WikiSession>{const session=await getWikiSession();if(!session.capabilities.can_import&&!session.capabilities.can_bootstrap)throw new AppError('forbidden','Only the current owner or authorized bootstrap identity can import a wiki.',403);return session;}

@@ -8,6 +8,13 @@
       "when": 1787865450730,
       "tag": "0000_clever_vengeance",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787868285416,
+      "tag": "0001_clammy_power_man",
+      "breakpoints": true
     }
   ]
 }

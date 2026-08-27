@@ -20,19 +20,29 @@ npm test
 npm run build
 ```
 
+With the development server running, exercise the rendered tree and graph views in headless Chrome:
+
+```bash
+npm run test:ui
+```
+
 Generate a new append-only migration after changing `db/schema.ts`:
 
 ```bash
 npm run db:generate
 ```
 
-## Implemented product slice
+## Implemented capabilities
 
 - Workspace-authenticated session capabilities and owner bootstrap
-- D1-backed page create, read, update, append, search, wikilink index, usage counters, audit events, and immutable revisions
-- Optimistic concurrency and idempotent mutations
-- R2 snapshots for revisions larger than 64 KB with checksum verification and cleanup
-- Responsive Markdown source/preview UI with revision history and conflict messaging
-- Six read-only and three capability-gated write WebMCP tools
+- D1-backed page create, read, update, append, move, link, leaf soft-delete/restore, text search, backlinks, and graph
+- Optimistic concurrency, idempotent mutations, simple YAML frontmatter validation, autosave, immutable revisions, and restore-as-new-version
+- R2 revision tiering plus upload/download/checksum, 30-day attachment soft-delete/restore, quota accounting, orphan reconciliation, and retention maintenance
+- Portable and full multipart backups with per-part SHA-256, explicit ACK, and full-backup revision coverage
+- Resumable import sessions that validate every declared part before an empty-Site-only atomic commit
+- Responsive tree, Markdown source/preview, graph, attachments, trash, revision restore, conflict, and backup-manifest UI
+- Six read-only and six capability-gated write WebMCP tools using the same server APIs as the human UI
+
+The current WebMCP mutation set is `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, and `wiki_restore_revision`. Soft delete remains UI/API-only until the late-MVP typed-confirmation tool is deliberately exposed.
 
 See `../docs/WEBMCP_NATIVE_LLM_WIKI_DEVELOPMENT_PLAN.md` for the full phased roadmap.
