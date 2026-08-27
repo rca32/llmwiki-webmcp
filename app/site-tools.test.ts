@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { readTools, writeTools } from "./site-tools";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readTools, toolsForCapabilities, writeTools } from "./site-tools";
 
 describe("WebMCP descriptor contract", () => {
   const tools = [...readTools(), ...writeTools()];
@@ -40,4 +40,42 @@ describe("WebMCP descriptor contract", () => {
       expect(required, tool.name).toContain("operation_id");
     }
   });
+
+  it("forwards bounded depth to tree and neighbor APIs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, data: {} }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await readTools()
+      .find((tool) => tool.name === "wiki_list_pages")!
+      .execute({ parent_id: null, depth: 2, limit: 7 });
+    await readTools()
+      .find((tool) => tool.name === "wiki_get_neighbors")!
+      .execute({
+        page_id: "11111111-1111-4111-8111-111111111111",
+        depth: 2,
+        limit: 9,
+      });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/pages?parent_id=&depth=2&limit=7",
+    );
+    expect(fetchMock.mock.calls[1][0]).toContain("/neighbors?depth=2&limit=9");
+  });
+
+  it("exposes reads to viewers and mutations only to writers", () => {
+    expect(
+      toolsForCapabilities({ can_read: true, can_write: false }).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(readTools().map((tool) => tool.name));
+    expect(
+      toolsForCapabilities({ can_read: true, can_write: true }),
+    ).toHaveLength(12);
+    expect(
+      toolsForCapabilities({ can_read: false, can_write: false }),
+    ).toHaveLength(0);
+  });
 });
+
+afterEach(() => vi.unstubAllGlobals());

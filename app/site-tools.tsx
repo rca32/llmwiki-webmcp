@@ -100,9 +100,10 @@ export function readTools(): SiteTool[] {
       annotations: readAnnotations,
       execute: async (input) => {
         const parent = nullableText(input, "parent_id", 36),
-          limit = boundedInteger(input.limit, 1, 20, 20);
+          limit = boundedInteger(input.limit, 1, 20, 20),
+          depth = boundedInteger(input.depth, 0, 2, 0);
         return requestJson(
-          `/api/pages?parent_id=${encodeURIComponent(parent ?? "")}&limit=${limit}`,
+          `/api/pages?parent_id=${encodeURIComponent(parent ?? "")}&depth=${depth}&limit=${limit}`,
         );
       },
     },
@@ -199,7 +200,7 @@ export function readTools(): SiteTool[] {
       annotations: readAnnotations,
       execute: async (input) =>
         requestJson(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/neighbors?limit=${boundedInteger(input.limit, 1, 20, 20)}`,
+          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/neighbors?depth=${boundedInteger(input.depth, 0, 2, 1)}&limit=${boundedInteger(input.limit, 1, 20, 20)}`,
         ),
     },
     {
@@ -406,6 +407,16 @@ export function writeTools(): SiteTool[] {
   ];
 }
 
+export function toolsForCapabilities(capabilities: {
+  can_read?: boolean;
+  can_write?: boolean;
+}) {
+  const tools: SiteTool[] = [];
+  if (capabilities.can_read) tools.push(...readTools());
+  if (capabilities.can_write) tools.push(...writeTools());
+  return tools;
+}
+
 export function SiteTools() {
   useEffect(() => {
     const modelContext = document.modelContext;
@@ -415,9 +426,7 @@ export function SiteTools() {
       const session = (await requestJson("/api/session/capabilities")) as {
         data?: { capabilities?: { can_read?: boolean; can_write?: boolean } };
       };
-      const tools: SiteTool[] = [];
-      if (session.data?.capabilities?.can_read) tools.push(...readTools());
-      if (session.data?.capabilities?.can_write) tools.push(...writeTools());
+      const tools = toolsForCapabilities(session.data?.capabilities ?? {});
       await Promise.all(
         tools.map((tool) =>
           modelContext.registerTool(tool, { signal: controller.signal }),

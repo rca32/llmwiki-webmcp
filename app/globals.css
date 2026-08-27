@@ -1134,6 +1134,20 @@ body {
 .warning-text {
   color: #9b4b3d !important;
 }
+.backup-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 7px;
+  align-items: center;
+  margin-top: 14px;
+  color: #55584f;
+  font-size: 10px;
+}
+.backup-option small {
+  grid-column: 2;
+  color: #9b4b3d;
+  font-size: 9px;
+}
 .operation-actions button,
 .operation-card > button,
 .member-form button,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { buildPortableProjection } from "../lib/portable-package";
 
 type Capabilities = {
   can_bootstrap: boolean;
@@ -122,9 +123,11 @@ export function OperationsPanel({
   const [members, setMembers] = useState<Member[]>([]),
     [events, setEvents] = useState<AuditEvent[]>([]),
     [operations, setOperations] = useState<Operations | null>(null),
+    [fullBackupStale, setFullBackupStale] = useState(false),
     [busy, setBusy] = useState(false),
     [progress, setProgress] = useState(""),
     [message, setMessage] = useState<string | null>(null),
+    [includeMemberReference, setIncludeMemberReference] = useState(false),
     [memberEmail, setMemberEmail] = useState(""),
     [memberRole, setMemberRole] = useState<"editor" | "viewer">("editor");
   const importRef = useRef<HTMLInputElement>(null);
@@ -142,7 +145,20 @@ export function OperationsPanel({
         ),
       );
     if (capabilities.can_full_backup)
-      tasks.push(api<Operations>("/api/operations").then(setOperations));
+      tasks.push(
+        api<Operations>("/api/operations").then((data) => {
+          setOperations(data);
+          const acknowledgedAt =
+              data.latest_acknowledged_full_backup?.acknowledged_at,
+            acknowledgedTime = acknowledgedAt
+              ? new Date(String(acknowledgedAt)).getTime()
+              : Number.NaN;
+          setFullBackupStale(
+            Number.isFinite(acknowledgedTime) &&
+              Date.now() - acknowledgedTime > 7 * 86_400_000,
+          );
+        }),
+      );
     await Promise.allSettled(tasks);
   }, [capabilities.can_full_backup, capabilities.can_manage_members, hasWiki]);
   useEffect(() => {
@@ -182,7 +198,10 @@ export function OperationsPanel({
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ profile, include_member_reference: false }),
+            body: JSON.stringify({
+              profile,
+              include_member_reference: includeMemberReference,
+            }),
           },
         ),
         files: Record<string, Uint8Array> = {
@@ -202,6 +221,15 @@ export function OperationsPanel({
           throw new Error(`${part.filename} checksum이 일치하지 않습니다.`);
         files[part.filename] = content;
       }
+      const metadataPart = manifest.parts.find(
+        (part) => part.kind === "metadata",
+      );
+      if (!metadataPart || !files[metadataPart.filename])
+        throw new Error("백업 metadata 파트가 없습니다.");
+      Object.assign(
+        files,
+        buildPortableProjection(files[metadataPart.filename]),
+      );
       setProgress("백업 패키지 생성 중…");
       const archive = zipSync(files, { level: 0 });
       download(
@@ -243,6 +271,19 @@ export function OperationsPanel({
       if (!manifestBytes)
         throw new Error("manifest.json이 없는 백업 패키지입니다.");
       const manifest = JSON.parse(strFromU8(manifestBytes)) as BackupManifest;
+      const confirmed = window.confirm(
+        [
+          "이 빈 Site에 다음 백업을 복원할까요?",
+          `프로필: ${manifest.profile}`,
+          `페이지: ${manifest.page_count} · 첨부: ${manifest.attachment_count} · 리비전: ${manifest.revision_count}`,
+          `생성 시각: ${new Date(manifest.exported_at).toLocaleString("ko-KR")}`,
+          "복원이 완료되면 이 Site의 활성 위키가 됩니다.",
+        ].join("\n"),
+      );
+      if (!confirmed) {
+        setMessage("백업 복원을 취소했습니다.");
+        return;
+      }
       const { session_id, total_batches } = await api<{
         session_id: string;
         total_batches: number;
@@ -388,6 +429,36 @@ export function OperationsPanel({
     }
   }
 
+  async function runAtomicityProbe() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api<{
+        atomic: boolean;
+        batch_rejected: boolean;
+        partial_commit_detected: boolean;
+      }>("/api/maintenance/diagnostics", { method: "POST" });
+      setMessage(
+        result.atomic
+          ? "D1 transactional batch가 실패 시 부분 commit 없이 rollback됨을 확인했습니다."
+          : "D1 batch에서 부분 commit 가능성이 감지되었습니다. 쓰기를 중단하고 repair 설계가 필요합니다.",
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "D1 원자성 검사를 완료하지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const acknowledgedAt =
+      operations?.latest_acknowledged_full_backup?.acknowledged_at,
+    acknowledgedDate = acknowledgedAt ? new Date(String(acknowledgedAt)) : null;
+
   if (!hasWiki)
     return (
       <section className="bootstrap-stage">
@@ -472,6 +543,20 @@ export function OperationsPanel({
             모든 파트의 크기와 SHA-256을 브라우저에서 다시 확인한 뒤 하나의
             ZIP으로 저장하고 ACK합니다.
           </p>
+          {capabilities.can_full_backup && (
+            <label className="backup-option">
+              <input
+                type="checkbox"
+                checked={includeMemberReference}
+                onChange={(event) =>
+                  setIncludeMemberReference(event.target.checked)
+                }
+                disabled={busy}
+              />
+              멤버 이메일·역할 참조 포함
+              <small>다른 사람의 개인정보가 ZIP에 들어갑니다.</small>
+            </label>
+          )}
           <div className="operation-actions">
             <button
               onClick={() => void exportBackup("portable")}
@@ -501,14 +586,12 @@ export function OperationsPanel({
               }}
             />
           </div>
-          {operations?.latest_acknowledged_full_backup ? (
-            <small>
-              마지막 확인된 전체 백업:{" "}
-              {new Date(
-                String(
-                  operations.latest_acknowledged_full_backup.acknowledged_at,
-                ),
-              ).toLocaleString("ko-KR")}
+          {acknowledgedDate ? (
+            <small className={fullBackupStale ? "warning-text" : undefined}>
+              {fullBackupStale
+                ? "마지막 전체 백업이 7일보다 오래되었습니다: "
+                : "마지막 확인된 전체 백업: "}
+              {acknowledgedDate.toLocaleString("ko-KR")}
             </small>
           ) : capabilities.can_full_backup ? (
             <small className="warning-text">확인된 전체 백업이 없습니다.</small>
@@ -545,9 +628,14 @@ export function OperationsPanel({
               {bytesLabel(operations?.usage?.r2_ready_revision_bytes)} · 첨부{" "}
               {bytesLabel(operations?.usage?.r2_ready_attachment_bytes)}
             </p>
-            <button onClick={() => void runMaintenance()} disabled={busy}>
-              저장소 점검 실행
-            </button>
+            <div className="operation-actions">
+              <button onClick={() => void runMaintenance()} disabled={busy}>
+                저장소 점검 실행
+              </button>
+              <button onClick={() => void runAtomicityProbe()} disabled={busy}>
+                D1 원자성 검사
+              </button>
+            </div>
           </section>
         )}
         {capabilities.can_manage_members && (

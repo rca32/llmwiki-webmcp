@@ -330,6 +330,84 @@ export async function getOperationsSummary(wikiId: string) {
   };
 }
 
+export async function probeD1AtomicBatch(input: {
+  wikiId: string;
+  email: string;
+  requestId: string;
+}) {
+  const d = db(),
+    operationId = uuid(),
+    timestamp = now(),
+    expiresAt = new Date(Date.now() + 60_000).toISOString();
+  let batchRejected = false;
+  try {
+    await d.batch([
+      d
+        .prepare(
+          `INSERT INTO idempotency_keys(wiki_id,actor_email,operation_id,operation_name,request_hash,request_id,status,lease_expires_at,attempts,created_at,expires_at) VALUES(?,?,?,'runtime_atomicity_probe','first',?,'pending',?,1,?,?)`,
+        )
+        .bind(
+          input.wikiId,
+          input.email,
+          operationId,
+          input.requestId,
+          expiresAt,
+          timestamp,
+          expiresAt,
+        ),
+      d
+        .prepare(
+          `INSERT INTO idempotency_keys(wiki_id,actor_email,operation_id,operation_name,request_hash,request_id,status,lease_expires_at,attempts,created_at,expires_at) VALUES(?,?,?,'runtime_atomicity_probe','duplicate',?,'pending',?,1,?,?)`,
+        )
+        .bind(
+          input.wikiId,
+          input.email,
+          operationId,
+          input.requestId,
+          expiresAt,
+          timestamp,
+          expiresAt,
+        ),
+    ]);
+  } catch {
+    batchRejected = true;
+  }
+  const partial = await d
+    .prepare(
+      `SELECT 1 AS present FROM idempotency_keys WHERE wiki_id=? AND actor_email=? AND operation_name='runtime_atomicity_probe' AND operation_id=?`,
+    )
+    .bind(input.wikiId, input.email, operationId)
+    .first<{ present: number }>();
+  if (partial)
+    await d
+      .prepare(
+        `DELETE FROM idempotency_keys WHERE wiki_id=? AND actor_email=? AND operation_name='runtime_atomicity_probe' AND operation_id=?`,
+      )
+      .bind(input.wikiId, input.email, operationId)
+      .run();
+  const result = {
+    atomic: batchRejected && !partial,
+    batch_rejected: batchRejected,
+    partial_commit_detected: Boolean(partial),
+  };
+  await d
+    .prepare(
+      `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'system','runtime.d1_atomicity_probe','wiki',?,?,?, ?,?)`,
+    )
+    .bind(
+      uuid(),
+      input.wikiId,
+      input.email,
+      input.wikiId,
+      result.atomic ? "success" : "error",
+      input.requestId,
+      JSON.stringify(result),
+      timestamp,
+    )
+    .run();
+  return result;
+}
+
 export async function bootstrapWiki(input: {
   email: string;
   title: string;
@@ -1209,6 +1287,75 @@ export async function searchPages(
     })),
   );
 }
+
+export async function runSearchBenchmark(wikiId: string, pageCount: number) {
+  const d = db(),
+    runId = uuid(),
+    marker = `sb-${runId.slice(0, 16)}`,
+    timestamp = now(),
+    pageTypes: PageType[] = [
+      "note",
+      "source",
+      "concept",
+      "entity",
+      "synthesis",
+      "comparison",
+      "query",
+    ];
+  try {
+    for (let offset = 0; offset < pageCount; offset += 50) {
+      const statements = Array.from(
+        { length: Math.min(50, pageCount - offset) },
+        (_, index) => {
+          const sequence = offset + index,
+            id = uuid();
+          return d
+            .prepare(
+              `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,'{}',1,?,?,?,?,?,?)`,
+            )
+            .bind(
+              id,
+              wikiId,
+              ROOT_PARENT,
+              `benchmark-${runId.slice(0, 8)}-${sequence}`,
+              `Benchmark page ${sequence}`,
+              "note",
+              `# Benchmark page ${sequence}\n\n${marker}`,
+              sequence,
+              "system@benchmark.local",
+              "system@benchmark.local",
+              runId,
+              timestamp,
+              timestamp,
+            );
+        },
+      );
+      await d.batch(statements);
+    }
+    await searchPages(wikiId, marker, pageTypes, 20);
+    const samples: number[] = [];
+    for (let index = 0; index < 20; index++) {
+      const started = performance.now();
+      await searchPages(wikiId, marker, pageTypes, 20);
+      samples.push(performance.now() - started);
+    }
+    const sorted = [...samples].sort((a, b) => a - b),
+      p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
+    return {
+      page_count: pageCount,
+      samples_ms: samples.map((sample) => Number(sample.toFixed(2))),
+      p50_ms: Number(sorted[Math.floor(sorted.length * 0.5)].toFixed(2)),
+      p95_ms: Number(p95.toFixed(2)),
+      target_p95_ms: 500,
+      target_met: p95 <= 500,
+    };
+  } finally {
+    await d
+      .prepare(`DELETE FROM pages WHERE wiki_id=? AND last_operation_id=?`)
+      .bind(wikiId, runId)
+      .run();
+  }
+}
 export async function listRevisions(
   wikiId: string,
   pageId: string,
@@ -1227,15 +1374,43 @@ export async function getNeighbors(
   wikiId: string,
   pageId: string,
   limit: number,
+  depth = 1,
 ) {
   await getPage(wikiId, pageId);
-  const rows = await db()
-    .prepare(
-      `SELECT l.source_page_id,l.target_page_id,l.target_text,s.title AS source_title,s.version AS source_version,t.title AS target_title,t.version AS target_version FROM page_links l LEFT JOIN pages s ON s.id=l.source_page_id AND s.wiki_id=l.wiki_id AND s.deleted_at IS NULL LEFT JOIN pages t ON t.id=l.target_page_id AND t.wiki_id=l.wiki_id AND t.deleted_at IS NULL WHERE l.wiki_id=? AND (l.source_page_id=? OR l.target_page_id=?) LIMIT ?`,
-    )
-    .bind(wikiId, pageId, pageId, limit)
-    .all();
-  return rows.results;
+  if (depth === 0) return [];
+  const found: Record<string, unknown>[] = [],
+    edgeKeys = new Set<string>(),
+    visited = new Set<string>([pageId]);
+  let frontier = [pageId];
+  for (let level = 0; level < depth && frontier.length; level++) {
+    const placeholders = frontier.map(() => "?").join(","),
+      remaining = limit - found.length;
+    if (remaining <= 0) break;
+    const rows = await db()
+      .prepare(
+        `SELECT l.source_page_id,l.target_page_id,l.target_text,s.title AS source_title,s.version AS source_version,t.title AS target_title,t.version AS target_version FROM page_links l LEFT JOIN pages s ON s.id=l.source_page_id AND s.wiki_id=l.wiki_id AND s.deleted_at IS NULL LEFT JOIN pages t ON t.id=l.target_page_id AND t.wiki_id=l.wiki_id AND t.deleted_at IS NULL WHERE l.wiki_id=? AND (l.source_page_id IN (${placeholders}) OR l.target_page_id IN (${placeholders})) LIMIT ?`,
+      )
+      .bind(wikiId, ...frontier, ...frontier, remaining)
+      .all<Record<string, unknown>>();
+    const next: string[] = [];
+    for (const row of rows.results) {
+      const source = String(row.source_page_id),
+        target =
+          typeof row.target_page_id === "string" ? row.target_page_id : null,
+        edgeKey = `${source}:${target ?? "unresolved"}:${String(row.target_text)}`;
+      if (!edgeKeys.has(edgeKey)) {
+        edgeKeys.add(edgeKey);
+        found.push({ ...row, distance: level + 1 });
+      }
+      for (const candidate of target ? [source, target] : [source])
+        if (!visited.has(candidate)) {
+          visited.add(candidate);
+          next.push(candidate);
+        }
+    }
+    frontier = next;
+  }
+  return found.slice(0, limit);
 }
 
 function versionConflict(
@@ -2968,7 +3143,9 @@ function validateImportManifest(value: unknown): ImportManifest {
       "The import manifest schema is not supported.",
       400,
     );
-  const numbers = new Set<number>();
+  const numbers = new Set<number>(),
+    filenames = new Set<string>();
+  let totalSize = 0;
   for (const part of manifest.parts) {
     if (
       !Number.isInteger(part.number) ||
@@ -2979,7 +3156,10 @@ function validateImportManifest(value: unknown): ImportManifest {
       !/^[0-9a-f]{64}$/.test(part.sha256) ||
       !Number.isInteger(part.size_bytes) ||
       part.size_bytes < 0 ||
-      part.size_bytes > 25 * 1024 * 1024
+      part.size_bytes > 25 * 1024 * 1024 ||
+      typeof part.filename !== "string" ||
+      part.filename.length < 1 ||
+      filenames.has(part.filename)
     )
       throw new AppError(
         "validation_error",
@@ -2988,10 +3168,13 @@ function validateImportManifest(value: unknown): ImportManifest {
         { part: part.number },
       );
     numbers.add(part.number);
+    filenames.add(part.filename);
+    totalSize += part.size_bytes;
     if (
       part.filename.includes("..") ||
       part.filename.startsWith("/") ||
-      part.filename.includes("\\")
+      part.filename.includes("\\") ||
+      part.filename.includes(":")
     )
       throw new AppError(
         "validation_error",
@@ -3000,6 +3183,13 @@ function validateImportManifest(value: unknown): ImportManifest {
         { filename: part.filename },
       );
   }
+  if (totalSize > 500 * 1024 * 1024)
+    throw new AppError(
+      "validation_error",
+      "The import manifest exceeds the 500 MB package limit.",
+      400,
+      { total_size_bytes: totalSize },
+    );
   if (
     !manifest.parts.some(
       (part) => part.number === 0 && part.kind === "metadata",

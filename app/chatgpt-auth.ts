@@ -13,6 +13,7 @@ const USER_EMAIL_HEADER = "oai-authenticated-user-email";
 const USER_FULL_NAME_HEADER = "oai-authenticated-user-full-name";
 const USER_FULL_NAME_ENCODING_HEADER =
   "oai-authenticated-user-full-name-encoding";
+const LOCAL_TEST_USER_EMAIL_HEADER = "x-liminal-test-user-email";
 const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
@@ -20,6 +21,19 @@ const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
+  if (process.env.NODE_ENV !== "production") {
+    const localTestEmail = requestHeaders
+      .get(LOCAL_TEST_USER_EMAIL_HEADER)
+      ?.trim()
+      .toLowerCase();
+    if (localTestEmail && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(localTestEmail))
+      return {
+        userId: `local-test:${localTestEmail}`,
+        displayName: localTestEmail,
+        email: localTestEmail,
+        fullName: null,
+      };
+  }
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
   if (!userId || !email) return null;

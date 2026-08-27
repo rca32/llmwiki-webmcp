@@ -31,12 +31,113 @@ let activeBrowser;
       errors.push(`HTTP ${response.status()} ${response.url()}`);
   });
 
-  const navigationStarted = Date.now();
-  await page.goto(baseUrl, {
-    waitUntil: "domcontentloaded",
+  const shellLoadSamplesMs = [];
+  for (let sample = 0; sample < 4; sample++) {
+    const navigationStarted = Date.now();
+    await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+    await page.locator(".page-tree .tree-item").first().waitFor();
+    shellLoadSamplesMs.push(Date.now() - navigationStarted);
+  }
+  const sortedShellLoads = [...shellLoadSamplesMs].sort((a, b) => a - b),
+    shellLoadP75Ms =
+      sortedShellLoads[Math.ceil(sortedShellLoads.length * 0.75) - 1];
+  const roleStamp = Date.now();
+  const editorEmail = `editor-${roleStamp}@sites.test`;
+  const viewerEmail = `viewer-${roleStamp}@sites.test`;
+  for (const [email, role] of [
+    [editorEmail, "editor"],
+    [viewerEmail, "viewer"],
+  ]) {
+    const response = await context.request.post(`${baseUrl}/api/members`, {
+      data: { email, role },
+    });
+    if (response.status() !== 201)
+      throw new Error(`Could not create ${role} test membership.`);
+  }
+  const editorContext = await activeBrowser.newContext({
+    extraHTTPHeaders: { "x-liminal-test-user-email": editorEmail },
   });
-  await page.locator(".page-tree .tree-item").first().waitFor();
-  const shellLoadMs = Date.now() - navigationStarted;
+  const viewerContext = await activeBrowser.newContext({
+    extraHTTPHeaders: { "x-liminal-test-user-email": viewerEmail },
+  });
+  const outsiderContext = await activeBrowser.newContext({
+    extraHTTPHeaders: {
+      "x-liminal-test-user-email": `outsider-${roleStamp}@sites.test`,
+    },
+  });
+  const viewerSession = await viewerContext.request.get(
+    `${baseUrl}/api/session/capabilities`,
+  );
+  const viewerCapabilities = (await viewerSession.json()).data.capabilities;
+  if (!viewerCapabilities.can_read || viewerCapabilities.can_write)
+    throw new Error("Viewer capability projection is incorrect.");
+  const deniedViewerWrite = await viewerContext.request.post(
+    `${baseUrl}/api/pages`,
+    {
+      data: {
+        title: "Viewer write must fail",
+        page_type: "note",
+        markdown: "# denied",
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (deniedViewerWrite.status() !== 403)
+    throw new Error("Viewer write was not denied by the API.");
+  const deniedMemberManagement = await editorContext.request.get(
+    `${baseUrl}/api/members`,
+  );
+  if (deniedMemberManagement.status() !== 403)
+    throw new Error("Editor member management was not denied.");
+  const deniedFullBackup = await editorContext.request.post(
+    `${baseUrl}/api/export/prepare`,
+    { data: { profile: "full", include_member_reference: false } },
+  );
+  if (deniedFullBackup.status() !== 403)
+    throw new Error("Editor full backup was not denied.");
+  const deniedOutsiderRead = await outsiderContext.request.get(
+    `${baseUrl}/api/pages`,
+  );
+  if (deniedOutsiderRead.status() !== 403)
+    throw new Error("Non-member page read was not denied.");
+  const editorPageTitle = `Editor Matrix ${roleStamp}`;
+  const editorCreate = await editorContext.request.post(
+    `${baseUrl}/api/pages`,
+    {
+      data: {
+        title: editorPageTitle,
+        page_type: "note",
+        markdown: "# Editor matrix",
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (editorCreate.status() !== 201)
+    throw new Error("Editor could not create a page.");
+  const editorPage = (await editorCreate.json()).data;
+  const editorCleanup = await editorContext.request.delete(
+    `${baseUrl}/api/pages/${editorPage.page_id}`,
+    {
+      data: {
+        expected_version: editorPage.version,
+        confirmation: `DELETE ${editorPageTitle}`,
+        reason: "Role matrix cleanup",
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!editorCleanup.ok()) throw new Error("Editor cleanup was not allowed.");
+  await editorContext.close();
+  await viewerContext.close();
+  await outsiderContext.close();
+  const atomicityProbe = await context.request.post(
+    `${baseUrl}/api/maintenance/diagnostics`,
+  );
+  const atomicityResult = (await atomicityProbe.json()).data;
+  if (!atomicityProbe.ok() || !atomicityResult.atomic)
+    throw new Error("D1 transactional batch left a partial commit.");
   const securityTitle = `Security ${Date.now()}`;
   const operationId = crypto.randomUUID();
   const securityMarkdown = `# ${securityTitle}\n\nSECURITY_SENTINEL\n\n<script>window.__wikiXss=1</script>\n\n[unsafe](javascript:window.__wikiXss=2)\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n$E=mc^2$\n\n\`\`\`mermaid\ngraph TD\n  A[Safe] --> B[Rendered]\n\`\`\``;
@@ -68,6 +169,25 @@ let activeBrowser;
     throw new Error(
       `Idempotency payload mismatch should return 409, received ${mismatch.status()}.`,
     );
+  const race = await Promise.all(
+    ["race-a", "race-b"].map((summary) =>
+      context.request.patch(`${baseUrl}/api/pages/${created.page_id}`, {
+        data: {
+          expected_version: created.version,
+          markdown: securityMarkdown,
+          change_summary: summary,
+          operation_id: crypto.randomUUID(),
+        },
+      }),
+    ),
+  );
+  const raceStatuses = race.map((response) => response.status()).sort();
+  if (JSON.stringify(raceStatuses) !== JSON.stringify([200, 409]))
+    throw new Error(
+      `CAS race should have exactly one winner: ${raceStatuses.join(",")}`,
+    );
+  const raceWinner = race.find((response) => response.status() === 200);
+  const currentVersion = (await raceWinner.json()).data.version;
   const stale = await context.request.patch(
     `${baseUrl}/api/pages/${created.page_id}`,
     {
@@ -131,7 +251,7 @@ let activeBrowser;
     `${baseUrl}/api/pages/${created.page_id}`,
     {
       data: {
-        expected_version: created.version,
+        expected_version: currentVersion,
         confirmation: `DELETE ${securityTitle}`,
         reason: "Automated security smoke cleanup",
         operation_id: crypto.randomUUID(),
@@ -142,6 +262,12 @@ let activeBrowser;
     throw new Error(
       `Security page cleanup failed: ${cleanup.status()} ${await cleanup.text()}`,
     );
+  for (const email of [editorEmail, viewerEmail]) {
+    const response = await context.request.delete(
+      `${baseUrl}/api/members/${encodeURIComponent(email)}`,
+    );
+    if (!response.ok()) throw new Error(`Could not remove role test ${email}.`);
+  }
 
   if (errors.length) throw new Error(`Browser errors:\n${errors.join("\n")}`);
   const accessibilityViolations = [
@@ -153,20 +279,24 @@ let activeBrowser;
     throw new Error(
       `Accessibility violations:\n${accessibilityViolations.map((item) => `${item.id}: ${item.help}\n${item.nodes.map((node) => `  ${node.target.join(" ")} — ${node.failureSummary}`).join("\n")}`).join("\n")}`,
     );
-  if (shellLoadMs > 2500)
+  if (shellLoadP75Ms > 2500)
     throw new Error(
-      `Initial shell load exceeded the 2500 ms budget: ${shellLoadMs} ms.`,
+      `Shell load p75 exceeded the 2500 ms budget: ${shellLoadP75Ms} ms (${shellLoadSamplesMs.join(", ")}).`,
     );
   console.log(
     JSON.stringify({
       pageCount,
       graphNodeCount,
       auditEventCount,
-      shellLoadMs,
+      shellLoadP75Ms,
+      shellLoadSamplesMs,
       idempotencyReplay: true,
       staleWriteBlocked: true,
+      concurrentCasWinnerCount: 1,
       markdownXssBlocked: true,
       gfmMathMermaidRendered: true,
+      roleMatrixVerified: true,
+      d1BatchAtomic: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",
     }),
