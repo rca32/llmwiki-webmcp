@@ -7,7 +7,7 @@ const mono = IBM_Plex_Mono({ variable: '--font-mono', subsets: ['latin'], weight
 const serif = Newsreader({ variable: '--font-serif', subsets: ['latin'], weight: ['500', '600'] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://liminal-wiki-webmcp.chatgpt.site'),
+  metadataBase: new URL('https://liminal-wiki-webmcp.epinfomax.chatgpt.site'),
   title: 'Liminal Wiki — WebMCP Native Knowledge',
   description: '사람과 에이전트가 같은 데이터, 권한, 리비전을 공유하는 WebMCP 네이티브 지식 작업공간',
   openGraph: {
