@@ -28,6 +28,7 @@ const INLINE_REVISION_BYTES = 64 * 1024;
 const D1_SOFT_LIMIT_BYTES = 8 * 1024 * 1024 * 1024;
 const R2_SOFT_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
 let schemaReady: Promise<void> | null = null;
+let telemetrySchemaReady: Promise<void> | null = null;
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS wikis (id TEXT PRIMARY KEY NOT NULL,slug TEXT NOT NULL UNIQUE,title TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
@@ -47,7 +48,6 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_attachments_wiki_page ON attachments(wiki_id,page_id,status)`,
   `CREATE TABLE IF NOT EXISTS idempotency_keys (wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,operation_id TEXT NOT NULL,operation_name TEXT NOT NULL,request_hash TEXT NOT NULL,request_id TEXT NOT NULL,status TEXT NOT NULL,lease_expires_at TEXT NOT NULL,failure_retryable INTEGER,attempts INTEGER NOT NULL DEFAULT 1,result_json TEXT,created_at TEXT NOT NULL,completed_at TEXT,expires_at TEXT NOT NULL,PRIMARY KEY(wiki_id,actor_email,operation_name,operation_id))`,
   `CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,origin TEXT NOT NULL,action TEXT NOT NULL,target_type TEXT NOT NULL,target_id TEXT NOT NULL,outcome TEXT NOT NULL,request_id TEXT NOT NULL,metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS webmcp_tool_metrics (wiki_id TEXT NOT NULL,tool_name TEXT NOT NULL,outcome TEXT NOT NULL,invocation_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_correlation_id TEXT NOT NULL,last_invoked_at TEXT NOT NULL,PRIMARY KEY(wiki_id,tool_name,outcome))`,
   `CREATE TABLE IF NOT EXISTS wiki_usage (wiki_id TEXT PRIMARY KEY NOT NULL,page_bytes INTEGER NOT NULL DEFAULT 0,revision_inline_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_revision_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_attachment_bytes INTEGER NOT NULL DEFAULT 0,r2_soft_deleted_bytes INTEGER NOT NULL DEFAULT 0,r2_pending_bytes INTEGER NOT NULL DEFAULT 0,r2_staging_import_bytes INTEGER NOT NULL DEFAULT 0,r2_orphan_estimate_bytes INTEGER NOT NULL DEFAULT 0,page_count INTEGER NOT NULL DEFAULT 0,revision_count INTEGER NOT NULL DEFAULT 0,attachment_count INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS site_state (id INTEGER PRIMARY KEY NOT NULL,active_wiki_id TEXT,bootstrap_status TEXT NOT NULL,reserved_by TEXT,reserved_at TEXT,lease_expires_at TEXT,last_error TEXT,version INTEGER NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS site_runtime_settings (id INTEGER PRIMARY KEY NOT NULL,write_mode TEXT NOT NULL DEFAULT 'read_write',reason TEXT,updated_by TEXT,updated_at TEXT NOT NULL)`,
@@ -361,6 +361,16 @@ export async function listAuditEvents(wikiId: string, limit: number) {
   }));
 }
 
+async function ensureWebMcpTelemetrySchema() {
+  telemetrySchemaReady ??= db()
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS webmcp_tool_metrics (wiki_id TEXT NOT NULL,tool_name TEXT NOT NULL,outcome TEXT NOT NULL,invocation_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_correlation_id TEXT NOT NULL,last_invoked_at TEXT NOT NULL,PRIMARY KEY(wiki_id,tool_name,outcome))`,
+    )
+    .run()
+    .then(() => undefined);
+  return telemetrySchemaReady;
+}
+
 export async function recordWebMcpInvocation(input: {
   wikiId: string;
   toolName: string;
@@ -368,6 +378,7 @@ export async function recordWebMcpInvocation(input: {
   latencyMs: number;
   correlationId: string;
 }) {
+  await ensureWebMcpTelemetrySchema();
   const timestamp = now();
   await db()
     .prepare(
@@ -387,6 +398,7 @@ export async function recordWebMcpInvocation(input: {
 }
 
 export async function getOperationsSummary(wikiId: string) {
+  await ensureWebMcpTelemetrySchema();
   const usage = await db()
     .prepare(
       `SELECT page_bytes,revision_inline_bytes,r2_ready_revision_bytes,r2_ready_attachment_bytes,r2_soft_deleted_bytes,r2_pending_bytes,r2_staging_import_bytes,r2_orphan_estimate_bytes,page_count,revision_count,attachment_count,updated_at FROM wiki_usage WHERE wiki_id=?`,
