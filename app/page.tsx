@@ -180,6 +180,8 @@ export default function Home() {
   const activeRef = useRef<Page | null>(null);
   const desiredPageIdRef = useRef<string | null>(null);
   const openPageRequestRef = useRef(0);
+  const workspaceRequestRef = useRef(0);
+  const defaultPageCreationRef = useRef<Promise<unknown> | null>(null);
   const dirtyRef = useRef(false);
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
@@ -272,6 +274,7 @@ export default function Home() {
 
   const loadWorkspace = useCallback(
     async (refreshActive = true) => {
+      const requestNumber = ++workspaceRequestRef.current;
       try {
         const session = await api<{
           wiki: { id: string; title: string; role: string } | null;
@@ -280,6 +283,7 @@ export default function Home() {
           write_mode: "read_write" | "read_only";
           write_mode_reason: string | null;
         }>("/api/session/capabilities");
+        if (requestNumber !== workspaceRequestRef.current) return;
         setCaps(session.capabilities);
         setSiteVersion(session.site_version);
         setWriteMode(session.write_mode);
@@ -298,8 +302,9 @@ export default function Home() {
         let list = (
           await api<{ pages: Page[] }>("/api/pages?depth=64&limit=200")
         ).pages;
+        if (requestNumber !== workspaceRequestRef.current) return;
         if (!list.length && session.capabilities.can_write) {
-          await api("/api/pages", {
+          defaultPageCreationRef.current ??= api("/api/pages", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -309,16 +314,24 @@ export default function Home() {
               parent_id: null,
               operation_id: crypto.randomUUID(),
             }),
+          }).finally(() => {
+            defaultPageCreationRef.current = null;
           });
+          await defaultPageCreationRef.current;
+          if (requestNumber !== workspaceRequestRef.current) return;
           list = (await api<{ pages: Page[] }>("/api/pages?depth=64&limit=200"))
             .pages;
+          if (requestNumber !== workspaceRequestRef.current) return;
         }
         setPages(list);
-        if (session.capabilities.can_soft_delete)
-          setDeletedPages(
-            (await api<{ pages: Page[] }>("/api/pages?deleted=only&limit=100"))
-              .pages,
-          );
+        if (session.capabilities.can_soft_delete) {
+          const deleted = (
+            await api<{ pages: Page[] }>("/api/pages?deleted=only&limit=100")
+          ).pages;
+          if (requestNumber !== workspaceRequestRef.current) return;
+          setDeletedPages(deleted);
+        }
+        if (requestNumber !== workspaceRequestRef.current) return;
         const current = activeRef.current;
         if (
           refreshActive &&
@@ -333,6 +346,7 @@ export default function Home() {
           if (target) await openPage(target, true);
         } else setStatus("목록 갱신됨");
       } catch (error) {
+        if (requestNumber !== workspaceRequestRef.current) return;
         setSessionLoaded(true);
         setStatus("연결 실패");
         setNotice(

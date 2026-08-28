@@ -69,6 +69,78 @@ let activeBrowser;
   const sortedShellLoads = [...shellLoadSamplesMs].sort((a, b) => a - b),
     shellLoadP75Ms =
       sortedShellLoads[Math.ceil(sortedShellLoads.length * 0.75) - 1];
+  const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200`;
+  const workspaceListEnvelope = await context.request
+    .get(workspaceListUrl)
+    .then((response) => response.json());
+  const baselinePages = workspaceListEnvelope.data.pages;
+  if (!baselinePages.length)
+    throw new Error("Workspace race fixture requires one existing page.");
+  const newestPage = {
+    ...baselinePages[0],
+    id: crypto.randomUUID(),
+    slug: "newest-workspace-response",
+    path: "/newest-workspace-response",
+    title: "NEWEST_WORKSPACE_RESPONSE",
+  };
+  let workspaceListCalls = 0;
+  let firstWorkspaceListRequested;
+  const firstWorkspaceListRequest = new Promise((resolve) => {
+    firstWorkspaceListRequested = resolve;
+  });
+  const workspaceRaceHandler = async (route) => {
+    workspaceListCalls += 1;
+    if (workspaceListCalls === 1) {
+      firstWorkspaceListRequested();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(workspaceListEnvelope),
+      });
+      return;
+    }
+    if (workspaceListCalls === 2) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...workspaceListEnvelope,
+          data: {
+            ...workspaceListEnvelope.data,
+            pages: [...baselinePages, newestPage],
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  };
+  await page.route("**/api/pages?depth=64&limit=200", workspaceRaceHandler);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await firstWorkspaceListRequest;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page
+    .getByRole("button", { name: /NEWEST_WORKSPACE_RESPONSE/ })
+    .waitFor();
+  await page.waitForTimeout(900);
+  if (
+    (await page
+      .getByRole("button", { name: /NEWEST_WORKSPACE_RESPONSE/ })
+      .count()) !== 1
+  )
+    throw new Error(
+      "An older workspace response replaced the newest page list.",
+    );
+  await page.unroute("**/api/pages?depth=64&limit=200", workspaceRaceHandler);
+  const workspaceRestored = page.waitForResponse(
+    (response) => response.url() === workspaceListUrl && response.ok(),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await workspaceRestored;
+  await page
+    .getByRole("button", { name: /NEWEST_WORKSPACE_RESPONSE/ })
+    .waitFor({ state: "detached" });
   const roleStamp = Date.now();
   const editorEmail = `editor-${roleStamp}@sites.test`;
   const viewerEmail = `viewer-${roleStamp}@sites.test`;
@@ -814,6 +886,7 @@ let activeBrowser;
       missingRevisionRestoreReadRejected: true,
       attachmentPurgeTransitionVerified: true,
       keyboardNavigationVerified: true,
+      workspaceRefreshRaceProtected: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",
     }),
