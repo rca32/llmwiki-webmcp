@@ -437,11 +437,19 @@ export function OperationsPanel({
         atomic: boolean;
         batch_rejected: boolean;
         partial_commit_detected: boolean;
+        revision_compensation: {
+          direct_cleanup: boolean;
+          queued_repair: boolean;
+        };
       }>("/api/maintenance/diagnostics", { method: "POST" });
+      const healthy =
+        result.atomic &&
+        result.revision_compensation.direct_cleanup &&
+        result.revision_compensation.queued_repair;
       setMessage(
-        result.atomic
-          ? "D1 transactional batch가 실패 시 부분 commit 없이 rollback됨을 확인했습니다."
-          : "D1 batch에서 부분 commit 가능성이 감지되었습니다. 쓰기를 중단하고 repair 설계가 필요합니다.",
+        healthy
+          ? "D1 batch 무부분-commit과 대형 리비전 R2 보상·repair 재처리를 확인했습니다."
+          : "원자성 또는 R2 보상 진단이 실패했습니다. 쓰기를 중단하고 repair 상태를 확인하세요.",
       );
       await refresh();
     } catch (error) {

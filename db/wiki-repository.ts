@@ -14,6 +14,10 @@ import {
   slugify,
   stableJson,
 } from "../lib/validation";
+import {
+  selectRevisionPruneCandidates,
+  type RevisionRetentionRow,
+} from "../lib/revision-retention";
 
 const ROOT_PARENT = "__root__";
 const INLINE_REVISION_BYTES = 64 * 1024;
@@ -744,6 +748,120 @@ async function snapshot(
   }
   return { inline: null, key, hash, cleanup: () => env.FILES.delete(key) };
 }
+
+type StoredSnapshot = Awaited<ReturnType<typeof snapshot>>;
+
+async function compensateSnapshot(
+  wikiId: string,
+  snap: StoredSnapshot,
+  reason: string,
+) {
+  if (!snap.key) return { deleted: true, repair_queued: false };
+  try {
+    await snap.cleanup();
+    return { deleted: true, repair_queued: false };
+  } catch (error) {
+    try {
+      const timestamp = now();
+      await db()
+        .prepare(
+          `INSERT INTO storage_repairs(id,wiki_id,object_key,kind,status,last_error,created_at,updated_at) VALUES(?,?,?,'orphan_object','pending',?,?,?)`,
+        )
+        .bind(
+          uuid(),
+          wikiId,
+          snap.key,
+          `${reason}: ${error instanceof Error ? error.message : String(error)}`,
+          timestamp,
+          timestamp,
+        )
+        .run();
+      return { deleted: false, repair_queued: true };
+    } catch {
+      return { deleted: false, repair_queued: false };
+    }
+  }
+}
+
+export async function probeRevisionCompensation(input: {
+  wikiId: string;
+  email: string;
+  requestId: string;
+}) {
+  if (!env.FILES)
+    throw new AppError(
+      "retryable_storage_error",
+      "Revision compensation diagnostics require R2.",
+      503,
+      {},
+      true,
+    );
+  const direct = await snapshot(
+      input.wikiId,
+      `diagnostic-${uuid()}`,
+      1,
+      "x".repeat(INLINE_REVISION_BYTES + 1),
+      uuid(),
+    ),
+    directResult = await compensateSnapshot(
+      input.wikiId,
+      direct,
+      "diagnostic_direct_cleanup",
+    ),
+    directDeleted = direct.key ? !(await env.FILES.head(direct.key)) : false,
+    queued = await snapshot(
+      input.wikiId,
+      `diagnostic-${uuid()}`,
+      1,
+      "y".repeat(INLINE_REVISION_BYTES + 1),
+      uuid(),
+    ),
+    repairId = uuid(),
+    timestamp = now();
+  if (!queued.key)
+    throw new AppError(
+      "internal_error",
+      "The diagnostic snapshot did not use R2.",
+      500,
+    );
+  await db()
+    .prepare(
+      `INSERT INTO storage_repairs(id,wiki_id,object_key,kind,status,last_error,created_at,updated_at) VALUES(?,?,?,'orphan_object','pending','diagnostic_queued_repair',?,?)`,
+    )
+    .bind(repairId, input.wikiId, queued.key, timestamp, timestamp)
+    .run();
+  const repairResult = await processPendingStorageRepairs(input.wikiId),
+    repair = await db()
+      .prepare(`SELECT status FROM storage_repairs WHERE id=?`)
+      .bind(repairId)
+      .first<{ status: string }>(),
+    queuedDeleted = !(await env.FILES.head(queued.key));
+  await db()
+    .prepare(
+      `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','diagnostic.revision_compensation','wiki',?,'success',?,?,?)`,
+    )
+    .bind(
+      uuid(),
+      input.wikiId,
+      input.email,
+      input.wikiId,
+      input.requestId,
+      JSON.stringify({
+        direct_deleted: directDeleted,
+        queued_deleted: queuedDeleted,
+      }),
+      timestamp,
+    )
+    .run();
+  return {
+    threshold_bytes: INLINE_REVISION_BYTES,
+    direct_cleanup: directResult.deleted && directDeleted,
+    queued_repair:
+      repair?.status === "resolved" &&
+      queuedDeleted &&
+      repairResult.resolved_repairs >= 1,
+  };
+}
 async function assertContentQuota(
   wikiId: string,
   pageDelta: number,
@@ -966,7 +1084,7 @@ export async function createPage(input: {
       .run();
     return result;
   } catch (error) {
-    await snap.cleanup();
+    await compensateSnapshot(input.wikiId, snap, "page_create_failed");
     const appError =
       error instanceof AppError
         ? error
@@ -1178,7 +1296,7 @@ export async function updatePage(input: {
     ];
     const batch = await d.batch(statements);
     if ((batch[0].meta.changes ?? 0) !== 1) {
-      await snap.cleanup();
+      await compensateSnapshot(input.wikiId, snap, "page_update_cas_failed");
       const latest = await getPage(input.wikiId, input.pageId);
       const error = new AppError(
         "version_conflict",
@@ -1198,7 +1316,7 @@ export async function updatePage(input: {
     return result;
   } catch (error) {
     if (error instanceof AppError) throw error;
-    await snap.cleanup();
+    await compensateSnapshot(input.wikiId, snap, "page_update_failed");
     const appError = new AppError(
       "internal_error",
       "The page update could not be completed.",
@@ -1654,7 +1772,8 @@ export async function movePage(input: {
       .run();
     return result;
   } catch (error) {
-    if (!committed) await snap.cleanup();
+    if (!committed)
+      await compensateSnapshot(input.wikiId, snap, "page_move_failed");
     const appError =
       error instanceof AppError
         ? error
@@ -1848,7 +1967,7 @@ export async function softDeletePage(input: {
         ),
     ]);
     if ((batch[0].meta.changes ?? 0) !== 1) {
-      await snap.cleanup();
+      await compensateSnapshot(input.wikiId, snap, "page_delete_cas_failed");
       const latest = await getPageIncludingDeleted(input.wikiId, input.pageId);
       const error = versionConflict(
         input.pageId,
@@ -1861,7 +1980,7 @@ export async function softDeletePage(input: {
     return result;
   } catch (error) {
     if (error instanceof AppError) throw error;
-    await snap.cleanup();
+    await compensateSnapshot(input.wikiId, snap, "page_delete_failed");
     const appError = new AppError(
       "internal_error",
       "The page could not be soft deleted.",
@@ -2086,7 +2205,8 @@ export async function restoreDeletedPage(input: {
       .run();
     return result;
   } catch (error) {
-    if (!committed) await snap.cleanup();
+    if (!committed)
+      await compensateSnapshot(input.wikiId, snap, "page_restore_failed");
     const appError =
       error instanceof AppError
         ? error
@@ -4043,6 +4163,82 @@ export async function commitImport(input: {
   }
 }
 
+async function processPendingStorageRepairs(wikiId: string) {
+  if (!env.FILES)
+    throw new AppError(
+      "retryable_storage_error",
+      "Storage repair processing requires R2.",
+      503,
+      {},
+      true,
+    );
+  const d = db(),
+    repairs = await d
+      .prepare(
+        `SELECT id,object_key,kind,attempts FROM storage_repairs WHERE wiki_id=? AND status='pending' ORDER BY created_at LIMIT 100`,
+      )
+      .bind(wikiId)
+      .all<{
+        id: string;
+        object_key: string;
+        kind: string;
+        attempts: number;
+      }>();
+  let resolvedRepairs = 0,
+    deletedRepairObjects = 0;
+  for (const repair of repairs.results) {
+    const timestamp = now();
+    try {
+      if (repair.kind === "missing_object") {
+        await d.batch([
+          d
+            .prepare(
+              `UPDATE page_revisions SET status='missing' WHERE snapshot_object_key=? AND status='ready' AND EXISTS(SELECT 1 FROM pages p WHERE p.id=page_revisions.page_id AND p.wiki_id=?)`,
+            )
+            .bind(repair.object_key, wikiId),
+          d
+            .prepare(
+              `UPDATE attachments SET status='failed' WHERE wiki_id=? AND object_key=? AND status IN ('ready','soft_deleted')`,
+            )
+            .bind(wikiId, repair.object_key),
+        ]);
+      } else {
+        await env.FILES.delete(repair.object_key);
+        deletedRepairObjects++;
+        if (repair.kind === "finish_prune")
+          await d
+            .prepare(
+              `UPDATE page_revisions SET status='pruned',snapshot_object_key=NULL,snapshot_inline=NULL WHERE snapshot_object_key=? AND status='pruning' AND EXISTS(SELECT 1 FROM pages p WHERE p.id=page_revisions.page_id AND p.wiki_id=?)`,
+            )
+            .bind(repair.object_key, wikiId)
+            .run();
+      }
+      await d
+        .prepare(
+          `UPDATE storage_repairs SET status='resolved',attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=? AND status='pending'`,
+        )
+        .bind(timestamp, repair.id)
+        .run();
+      resolvedRepairs++;
+    } catch (error) {
+      await d
+        .prepare(
+          `UPDATE storage_repairs SET attempts=attempts+1,last_error=?,updated_at=? WHERE id=? AND status='pending'`,
+        )
+        .bind(
+          error instanceof Error ? error.message : String(error),
+          timestamp,
+          repair.id,
+        )
+        .run();
+    }
+  }
+  return {
+    resolved_repairs: resolvedRepairs,
+    deleted_repair_objects: deletedRepairObjects,
+  };
+}
+
 export async function runStorageMaintenance(input: {
   wikiId: string;
   email: string;
@@ -4057,7 +4253,8 @@ export async function runStorageMaintenance(input: {
       true,
     );
   const d = db(),
-    timestamp = now();
+    timestamp = now(),
+    repairSummary = await processPendingStorageRepairs(input.wikiId);
   let missingRevisions = 0,
     missingAttachments = 0,
     deletedOrphans = 0,
@@ -4264,34 +4461,9 @@ export async function runStorageMaintenance(input: {
         created_at: string;
         covered: number;
       }>(),
-    pageCounts = new Map<string, number>(),
-    hourBuckets = new Set<string>(),
-    dayBuckets = new Set<string>(),
-    candidates: typeof rows.results = [];
-  for (const revision of rows.results) {
-    const count = (pageCounts.get(revision.page_id) ?? 0) + 1;
-    pageCounts.set(revision.page_id, count);
-    if (count <= 100 || revision.is_pinned || !revision.covered) continue;
-    const ageDays =
-      (Date.now() - new Date(revision.created_at).getTime()) / 86_400_000;
-    if (revision.save_kind === "autosave") {
-      if (ageDays <= 1) continue;
-      if (ageDays <= 30) {
-        const bucket = `${revision.page_id}:${revision.created_at.slice(0, 13)}`;
-        if (!hourBuckets.has(bucket)) {
-          hourBuckets.add(bucket);
-          continue;
-        }
-      } else if (ageDays <= 180) {
-        const bucket = `${revision.page_id}:${revision.created_at.slice(0, 10)}`;
-        if (!dayBuckets.has(bucket)) {
-          dayBuckets.add(bucket);
-          continue;
-        }
-      }
-    } else if (ageDays <= 180) continue;
-    candidates.push(revision);
-  }
+    candidates = selectRevisionPruneCandidates(
+      rows.results as RevisionRetentionRow[],
+    );
   for (const revision of candidates.slice(0, 100)) {
     if (revision.snapshot_object_key) {
       const marked = await d
@@ -4369,6 +4541,7 @@ export async function runStorageMaintenance(input: {
       (row) => row.status === "soft_deleted",
     );
   const maintenanceSummary = {
+    ...repairSummary,
     missing_revisions: missingRevisions,
     missing_attachments: missingAttachments,
     deleted_orphans: deletedOrphans,

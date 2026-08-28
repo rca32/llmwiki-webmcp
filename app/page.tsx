@@ -173,6 +173,8 @@ export default function Home() {
   const [editConflict, setEditConflict] = useState<EditConflict | null>(null);
   const [autosavePaused, setAutosavePaused] = useState(false);
   const activeRef = useRef<Page | null>(null);
+  const desiredPageIdRef = useRef<string | null>(null);
+  const openPageRequestRef = useRef(0);
   const dirtyRef = useRef(false);
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
@@ -183,33 +185,62 @@ export default function Home() {
     markdownRef.current = markdown;
     autosavePausedRef.current = autosavePaused;
   }, [dirty, active, markdown, autosavePaused]);
-
-  const openPage = useCallback(async (pageId: string) => {
-    const [
-      { page },
-      { revisions: history },
-      { neighbors: linked },
-      { attachments: files },
-    ] = await Promise.all([
-      api<{ page: Page }>(`/api/pages/${pageId}`),
-      api<{ revisions: Revision[] }>(`/api/pages/${pageId}/revisions?limit=10`),
-      api<{ neighbors: Neighbor[] }>(`/api/pages/${pageId}/neighbors?limit=20`),
-      api<{ attachments: Attachment[] }>(
-        `/api/attachments?page_id=${encodeURIComponent(pageId)}&include_deleted=true`,
-      ),
-    ]);
-    setView("document");
-    setActive(page);
-    setMarkdown(page.markdown);
-    setSavedMarkdown(page.markdown);
-    setRevisions(history);
-    setNeighbors(linked);
-    setAttachments(files);
-    setStatus("동기화됨");
-    setNotice(null);
-    setEditConflict(null);
-    setAutosavePaused(false);
+  const updateAutosavePaused = useCallback((paused: boolean) => {
+    autosavePausedRef.current = paused;
+    setAutosavePaused(paused);
   }, []);
+
+  const openPage = useCallback(
+    async (pageId: string, preserveDraft = false) => {
+      if (
+        preserveDraft &&
+        desiredPageIdRef.current &&
+        desiredPageIdRef.current !== pageId
+      )
+        return;
+      if (!preserveDraft) desiredPageIdRef.current = pageId;
+      const requestNumber = ++openPageRequestRef.current;
+      const [
+        { page },
+        { revisions: history },
+        { neighbors: linked },
+        { attachments: files },
+      ] = await Promise.all([
+        api<{ page: Page }>(`/api/pages/${pageId}`),
+        api<{ revisions: Revision[] }>(
+          `/api/pages/${pageId}/revisions?limit=10`,
+        ),
+        api<{ neighbors: Neighbor[] }>(
+          `/api/pages/${pageId}/neighbors?limit=20`,
+        ),
+        api<{ attachments: Attachment[] }>(
+          `/api/attachments?page_id=${encodeURIComponent(pageId)}&include_deleted=true`,
+        ),
+      ]);
+      if (
+        requestNumber !== openPageRequestRef.current ||
+        (desiredPageIdRef.current && desiredPageIdRef.current !== pageId)
+      )
+        return;
+      setView("document");
+      const protectedDraft = dirtyRef.current || autosavePausedRef.current;
+      if (protectedDraft && (preserveDraft || activeRef.current?.id === pageId))
+        return;
+      desiredPageIdRef.current = page.id;
+      activeRef.current = page;
+      setActive(page);
+      setMarkdown(page.markdown);
+      setSavedMarkdown(page.markdown);
+      setRevisions(history);
+      setNeighbors(linked);
+      setAttachments(files);
+      setStatus("동기화됨");
+      setNotice(null);
+      setEditConflict(null);
+      updateAutosavePaused(false);
+    },
+    [updateAutosavePaused],
+  );
 
   const captureEditConflict = useCallback(
     async (pageId: string, draft: string, baseVersion: number) => {
@@ -224,11 +255,11 @@ export default function Home() {
         draft,
         diff: lineDiff(page.markdown, draft),
       });
-      setAutosavePaused(true);
+      updateAutosavePaused(true);
       setStatus("병합 필요");
       setNotice(null);
     },
-    [],
+    [updateAutosavePaused],
   );
 
   const loadWorkspace = useCallback(
@@ -282,7 +313,7 @@ export default function Home() {
             current && list.some((page) => page.id === current.id)
               ? current.id
               : list[0]?.id;
-          if (target) await openPage(target);
+          if (target) await openPage(target, true);
         } else setStatus("목록 갱신됨");
       } catch (error) {
         setSessionLoaded(true);
@@ -313,6 +344,31 @@ export default function Home() {
       window.removeEventListener("focus", onFocus);
     };
   }, [loadWorkspace]);
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "k") {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>(".search-box input")?.focus();
+      } else if (
+        key === "e" &&
+        event.shiftKey &&
+        caps.can_write &&
+        view === "document"
+      ) {
+        event.preventDefault();
+        setMode("edit");
+        window.requestAnimationFrame(() =>
+          document
+            .querySelector<HTMLTextAreaElement>(".markdown-editor")
+            ?.focus(),
+        );
+      }
+    };
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [caps.can_write, view]);
   useEffect(() => {
     if (
       !active ||
@@ -431,13 +487,22 @@ export default function Home() {
     setStatus("저장 중…");
     setNotice(null);
     try {
+      let expectedVersion = active.version;
+      if (process.env.NODE_ENV !== "production") {
+        const forcedVersion = Number(
+          window.sessionStorage.getItem("liminal:test:expected-version"),
+        );
+        window.sessionStorage.removeItem("liminal:test:expected-version");
+        if (Number.isInteger(forcedVersion) && forcedVersion > 0)
+          expectedVersion = forcedVersion;
+      }
       const result = await api<{ page_id: string; version: number }>(
         `/api/pages/${active.id}`,
         {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            expected_version: active.version,
+            expected_version: expectedVersion,
             markdown,
             change_summary: "UI에서 문서 편집",
             operation_id: crypto.randomUUID(),
@@ -446,7 +511,7 @@ export default function Home() {
       );
       setActive({ ...active, markdown, version: result.version });
       setSavedMarkdown(markdown);
-      setAutosavePaused(false);
+      updateAutosavePaused(false);
       setStatus("방금 저장됨");
       setRevisions(
         (
@@ -480,7 +545,7 @@ export default function Home() {
     setSavedMarkdown(editConflict.latest.markdown);
     setMarkdown(mergeDraft(editConflict.latest.markdown, editConflict.draft));
     setEditConflict(null);
-    setAutosavePaused(true);
+    updateAutosavePaused(true);
     setStatus("병합 초안 검토 중");
   }
 
@@ -499,7 +564,7 @@ export default function Home() {
         }),
       });
       setEditConflict(null);
-      setAutosavePaused(false);
+      updateAutosavePaused(false);
       await loadWorkspace(false);
       await openPage(created.page_id);
       setNotice("내 초안을 새 페이지로 보존했습니다.");
@@ -863,6 +928,8 @@ export default function Home() {
         <label className="search-box">
           <span>⌕</span>
           <input
+            aria-label="지식 검색"
+            aria-keyshortcuts="Control+K Meta+K"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="지식 검색"
@@ -874,7 +941,7 @@ export default function Home() {
           <span>{filtered.length}</span>
         </div>
         <nav className="page-tree" aria-label="페이지 트리">
-          {filtered.map((page) => (
+          {filtered.map((page, index) => (
             <button
               className={`tree-item ${active?.id === page.id ? "active" : ""}`}
               style={{
@@ -883,6 +950,27 @@ export default function Home() {
               }}
               key={page.id}
               onClick={() => void openPage(page.id)}
+              onKeyDown={(event) => {
+                if (
+                  !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+                )
+                  return;
+                event.preventDefault();
+                const items = Array.from(
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                    ":scope > .tree-item",
+                  ) ?? [],
+                );
+                const nextIndex =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? items.length - 1
+                      : event.key === "ArrowDown"
+                        ? Math.min(index + 1, items.length - 1)
+                        : Math.max(index - 1, 0);
+                items[nextIndex]?.focus();
+              }}
             >
               <span className="tree-glyph">
                 {page.page_type === "concept" ? "◇" : "·"}
@@ -1028,6 +1116,7 @@ export default function Home() {
                     <button
                       className={mode === "edit" ? "active" : ""}
                       onClick={() => setMode("edit")}
+                      aria-keyshortcuts="Control+Shift+E Meta+Shift+E"
                     >
                       편집
                     </button>
@@ -1101,7 +1190,12 @@ export default function Home() {
                   spellCheck={false}
                   value={markdown}
                   readOnly={!caps.can_write}
-                  onChange={(event) => setMarkdown(event.target.value)}
+                  onChange={(event) => {
+                    const nextMarkdown = event.target.value;
+                    markdownRef.current = nextMarkdown;
+                    dirtyRef.current = nextMarkdown !== savedMarkdown;
+                    setMarkdown(nextMarkdown);
+                  }}
                 />
               ) : (
                 <MarkdownPreview value={markdown} onWikiLink={openWikiLink} />
@@ -1117,7 +1211,9 @@ export default function Home() {
                     <button
                       className="autosave-toggle"
                       aria-pressed={autosavePaused}
-                      onClick={() => setAutosavePaused((paused) => !paused)}
+                      onClick={() =>
+                        updateAutosavePaused(!autosavePausedRef.current)
+                      }
                     >
                       {autosavePaused
                         ? "자동 저장 재개"

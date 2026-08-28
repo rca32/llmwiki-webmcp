@@ -22,6 +22,7 @@ jobs:
       - run: npm test
       - run: npm run db:check
       - run: npm run build
+      - run: npm run test:bundle
       - run: npm audit --omit=dev
       - if: github.ref == 'refs/heads/main'
         run: npx playwright install --with-deps chromium
