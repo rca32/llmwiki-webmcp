@@ -17,6 +17,7 @@ The Sites development runtime supplies D1 and R2 bindings and a local test ident
 npm run lint
 npm run typecheck
 npm test
+npm run test:notices
 npm run db:check
 npm run build
 ```
@@ -64,3 +65,4 @@ The current WebMCP mutation set is `wiki_create_page`, `wiki_update_page`, `wiki
 See `../docs/WEBMCP_NATIVE_LLM_WIKI_DEVELOPMENT_PLAN.md` for the full phased roadmap.
 Implementation evidence and remaining release gates are tracked in `../docs/IMPLEMENTATION_STATUS.md`.
 Production rollback, revision recovery, and empty-Site full-backup restoration are documented in `RECOVERY_RUNBOOK.md`.
+Third-party provenance and the still-pending project-license decision are recorded in `THIRD_PARTY_NOTICES.md` and `UPSTREAM_PROVENANCE.md`.
