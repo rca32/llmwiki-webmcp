@@ -176,6 +176,7 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   const [editConflict, setEditConflict] = useState<EditConflict | null>(null);
   const [autosavePaused, setAutosavePaused] = useState(false);
+  const viewRef = useRef(view);
   const activeRef = useRef<Page | null>(null);
   const desiredPageIdRef = useRef<string | null>(null);
   const openPageRequestRef = useRef(0);
@@ -183,6 +184,9 @@ export default function Home() {
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
   const dirty = markdown !== savedMarkdown;
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
   useEffect(() => {
     dirtyRef.current = dirty;
     activeRef.current = active;
@@ -316,7 +320,12 @@ export default function Home() {
               .pages,
           );
         const current = activeRef.current;
-        if (refreshActive && !dirtyRef.current && !autosavePausedRef.current) {
+        if (
+          refreshActive &&
+          viewRef.current === "document" &&
+          !dirtyRef.current &&
+          !autosavePausedRef.current
+        ) {
           const target =
             current && list.some((page) => page.id === current.id)
               ? current.id

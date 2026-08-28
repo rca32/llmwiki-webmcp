@@ -699,6 +699,13 @@ let activeBrowser;
   const graphNodeCount = await page.locator(".graph-node").count();
   if (graphNodeCount < 1)
     throw new Error("The graph view did not render any nodes.");
+  const graphFocusRefresh = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/session/capabilities") && response.ok(),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await graphFocusRefresh;
+  await page.locator(".graph-stage").waitFor();
   const graphAccessibility = await new AxeBuilder({ page }).analyze();
 
   await page.getByRole("button", { name: "운영과 복구" }).click();
@@ -707,6 +714,13 @@ let activeBrowser;
   const auditEventCount = await page.locator(".audit-list article").count();
   if (auditEventCount < 1)
     throw new Error("The operations view did not render the audit trail.");
+  const operationsFocusRefresh = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/session/capabilities") && response.ok(),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await operationsFocusRefresh;
+  await page.locator(".operations-stage").waitFor();
   const operationsAccessibility = await new AxeBuilder({ page }).analyze();
 
   await page.getByRole("button", { name: "문서" }).click();
