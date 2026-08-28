@@ -48,11 +48,19 @@ export async function getWikiSession(): Promise<WikiSession> {
       401,
     );
   const membership = await getMembership(email);
-  const configuredOwner = (env.BOOTSTRAP_OWNER_EMAIL ?? "")
+  const configuredOwner = (
+    env.BOOTSTRAP_OWNER_EMAIL ??
+    (process.env.NODE_ENV !== "production"
+      ? process.env.BOOTSTRAP_OWNER_EMAIL
+      : "") ??
+    ""
+  )
     .trim()
     .toLowerCase();
   const localOwner =
-    process.env.NODE_ENV !== "production" && email.endsWith("@sites.test");
+    process.env.NODE_ENV !== "production" &&
+    configuredOwner.length === 0 &&
+    email.endsWith("@sites.test");
   const canBootstrap =
     membership.bootstrapStatus === "empty" &&
     (configuredOwner === email || localOwner);

@@ -2,6 +2,7 @@
 const { createHash, randomUUID } = require("node:crypto");
 const {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -88,7 +89,11 @@ async function freePort() {
   });
 }
 
-async function startProject(root, port) {
+async function startProject(root, port, bootstrapOwnerEmail) {
+  writeFileSync(
+    join(root, ".dev.vars"),
+    `BOOTSTRAP_OWNER_EMAIL=${bootstrapOwnerEmail}\n`,
+  );
   const cli = join(projectRoot, "node_modules", "vinext", "dist", "cli.js");
   const child = spawn(
     process.execPath,
@@ -99,6 +104,7 @@ async function startProject(root, port) {
         ...process.env,
         NODE_ENV: "development",
         LIMINAL_DISABLE_INSPECTOR: "1",
+        BOOTSTRAP_OWNER_EMAIL: bootstrapOwnerEmail,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -155,16 +161,114 @@ async function rawRequest(baseUrl, email, path, init = {}) {
   return response;
 }
 
+async function importBackupThroughUi(baseUrl, email, packagePath) {
+  const { chromium } = require("playwright");
+  const localChrome =
+    process.env.CHROME_PATH ||
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  const browser = await chromium.launch({
+    headless: true,
+    ...(existsSync(localChrome) ? { executablePath: localChrome } : {}),
+  });
+  const errors = [];
+  try {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 1000 },
+      serviceWorkers: "block",
+      extraHTTPHeaders: { "x-liminal-test-user-email": email },
+    });
+    const page = await context.newPage();
+    page.on("console", (message) => {
+      if (
+        message.type() === "error" &&
+        !message.text().startsWith("Failed to load resource:")
+      )
+        errors.push(message.text());
+    });
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+    const restoreButton = page.getByRole("button", { name: "백업에서 복원" });
+    await restoreButton.waitFor();
+    const chooserPromise = page.waitForEvent("filechooser");
+    await restoreButton.click();
+    const chooser = await chooserPromise;
+    page.once("dialog", (dialog) => dialog.accept());
+    await chooser.setFiles(packagePath);
+    await page.waitForFunction(
+      () =>
+        Boolean(
+          document.querySelector(".page-tree .tree-item") ||
+            document.querySelector(".conflict-banner"),
+        ),
+      undefined,
+      { timeout: 120_000 },
+    );
+    const restoredTree = page.locator(".page-tree .tree-item").first();
+    if (!(await restoredTree.isVisible())) {
+      const messageText = (
+        await page.locator(".conflict-banner").innerText()
+      ).trim();
+      if (messageText === "빈 Site에 백업을 복원했습니다.")
+        await restoredTree.waitFor({ timeout: 30_000 });
+      else
+        throw new Error(
+          `UI import failed: ${messageText}\nBrowser errors: ${errors.join(" | ")}`,
+        );
+    }
+    if (errors.length)
+      throw new Error(`UI import browser errors:\n${errors.join("\n")}`);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+function writeBackupPackage(manifest, partPaths, packagePath) {
+  const { zipSync, strToU8 } = require("fflate");
+  const files = { "manifest.json": strToU8(JSON.stringify(manifest)) };
+  for (const part of manifest.parts)
+    files[part.filename] = new Uint8Array(
+      readFileSync(partPaths.get(part.number)),
+    );
+  writeFileSync(packagePath, zipSync(files, { level: 0 }));
+}
+
 async function main() {
   const sourceRoot = isolatedProject("source");
   const targetRoot = isolatedProject("target");
-  const [sourcePort, targetPort] = await Promise.all([freePort(), freePort()]);
-  const [sourceUrl, targetUrl] = await Promise.all([
-    startProject(sourceRoot, sourcePort),
-    startProject(targetRoot, targetPort),
-  ]);
   const sourceOwner = "roundtrip-source@sites.test";
   const targetOwner = "roundtrip-target@sites.test";
+  const [sourcePort, targetPort] = await Promise.all([freePort(), freePort()]);
+  const sourceUrl = await startProject(sourceRoot, sourcePort, sourceOwner);
+  const targetUrl = await startProject(targetRoot, targetPort, targetOwner);
+
+  const unauthorizedBootstrapEmail = "roundtrip-unauthorized@sites.test";
+  const unauthorizedSourceSession = await request(
+    sourceUrl,
+    unauthorizedBootstrapEmail,
+    "/api/session/capabilities",
+  );
+  if (unauthorizedSourceSession.capabilities.can_bootstrap)
+    throw new Error("A non-matching identity received bootstrap capability.");
+  const unauthorizedCreate = await jsonResponse(
+    sourceUrl,
+    unauthorizedBootstrapEmail,
+    "/api/wikis",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Forbidden bootstrap",
+        expected_version: unauthorizedSourceSession.site_version,
+      }),
+    },
+  );
+  if (
+    unauthorizedCreate.response.status !== 403 ||
+    unauthorizedCreate.envelope?.error?.code !== "forbidden"
+  )
+    throw new Error(
+      `A non-matching identity was not denied empty-Site creation (${unauthorizedCreate.response.status}).`,
+    );
 
   const sourceSession = await request(
     sourceUrl,
@@ -315,6 +419,19 @@ async function main() {
     },
   );
 
+  const unauthorizedImport = await jsonResponse(
+    targetUrl,
+    unauthorizedBootstrapEmail,
+    "/api/import/sessions",
+    { method: "POST", body: JSON.stringify({ manifest }) },
+  );
+  if (
+    unauthorizedImport.response.status !== 403 ||
+    unauthorizedImport.envelope?.error?.code !== "forbidden"
+  )
+    throw new Error(
+      `A non-matching identity was not denied empty-Site import (${unauthorizedImport.response.status}).`,
+    );
   const importSession = await request(
     targetUrl,
     targetOwner,
@@ -477,6 +594,62 @@ async function main() {
       "A restored full-backup revision did not reproduce its body.",
     );
 
+  let uiEmptySiteImport = "skipped_for_large_fixture";
+  if (requestedAttachmentBytes <= 1024 * 1024) {
+    const uiTargetRoot = isolatedProject("ui-target"),
+      uiTargetOwner = "roundtrip-ui-target@sites.test",
+      uiTargetPort = await freePort(),
+      uiTargetUrl = await startProject(
+        uiTargetRoot,
+        uiTargetPort,
+        uiTargetOwner,
+      ),
+      packagePath = join(runtimeRoot, "full-backup-ui-import.zip");
+    writeBackupPackage(manifest, partPaths, packagePath);
+    await importBackupThroughUi(uiTargetUrl, uiTargetOwner, packagePath);
+    const uiSession = await request(
+      uiTargetUrl,
+      uiTargetOwner,
+      "/api/session/capabilities",
+    );
+    if (uiSession.wiki?.role !== "owner")
+      throw new Error("The UI importing identity was not installed as owner.");
+    const uiPages = (
+      await request(uiTargetUrl, uiTargetOwner, "/api/pages?depth=64&limit=200")
+    ).pages;
+    if (
+      JSON.stringify(pageProjection(sourcePages)) !==
+      JSON.stringify(pageProjection(uiPages))
+    )
+      throw new Error("The browser UI import changed page content or IDs.");
+    const uiAttachments = (
+      await request(uiTargetUrl, uiTargetOwner, "/api/attachments")
+    ).attachments;
+    for (const fixture of attachmentFixtures) {
+      const restoredAttachment = uiAttachments.find(
+        (item) => item.id === fixture.id,
+      );
+      if (
+        !restoredAttachment ||
+        restoredAttachment.sha256 !== fixture.sha256 ||
+        restoredAttachment.size_bytes !== fixture.size
+      )
+        throw new Error(
+          `UI-restored attachment ${fixture.id} differs from the source.`,
+        );
+    }
+    const uiRevisions = (
+      await request(
+        uiTargetUrl,
+        uiTargetOwner,
+        `/api/pages/${created.page_id}/revisions?limit=20`,
+      )
+    ).revisions;
+    if (uiRevisions.length < 2)
+      throw new Error("The browser UI import omitted retained revisions.");
+    uiEmptySiteImport = "verified";
+  }
+
   console.log(
     JSON.stringify({
       profile: manifest.profile,
@@ -490,11 +663,14 @@ async function main() {
       attachmentChecksumPreserved: true,
       retainedRevisionRestored: true,
       importingIdentityIsOwner: true,
+      bootstrapOwnerMatchVerified: true,
+      unauthorizedEmptySiteImportBlocked: true,
       bootstrapCasWinnerCount: 1,
       activeWikiRebootstrapBlocked: true,
       checksumMismatchRejected: true,
       duplicateBatchIdempotent: true,
       missingBatchCommitRejected: true,
+      uiEmptySiteImport,
       diskBackedParts: true,
       peakCoordinatorRssMiB: Math.ceil(peakRssBytes / 1024 / 1024),
     }),

@@ -27,7 +27,7 @@ With the development server running, exercise the security/role matrix plus the 
 npm run test:ui
 ```
 
-Run a full-backup disaster-recovery drill against two temporary, isolated D1/R2 runtimes. The drill verifies bootstrap CAS has one winner, rejects a second active-wiki bootstrap, exercises checksum mismatch, duplicate batch, and missing-batch commit handling, verifies every exported part checksum, imports into a blank Site, compares page IDs and hierarchy, checks attachment hashes, restores a retained revision, and confirms that the importing identity becomes owner:
+Run a full-backup disaster-recovery drill against temporary, isolated D1/R2 runtimes. The drill verifies exact bootstrap-owner matching and single-winner CAS, rejects a second active-wiki bootstrap, exercises checksum mismatch, duplicate batch, and missing-batch commit handling, verifies every exported part checksum, imports into a blank Site, compares page IDs and hierarchy, checks attachment hashes, restores a retained revision, and confirms that the importing identity becomes owner. The default fixture also drives the empty-Site ZIP restore through the browser UI; the 100 MiB fixture keeps the coordinator disk-backed and records peak RSS:
 
 ```bash
 npm run test:backup-roundtrip
