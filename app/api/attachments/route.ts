@@ -8,7 +8,7 @@ import {
   requiredString,
 } from "../../../lib/validation";
 
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES = 512 * 1024;
 const BLOCKED_MIME = new Set([
   "text/html",
   "application/xhtml+xml",
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     if (file.size < 1 || file.size > MAX_ATTACHMENT_BYTES)
       throw new AppError(
         "validation_error",
-        "Attachment size must be between 1 byte and 25 MB.",
+        "Attachment size must be between 1 byte and 512 KiB.",
         413,
         { max_bytes: MAX_ATTACHMENT_BYTES },
       );

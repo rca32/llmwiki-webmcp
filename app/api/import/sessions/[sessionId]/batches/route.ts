@@ -4,7 +4,7 @@ import { errorResponse, requestId } from "../../../../../../lib/http";
 import { requireImportAuthority } from "../../../../../../lib/server-session";
 import { requiredInteger } from "../../../../../../lib/validation";
 
-const MAX_PART_BYTES = 25 * 1024 * 1024;
+const MAX_PART_BYTES = 512 * 1024;
 type Context = { params: Promise<{ sessionId: string }> };
 export async function POST(request: Request, { params }: Context) {
   const id = requestId();
@@ -22,7 +22,7 @@ export async function POST(request: Request, { params }: Context) {
     if (declared > MAX_PART_BYTES)
       throw new AppError(
         "validation_error",
-        "An import part cannot exceed 25 MB.",
+        "An import part cannot exceed 512 KiB.",
         413,
         { max_bytes: MAX_PART_BYTES },
       );
@@ -30,7 +30,7 @@ export async function POST(request: Request, { params }: Context) {
     if (data.byteLength > MAX_PART_BYTES)
       throw new AppError(
         "validation_error",
-        "An import part cannot exceed 25 MB.",
+        "An import part cannot exceed 512 KiB.",
         413,
         { max_bytes: MAX_PART_BYTES },
       );

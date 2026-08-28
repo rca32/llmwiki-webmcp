@@ -48,6 +48,15 @@ type Graph = {
   edges: Array<{ source: string; target: string; target_text: string }>;
   truncated: boolean;
 };
+type EditConflict = {
+  pageId: string;
+  title: string;
+  pageType: string;
+  baseVersion: number;
+  latest: Page;
+  draft: string;
+  diff: string;
+};
 type Caps = {
   can_bootstrap: boolean;
   can_read: boolean;
@@ -98,6 +107,37 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return envelope.data;
 }
 
+function lineDiff(latest: string, draft: string) {
+  const latestLines = latest.split("\n"),
+    draftLines = draft.split("\n"),
+    output: string[] = [],
+    length = Math.max(latestLines.length, draftLines.length);
+  for (let index = 0; index < length; index++) {
+    const current = latestLines[index],
+      mine = draftLines[index];
+    if (current === mine) output.push(`  ${current ?? ""}`);
+    else {
+      if (current !== undefined) output.push(`- ${current}`);
+      if (mine !== undefined) output.push(`+ ${mine}`);
+    }
+    if (output.length >= 500) {
+      output.push("… diff가 500줄에서 생략되었습니다.");
+      break;
+    }
+  }
+  return output.join("\n").slice(0, 30_000);
+}
+
+function mergeDraft(latest: string, draft: string) {
+  return [
+    "<<<<<<< 최신 버전",
+    latest,
+    "=======",
+    draft,
+    ">>>>>>> 내 초안",
+  ].join("\n");
+}
+
 export default function Home() {
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [view, setView] = useState<"document" | "graph" | "operations">(
@@ -130,15 +170,19 @@ export default function Home() {
   const [siteVersion, setSiteVersion] = useState(1);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editConflict, setEditConflict] = useState<EditConflict | null>(null);
+  const [autosavePaused, setAutosavePaused] = useState(false);
   const activeRef = useRef<Page | null>(null);
   const dirtyRef = useRef(false);
   const markdownRef = useRef("");
+  const autosavePausedRef = useRef(false);
   const dirty = markdown !== savedMarkdown;
   useEffect(() => {
     dirtyRef.current = dirty;
     activeRef.current = active;
     markdownRef.current = markdown;
-  }, [dirty, active, markdown]);
+    autosavePausedRef.current = autosavePaused;
+  }, [dirty, active, markdown, autosavePaused]);
 
   const openPage = useCallback(async (pageId: string) => {
     const [
@@ -163,7 +207,29 @@ export default function Home() {
     setAttachments(files);
     setStatus("동기화됨");
     setNotice(null);
+    setEditConflict(null);
+    setAutosavePaused(false);
   }, []);
+
+  const captureEditConflict = useCallback(
+    async (pageId: string, draft: string, baseVersion: number) => {
+      const { page } = await api<{ page: Page }>(`/api/pages/${pageId}`);
+      if (activeRef.current?.id !== pageId) return;
+      setEditConflict({
+        pageId,
+        title: page.title,
+        pageType: page.page_type,
+        baseVersion,
+        latest: page,
+        draft,
+        diff: lineDiff(page.markdown, draft),
+      });
+      setAutosavePaused(true);
+      setStatus("병합 필요");
+      setNotice(null);
+    },
+    [],
+  );
 
   const loadWorkspace = useCallback(
     async (refreshActive = true) => {
@@ -211,7 +277,7 @@ export default function Home() {
               .pages,
           );
         const current = activeRef.current;
-        if (refreshActive && !dirtyRef.current) {
+        if (refreshActive && !dirtyRef.current && !autosavePausedRef.current) {
           const target =
             current && list.some((page) => page.id === current.id)
               ? current.id
@@ -248,7 +314,14 @@ export default function Home() {
     };
   }, [loadWorkspace]);
   useEffect(() => {
-    if (!active || !caps.can_write || markdown === savedMarkdown) return;
+    if (
+      !active ||
+      !caps.can_write ||
+      markdown === savedMarkdown ||
+      editConflict ||
+      autosavePaused
+    )
+      return;
     const pageId = active.id,
       expectedVersion = active.version,
       draft = markdown,
@@ -290,8 +363,11 @@ export default function Home() {
               error instanceof Error &&
               (error as Error & { code?: string }).code === "version_conflict"
             )
-              setNotice(
-                "자동 저장 전에 다른 변경이 먼저 저장되었습니다. 초안을 유지했으니 최신 버전과 병합해 주세요.",
+              void captureEditConflict(pageId, draft, expectedVersion).catch(
+                () =>
+                  setNotice(
+                    "최신 버전을 불러오지 못했습니다. 초안은 이 탭에 유지됩니다.",
+                  ),
               );
             else
               setNotice(
@@ -302,7 +378,15 @@ export default function Home() {
           });
       }, 3000);
     return () => window.clearTimeout(timer);
-  }, [active, caps.can_write, markdown, savedMarkdown]);
+  }, [
+    active,
+    autosavePaused,
+    caps.can_write,
+    captureEditConflict,
+    editConflict,
+    markdown,
+    savedMarkdown,
+  ]);
   useEffect(() => {
     if (active) document.documentElement.dataset.pageId = active.id;
     else delete document.documentElement.dataset.pageId;
@@ -362,6 +446,7 @@ export default function Home() {
       );
       setActive({ ...active, markdown, version: result.version });
       setSavedMarkdown(markdown);
+      setAutosavePaused(false);
       setStatus("방금 저장됨");
       setRevisions(
         (
@@ -376,13 +461,54 @@ export default function Home() {
         error instanceof Error &&
         (error as Error & { code?: string }).code === "version_conflict"
       )
-        setNotice(
-          "다른 변경이 먼저 저장되었습니다. 내 초안은 유지했습니다. 최신 버전을 새로 읽은 뒤 병합해 주세요.",
+        await captureEditConflict(active.id, markdown, active.version).catch(
+          () =>
+            setNotice(
+              "최신 버전을 불러오지 못했습니다. 초안은 이 탭에 유지됩니다.",
+            ),
         );
       else
         setNotice(
           error instanceof Error ? error.message : "저장하지 못했습니다.",
         );
+    }
+  }
+
+  function beginConflictMerge() {
+    if (!editConflict) return;
+    setActive(editConflict.latest);
+    setSavedMarkdown(editConflict.latest.markdown);
+    setMarkdown(mergeDraft(editConflict.latest.markdown, editConflict.draft));
+    setEditConflict(null);
+    setAutosavePaused(true);
+    setStatus("병합 초안 검토 중");
+  }
+
+  async function saveConflictAsNewPage() {
+    if (!editConflict || !caps.can_write) return;
+    try {
+      const created = await api<{ page_id: string }>("/api/pages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: `${editConflict.title} (충돌 초안 ${new Date().toLocaleString("ko-KR")})`,
+          page_type: editConflict.pageType,
+          markdown: editConflict.draft,
+          parent_id: null,
+          operation_id: crypto.randomUUID(),
+        }),
+      });
+      setEditConflict(null);
+      setAutosavePaused(false);
+      await loadWorkspace(false);
+      await openPage(created.page_id);
+      setNotice("내 초안을 새 페이지로 보존했습니다.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "충돌 초안을 새 페이지로 저장하지 못했습니다.",
+      );
     }
   }
 
@@ -925,6 +1051,49 @@ export default function Home() {
                   </button>
                 </div>
               )}
+              {editConflict && (
+                <section
+                  className="conflict-resolver"
+                  aria-label="편집 충돌 해결"
+                >
+                  <header>
+                    <div>
+                      <span>VERSION CONFLICT</span>
+                      <h3>최신 변경과 내 초안을 함께 검토하세요</h3>
+                    </div>
+                    <small>
+                      읽은 버전 {editConflict.baseVersion} · 최신 버전{" "}
+                      {editConflict.latest.version}
+                    </small>
+                  </header>
+                  <div className="conflict-columns">
+                    <label>
+                      <span>최신 버전</span>
+                      <textarea readOnly value={editConflict.latest.markdown} />
+                    </label>
+                    <label>
+                      <span>내 초안</span>
+                      <textarea readOnly value={editConflict.draft} />
+                    </label>
+                    <label>
+                      <span>줄 단위 diff</span>
+                      <pre>{editConflict.diff}</pre>
+                    </label>
+                  </div>
+                  <div className="conflict-actions">
+                    <button onClick={beginConflictMerge}>
+                      병합 초안 만들기
+                    </button>
+                    <button onClick={() => void saveConflictAsNewPage()}>
+                      내 초안을 새 페이지로 저장
+                    </button>
+                  </div>
+                  <p>
+                    병합 초안의 충돌 표식을 직접 정리한 뒤 “변경 저장”을
+                    누르세요. 자동 저장은 그때까지 일시 중지됩니다.
+                  </p>
+                </section>
+              )}
               {mode === "edit" ? (
                 <textarea
                   className="markdown-editor"
@@ -943,13 +1112,28 @@ export default function Home() {
                   <span>{markdown.length}자</span>
                   <span>version {active?.version ?? "—"}</span>
                 </div>
-                <button
-                  className="save-button"
-                  disabled={!dirty || !caps.can_write}
-                  onClick={() => void save()}
-                >
-                  {dirty ? "변경 저장" : "저장 완료"}
-                </button>
+                <div className="editor-actions">
+                  {mode === "edit" && caps.can_write && (
+                    <button
+                      className="autosave-toggle"
+                      aria-pressed={autosavePaused}
+                      onClick={() => setAutosavePaused((paused) => !paused)}
+                    >
+                      {autosavePaused
+                        ? "자동 저장 재개"
+                        : "자동 저장 일시 중지"}
+                    </button>
+                  )}
+                  <button
+                    className="save-button"
+                    disabled={
+                      !dirty || !caps.can_write || Boolean(editConflict)
+                    }
+                    onClick={() => void save()}
+                  >
+                    {dirty ? "변경 저장" : "저장 완료"}
+                  </button>
+                </div>
               </footer>
             </article>
             <aside className="context-panel">

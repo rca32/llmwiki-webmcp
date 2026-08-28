@@ -3156,7 +3156,7 @@ function validateImportManifest(value: unknown): ImportManifest {
       !/^[0-9a-f]{64}$/.test(part.sha256) ||
       !Number.isInteger(part.size_bytes) ||
       part.size_bytes < 0 ||
-      part.size_bytes > 25 * 1024 * 1024 ||
+      part.size_bytes > 512 * 1024 ||
       typeof part.filename !== "string" ||
       part.filename.length < 1 ||
       filenames.has(part.filename)
@@ -3529,7 +3529,7 @@ export async function commitImport(input: {
     rawPages.length !== session.manifest.page_count ||
     rawAttachments.length !== session.manifest.attachment_count ||
     rawPages.length > 200 ||
-    rawAttachments.length > 100 ||
+    rawAttachments.length > 200 ||
     rawLinks.length > 2000 ||
     rawRevisions.length > 1000
   )

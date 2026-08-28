@@ -27,6 +27,18 @@ With the development server running, exercise the rendered tree and graph views 
 npm run test:ui
 ```
 
+Run a full-backup disaster-recovery drill against two temporary, isolated D1/R2 runtimes. The drill verifies every part checksum, imports into a blank Site, compares page IDs and hierarchy, checks attachment hashes, restores a retained revision, and confirms that the importing identity becomes owner:
+
+```bash
+npm run test:backup-roundtrip
+```
+
+The 100 MB gate uses the same drill with disk-backed parts so the coordinator never retains the complete package in memory:
+
+```bash
+npm run test:backup-spike
+```
+
 Generate a new append-only migration after changing `db/schema.ts`:
 
 ```bash
@@ -50,3 +62,4 @@ The current WebMCP mutation set is `wiki_create_page`, `wiki_update_page`, `wiki
 
 See `../docs/WEBMCP_NATIVE_LLM_WIKI_DEVELOPMENT_PLAN.md` for the full phased roadmap.
 Implementation evidence and remaining release gates are tracked in `../docs/IMPLEMENTATION_STATUS.md`.
+Production rollback, revision recovery, and empty-Site full-backup restoration are documented in `RECOVERY_RUNBOOK.md`.
