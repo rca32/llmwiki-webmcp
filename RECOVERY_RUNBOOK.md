@@ -4,7 +4,7 @@
 
 ## 복구 전 공통 원칙
 
-1. 쓰기 주체와 시간을 기록하고 가능하면 공유 editor의 쓰기를 잠시 중단한다.
+1. 쓰기 주체와 시간을 기록하고 운영 화면의 `읽기 전용 전환`으로 사람 UI, WebMCP 쓰기 도구, 직접 mutation API를 함께 중단한다. D1 자체가 이미 쓰기 불능이면 Site 접근 정책에서 editor를 제거하는 외부 통제로 보완한다.
 2. Site 삭제 또는 파괴적 재배포를 하지 않는다.
 3. 읽기가 가능하면 owner가 즉시 full backup을 내려받고 모든 part의 checksum 확인과 ACK 완료 여부를 운영 화면에서 확인한다.
 4. 감사 로그의 request ID, actor, operation, target, 발생 시각을 보존한다.

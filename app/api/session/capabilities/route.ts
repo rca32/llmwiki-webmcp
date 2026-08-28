@@ -19,6 +19,8 @@ export async function GET() {
             : null,
           capabilities: session.capabilities,
           site_version: session.siteVersion,
+          write_mode: session.writeMode,
+          write_mode_reason: session.writeModeReason,
         },
         id,
       ),

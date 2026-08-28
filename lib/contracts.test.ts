@@ -16,6 +16,19 @@ describe("role capability matrix", () => {
       can_soft_delete: false,
     });
   });
+
+  it("projects operational read-only mode into discovery and execution capabilities", () => {
+    const owner = capabilitiesFor("owner", false, "read_only");
+    expect(owner.can_read).toBe(true);
+    expect(owner.can_export_portable).toBe(true);
+    expect(owner.can_manage_members).toBe(true);
+    expect(owner.can_full_backup).toBe(true);
+    expect(owner.can_write).toBe(false);
+    expect(owner.can_restore).toBe(false);
+    expect(owner.can_manage_attachments).toBe(false);
+    expect(owner.can_soft_delete).toBe(false);
+    expect(owner.can_import).toBe(false);
+  });
   it("allows editors to mutate content but not members or full backups", () => {
     expect(capabilitiesFor("editor")).toMatchObject({
       can_read: true,

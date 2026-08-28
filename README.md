@@ -21,7 +21,7 @@ npm run db:check
 npm run build
 ```
 
-With the development server running, exercise the rendered tree and graph views in headless Chrome:
+With the development server running, exercise the security/role matrix plus the human UI lifecycle (create, move, autosave, revision restore, attachment upload, graph navigation, and browser backup) in headless Chrome:
 
 ```bash
 npm run test:ui
@@ -55,6 +55,7 @@ npm run db:generate
 - Resumable import sessions that validate every declared part before an empty-Site-only atomic commit
 - Responsive tree, server-backed full-text search, GFM/math/Mermaid preview, graph, attachments, trash, revision restore, and conflict UI
 - Owner operations center for member roles and ownership transfer, audit history, usage/repair status, and storage maintenance
+- Owner-controlled operational read-only mode that removes write Site tools, disables human write controls, rejects direct mutation APIs, and records the transition in the audit trail
 - Browser-verified portable/full ZIP backup with multipart checksum verification and ACK, plus empty-Site restore from the same package
 - Six read-only and six capability-gated write WebMCP tools using the same server APIs as the human UI
 

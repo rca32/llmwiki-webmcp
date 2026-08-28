@@ -5,6 +5,7 @@ import {
   type LinkMode,
   type PageType,
   type Role,
+  type WriteMode,
   type WikiPage,
 } from "../lib/contracts";
 import {
@@ -48,6 +49,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,origin TEXT NOT NULL,action TEXT NOT NULL,target_type TEXT NOT NULL,target_id TEXT NOT NULL,outcome TEXT NOT NULL,request_id TEXT NOT NULL,metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS wiki_usage (wiki_id TEXT PRIMARY KEY NOT NULL,page_bytes INTEGER NOT NULL DEFAULT 0,revision_inline_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_revision_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_attachment_bytes INTEGER NOT NULL DEFAULT 0,r2_soft_deleted_bytes INTEGER NOT NULL DEFAULT 0,r2_pending_bytes INTEGER NOT NULL DEFAULT 0,r2_staging_import_bytes INTEGER NOT NULL DEFAULT 0,r2_orphan_estimate_bytes INTEGER NOT NULL DEFAULT 0,page_count INTEGER NOT NULL DEFAULT 0,revision_count INTEGER NOT NULL DEFAULT 0,attachment_count INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS site_state (id INTEGER PRIMARY KEY NOT NULL,active_wiki_id TEXT,bootstrap_status TEXT NOT NULL,reserved_by TEXT,reserved_at TEXT,lease_expires_at TEXT,last_error TEXT,version INTEGER NOT NULL,updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS site_runtime_settings (id INTEGER PRIMARY KEY NOT NULL,write_mode TEXT NOT NULL DEFAULT 'read_write',reason TEXT,updated_by TEXT,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS storage_repairs (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT,object_key TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS import_sessions (id TEXT PRIMARY KEY NOT NULL,actor_email TEXT NOT NULL,manifest_hash TEXT NOT NULL,status TEXT NOT NULL,staging_wiki_id TEXT NOT NULL,completed_batches INTEGER NOT NULL DEFAULT 0,total_batches INTEGER NOT NULL,error_summary TEXT,created_at TEXT NOT NULL,expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS import_manifests (session_id TEXT PRIMARY KEY NOT NULL,manifest_json TEXT NOT NULL,created_at TEXT NOT NULL)`,
@@ -82,6 +84,12 @@ export function ensureWikiSchema(): Promise<void> {
       )
       .bind(now())
       .run();
+    await d
+      .prepare(
+        `INSERT OR IGNORE INTO site_runtime_settings(id,write_mode,updated_at) VALUES(1,'read_write',?)`,
+      )
+      .bind(now())
+      .run();
   })();
   return schemaReady;
 }
@@ -92,10 +100,12 @@ export async function getMembership(email: string): Promise<{
   role: Role | null;
   bootstrapStatus: string;
   siteVersion: number;
+  writeMode: WriteMode;
+  writeModeReason: string | null;
 }> {
   const row = await db()
     .prepare(
-      `SELECT s.active_wiki_id AS wiki_id,s.bootstrap_status,s.version AS site_version,w.title AS wiki_title,m.role FROM site_state s LEFT JOIN wikis w ON w.id=s.active_wiki_id AND w.status='active' LEFT JOIN wiki_members m ON m.wiki_id=s.active_wiki_id AND m.user_email=? WHERE s.id=1`,
+      `SELECT s.active_wiki_id AS wiki_id,s.bootstrap_status,s.version AS site_version,w.title AS wiki_title,m.role,COALESCE(rs.write_mode,'read_write') AS write_mode,rs.reason AS write_mode_reason FROM site_state s LEFT JOIN site_runtime_settings rs ON rs.id=1 LEFT JOIN wikis w ON w.id=s.active_wiki_id AND w.status='active' LEFT JOIN wiki_members m ON m.wiki_id=s.active_wiki_id AND m.user_email=? WHERE s.id=1`,
     )
     .bind(email)
     .first<Record<string, unknown>>();
@@ -105,6 +115,52 @@ export async function getMembership(email: string): Promise<{
     role: (row?.role as Role | undefined) ?? null,
     bootstrapStatus: String(row?.bootstrap_status ?? "empty"),
     siteVersion: Number(row?.site_version ?? 1),
+    writeMode: row?.write_mode === "read_only" ? "read_only" : "read_write",
+    writeModeReason:
+      typeof row?.write_mode_reason === "string" ? row.write_mode_reason : null,
+  };
+}
+
+export async function setSiteWriteMode(input: {
+  wikiId: string;
+  email: string;
+  writeMode: WriteMode;
+  reason: string | null;
+  requestId: string;
+}) {
+  const timestamp = now();
+  await db().batch([
+    db()
+      .prepare(
+        `UPDATE site_runtime_settings SET write_mode=?,reason=?,updated_by=?,updated_at=? WHERE id=1`,
+      )
+      .bind(
+        input.writeMode,
+        input.writeMode === "read_only" ? input.reason : null,
+        input.email,
+        timestamp,
+      ),
+    db()
+      .prepare(
+        `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','site.write_mode','site',?,'success',?,?,?)`,
+      )
+      .bind(
+        uuid(),
+        input.wikiId,
+        input.email,
+        input.wikiId,
+        input.requestId,
+        JSON.stringify({
+          write_mode: input.writeMode,
+          reason: input.writeMode === "read_only" ? input.reason : null,
+        }),
+        timestamp,
+      ),
+  ]);
+  return {
+    write_mode: input.writeMode,
+    reason: input.writeMode === "read_only" ? input.reason : null,
+    updated_at: timestamp,
   };
 }
 

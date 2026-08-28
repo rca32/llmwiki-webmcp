@@ -359,6 +359,16 @@ body {
   align-items: center;
   gap: 10px;
 }
+.readonly-badge {
+  padding: 4px 7px;
+  color: #7a3025;
+  background: #fff0ec;
+  border: 1px solid #efb3a8;
+  border-radius: 999px;
+  font-family: var(--font-mono), monospace;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
 .sync-state {
   display: flex;
   align-items: center;
@@ -1251,6 +1261,16 @@ body {
   grid-column: 2;
   color: #9b4b3d;
   font-size: 9px;
+}
+.backup-option input:not([type="checkbox"]) {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 8px 9px;
+  color: var(--ink);
+  background: #fffefa;
+  border: 1px solid #d7d8cf;
+  border-radius: 6px;
+  font: inherit;
 }
 .operation-actions button,
 .operation-card > button,

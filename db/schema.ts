@@ -230,6 +230,13 @@ export const siteState = sqliteTable("site_state", {
   version: integer("version").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+export const siteRuntimeSettings = sqliteTable("site_runtime_settings", {
+  id: integer("id").primaryKey(),
+  writeMode: text("write_mode").notNull().default("read_write"),
+  reason: text("reason"),
+  updatedBy: text("updated_by"),
+  updatedAt: text("updated_at").notNull(),
+});
 export const backupRuns = sqliteTable("backup_runs", {
   id: text("id").primaryKey(),
   wikiId: text("wiki_id").notNull(),

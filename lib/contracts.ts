@@ -1,4 +1,5 @@
 export type Role = "owner" | "editor" | "viewer";
+export type WriteMode = "read_write" | "read_only";
 export type PageType =
   | "note"
   | "source"
@@ -96,6 +97,7 @@ export const READ_CAPABILITIES: Capabilities = {
 export function capabilitiesFor(
   role: Role | null,
   canBootstrap = false,
+  writeMode: WriteMode = "read_write",
 ): Capabilities {
   const base = {
     ...READ_CAPABILITIES,
@@ -111,14 +113,26 @@ export function capabilitiesFor(
     can_manage_attachments: true,
     can_soft_delete: true,
   };
-  return role === "owner"
+  const capabilities =
+    role === "owner"
+      ? {
+          ...editor,
+          can_manage_members: true,
+          can_full_backup: true,
+          can_import: true,
+        }
+      : editor;
+  return writeMode === "read_only"
     ? {
-        ...editor,
-        can_manage_members: true,
-        can_full_backup: true,
-        can_import: true,
+        ...capabilities,
+        can_bootstrap: false,
+        can_write: false,
+        can_restore: false,
+        can_manage_attachments: false,
+        can_soft_delete: false,
+        can_import: false,
       }
-    : editor;
+    : capabilities;
 }
 export function success<T>(
   data: T,

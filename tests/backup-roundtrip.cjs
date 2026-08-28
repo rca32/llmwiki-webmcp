@@ -5,17 +5,23 @@ const {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  rmdirSync,
   symlinkSync,
   writeFileSync,
 } = require("node:fs");
-const { tmpdir } = require("node:os");
 const { join, relative, resolve, sep } = require("node:path");
 const { spawn } = require("node:child_process");
 const { createServer } = require("node:net");
 
 const projectRoot = resolve(__dirname, "..");
-const runtimeRoot = mkdtempSync(join(tmpdir(), "liminal-wiki-roundtrip-"));
+const ownsRuntimeParent = !process.env.WIKI_TEST_TMP;
+const runtimeParent = resolve(
+  process.env.WIKI_TEST_TMP || join(projectRoot, "..", ".test-runtimes"),
+);
+mkdirSync(runtimeParent, { recursive: true });
+const runtimeRoot = mkdtempSync(join(runtimeParent, "liminal-wiki-roundtrip-"));
 const servers = [];
 const bytesArgument = process.argv.find((value) =>
   value.startsWith("--bytes="),
@@ -406,11 +412,13 @@ main()
       ),
     );
     const resolvedRuntime = resolve(runtimeRoot);
-    if (resolvedRuntime.startsWith(resolve(tmpdir()) + sep))
+    if (resolvedRuntime.startsWith(runtimeParent + sep))
       rmSync(resolvedRuntime, {
         recursive: true,
         force: true,
         maxRetries: 10,
         retryDelay: 100,
       });
+    if (ownsRuntimeParent && readdirSync(runtimeParent).length === 0)
+      rmdirSync(runtimeParent);
   });

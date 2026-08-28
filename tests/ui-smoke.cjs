@@ -93,6 +93,62 @@ let activeBrowser;
       "x-liminal-test-user-email": `outsider-${roleStamp}@sites.test`,
     },
   });
+  const invalidReadOnly = await context.request.put(
+    `${baseUrl}/api/maintenance/write-mode`,
+    { data: { write_mode: "read_only", reason: null } },
+  );
+  if (invalidReadOnly.status() !== 400)
+    throw new Error("Read-only mode accepted an empty operational reason.");
+  const enterReadOnly = await context.request.put(
+    `${baseUrl}/api/maintenance/write-mode`,
+    {
+      data: {
+        write_mode: "read_only",
+        reason: "Automated write-safety probe",
+      },
+    },
+  );
+  if (!enterReadOnly.ok())
+    throw new Error("Owner could not enable read-only mode.");
+  try {
+    const readOnlySession = await context.request
+      .get(`${baseUrl}/api/session/capabilities`)
+      .then((response) => response.json());
+    if (
+      readOnlySession.data.write_mode !== "read_only" ||
+      readOnlySession.data.capabilities.can_write ||
+      !readOnlySession.data.capabilities.can_read ||
+      !readOnlySession.data.capabilities.can_full_backup
+    )
+      throw new Error("Read-only capability projection is incorrect.");
+    const deniedReadOnlyWrite = await editorContext.request.post(
+      `${baseUrl}/api/pages`,
+      {
+        data: {
+          title: "Read-only write must fail",
+          page_type: "note",
+          markdown: "# denied",
+          parent_id: null,
+          operation_id: crypto.randomUUID(),
+        },
+      },
+    );
+    if (deniedReadOnlyWrite.status() !== 403)
+      throw new Error("Read-only mode did not block direct API execution.");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByText("읽기 전용", { exact: true }).waitFor();
+    if (!(await page.getByRole("button", { name: "새 페이지" }).isDisabled()))
+      throw new Error("Read-only UI left the create control enabled.");
+  } finally {
+    const resumeWrites = await context.request.put(
+      `${baseUrl}/api/maintenance/write-mode`,
+      { data: { write_mode: "read_write", reason: null } },
+    );
+    if (!resumeWrites.ok())
+      throw new Error("Owner could not leave read-only mode after the probe.");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".page-tree .tree-item").first().waitFor();
+  }
   const viewerSession = await viewerContext.request.get(
     `${baseUrl}/api/session/capabilities`,
   );
@@ -719,6 +775,7 @@ let activeBrowser;
       markdownXssBlocked: true,
       gfmMathMermaidRendered: true,
       roleMatrixVerified: true,
+      operationalReadOnlyVerified: true,
       attachmentIdorBlocked: true,
       activeContentUploadBlocked: true,
       importTraversalBlocked: true,

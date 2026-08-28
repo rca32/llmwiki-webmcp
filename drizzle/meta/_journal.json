@@ -15,6 +15,13 @@
       "when": 1787868285416,
       "tag": "0001_clammy_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787881733471,
+      "tag": "0002_shallow_thor",
+      "breakpoints": true
     }
   ]
 }

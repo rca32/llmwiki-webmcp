@@ -113,11 +113,15 @@ export function OperationsPanel({
   capabilities,
   siteVersion,
   hasWiki,
+  writeMode,
+  writeModeReason,
   onWorkspaceChanged,
 }: {
   capabilities: Capabilities;
   siteVersion: number;
   hasWiki: boolean;
+  writeMode: "read_write" | "read_only";
+  writeModeReason: string | null;
   onWorkspaceChanged: () => Promise<void>;
 }) {
   const [members, setMembers] = useState<Member[]>([]),
@@ -128,6 +132,7 @@ export function OperationsPanel({
     [progress, setProgress] = useState(""),
     [message, setMessage] = useState<string | null>(null),
     [includeMemberReference, setIncludeMemberReference] = useState(false),
+    [maintenanceReason, setMaintenanceReason] = useState(writeModeReason ?? ""),
     [memberEmail, setMemberEmail] = useState(""),
     [memberRole, setMemberRole] = useState<"editor" | "viewer">("editor");
   const importRef = useRef<HTMLInputElement>(null);
@@ -164,7 +169,6 @@ export function OperationsPanel({
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
   async function createEmptyWiki() {
     if (!capabilities.can_bootstrap || busy) return;
     setBusy(true);
@@ -182,6 +186,43 @@ export function OperationsPanel({
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "빈 위키를 만들지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeWriteMode() {
+    if (!capabilities.can_manage_members || busy) return;
+    const nextMode = writeMode === "read_only" ? "read_write" : "read_only";
+    if (nextMode === "read_only" && !maintenanceReason.trim()) {
+      setMessage("읽기 전용 전환 사유를 입력하세요.");
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api("/api/maintenance/write-mode", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          write_mode: nextMode,
+          reason: nextMode === "read_only" ? maintenanceReason.trim() : null,
+        }),
+      });
+      setMessage(
+        nextMode === "read_only"
+          ? "Site를 읽기 전용 모드로 전환했습니다."
+          : "Site 쓰기를 다시 활성화했습니다.",
+      );
+      if (nextMode === "read_write") setMaintenanceReason("");
+      await onWorkspaceChanged();
+      await refresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "쓰기 운영 모드를 변경하지 못했습니다.",
       );
     } finally {
       setBusy(false);
@@ -544,6 +585,38 @@ export function OperationsPanel({
         </p>
       )}
       <div className="operations-grid">
+        {capabilities.can_manage_members && (
+          <section className="operation-card">
+            <span>WRITE SAFETY</span>
+            <h3>
+              {writeMode === "read_only" ? "읽기 전용 운영 중" : "쓰기 허용"}
+            </h3>
+            <p>
+              읽기 전용 모드는 사람 UI, WebMCP 도구 발견, 직접 API 실행에서
+              콘텐츠 변경을 함께 차단합니다.
+            </p>
+            <label className="backup-option">
+              전환 사유
+              <input
+                aria-label="읽기 전용 전환 사유"
+                value={maintenanceReason}
+                onChange={(event) => setMaintenanceReason(event.target.value)}
+                disabled={busy || writeMode === "read_only"}
+                placeholder="예: D1 쓰기 장애 조사"
+              />
+            </label>
+            {writeMode === "read_only" && writeModeReason && (
+              <small className="warning-text">
+                현재 사유: {writeModeReason}
+              </small>
+            )}
+            <div className="operation-actions">
+              <button onClick={() => void changeWriteMode()} disabled={busy}>
+                {writeMode === "read_only" ? "쓰기 재개" : "읽기 전용 전환"}
+              </button>
+            </div>
+          </section>
+        )}
         <section className="operation-card">
           <span>BACKUP & RESTORE</span>
           <h3>이동 가능한 지식 보관</h3>

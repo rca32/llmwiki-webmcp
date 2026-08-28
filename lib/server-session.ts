@@ -5,6 +5,7 @@ import {
   capabilitiesFor,
   type Capabilities,
   type Role,
+  type WriteMode,
 } from "./contracts";
 import { ensureWikiSchema, getMembership } from "../db/wiki-repository";
 
@@ -16,6 +17,8 @@ export type WikiSession = {
   role: Role | null;
   capabilities: Capabilities;
   siteVersion: number;
+  writeMode: WriteMode;
+  writeModeReason: string | null;
 };
 
 export async function getWikiSession(): Promise<WikiSession> {
@@ -59,8 +62,14 @@ export async function getWikiSession(): Promise<WikiSession> {
     wikiId: membership.wikiId,
     wikiTitle: membership.wikiTitle,
     role: membership.role,
-    capabilities: capabilitiesFor(membership.role, canBootstrap),
+    capabilities: capabilitiesFor(
+      membership.role,
+      canBootstrap,
+      membership.writeMode,
+    ),
     siteVersion: membership.siteVersion,
+    writeMode: membership.writeMode,
+    writeModeReason: membership.writeModeReason,
   };
 }
 

@@ -168,6 +168,10 @@ export default function Home() {
     can_import: false,
   });
   const [siteVersion, setSiteVersion] = useState(1);
+  const [writeMode, setWriteMode] = useState<"read_write" | "read_only">(
+    "read_write",
+  );
+  const [writeModeReason, setWriteModeReason] = useState<string | null>(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [editConflict, setEditConflict] = useState<EditConflict | null>(null);
@@ -269,9 +273,13 @@ export default function Home() {
           wiki: { id: string; title: string; role: string } | null;
           capabilities: Caps;
           site_version: number;
+          write_mode: "read_write" | "read_only";
+          write_mode_reason: string | null;
         }>("/api/session/capabilities");
         setCaps(session.capabilities);
         setSiteVersion(session.site_version);
+        setWriteMode(session.write_mode);
+        setWriteModeReason(session.write_mode_reason);
         setSessionLoaded(true);
         if (!session.capabilities.can_read) {
           setPages([]);
@@ -858,11 +866,13 @@ export default function Home() {
   if (sessionLoaded && !caps.can_read)
     return (
       <main className="wiki-shell bootstrap-shell-root">
-        <SiteTools />
+        <SiteTools key={`${writeMode}-${caps.can_write}`} />
         <OperationsPanel
           capabilities={caps}
           siteVersion={siteVersion}
           hasWiki={false}
+          writeMode={writeMode}
+          writeModeReason={writeModeReason}
           onWorkspaceChanged={() => loadWorkspace(true)}
         />
       </main>
@@ -870,7 +880,7 @@ export default function Home() {
 
   return (
     <main className="wiki-shell">
-      <SiteTools />
+      <SiteTools key={`${writeMode}-${caps.can_write}`} />
       <aside className="icon-rail" aria-label="주요 메뉴">
         <div className="brand-mark" aria-label="Liminal Wiki">
           LW
@@ -1022,6 +1032,14 @@ export default function Home() {
             </strong>
           </div>
           <div className="top-actions">
+            {writeMode === "read_only" && (
+              <span
+                className="readonly-badge"
+                title={writeModeReason ?? "운영자가 쓰기를 일시 중지했습니다."}
+              >
+                읽기 전용
+              </span>
+            )}
             <span className={`sync-state ${dirty ? "dirty" : ""}`}>
               <i />
               {dirty ? "저장되지 않은 변경" : status}
@@ -1043,6 +1061,8 @@ export default function Home() {
             capabilities={caps}
             siteVersion={siteVersion}
             hasWiki
+            writeMode={writeMode}
+            writeModeReason={writeModeReason}
             onWorkspaceChanged={() => loadWorkspace(true)}
           />
         ) : view === "graph" ? (
