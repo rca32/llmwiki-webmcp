@@ -187,6 +187,18 @@ export const apiRequestMetrics = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.commandName, t.outcome] })],
 );
+export const apiCommandMeasurements = sqliteTable("api_command_measurements", {
+  commandName: text("command_name").primaryKey(),
+  resultSampleCount: integer("result_sample_count").notNull().default(0),
+  totalResultCount: integer("total_result_count").notNull().default(0),
+  maxResultCount: integer("max_result_count").notNull().default(0),
+  lastResultCount: integer("last_result_count").notNull().default(0),
+  sizeSampleCount: integer("size_sample_count").notNull().default(0),
+  totalSizeBytes: integer("total_size_bytes").notNull().default(0),
+  maxSizeBytes: integer("max_size_bytes").notNull().default(0),
+  lastSizeBytes: integer("last_size_bytes").notNull().default(0),
+  lastMeasuredAt: text("last_measured_at").notNull(),
+});
 export const wikiUsage = sqliteTable("wiki_usage", {
   wikiId: text("wiki_id").primaryKey(),
   pageBytes: integer("page_bytes").notNull().default(0),

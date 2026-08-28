@@ -84,6 +84,20 @@ type Operations = {
     last_request_id: string;
     last_requested_at: string;
   }>;
+  api_measurements: Array<{
+    command_name: string;
+    result_sample_count: number;
+    total_result_count: number;
+    average_result_count: number;
+    max_result_count: number;
+    last_result_count: number;
+    size_sample_count: number;
+    total_size_bytes: number;
+    average_size_bytes: number;
+    max_size_bytes: number;
+    last_size_bytes: number;
+    last_measured_at: string;
+  }>;
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -556,7 +570,14 @@ export function OperationsPanel({
     ),
     apiAverageLatency = apiRequests
       ? Math.round(apiWeightedLatency / apiRequests)
-      : 0;
+      : 0,
+    apiMeasurements = operations?.api_measurements ?? [],
+    searchMeasurement = apiMeasurements.find(
+      (measurement) => measurement.command_name === "search.query",
+    ),
+    uploadMeasurement = apiMeasurements.find(
+      (measurement) => measurement.command_name === "attachment.upload",
+    );
 
   if (!hasWiki)
     return (
@@ -829,7 +850,8 @@ export function OperationsPanel({
             <h3>공통 명령 처리 상태</h3>
             <p>
               UI와 직접 API 요청을 같은 명령 이름으로 집계합니다. URL 인자, 요청
-              본문, 인증정보는 저장하지 않습니다.
+              본문, 인증정보는 저장하지 않고 검색 결과 수와 실제 R2 업로드
+              바이트만 추가로 측정합니다.
             </p>
             <div className="metric-grid webmcp-summary">
               <div>
@@ -852,6 +874,18 @@ export function OperationsPanel({
                   )}
                 </strong>
                 <small>성공</small>
+              </div>
+              <div>
+                <strong>
+                  {Number(searchMeasurement?.average_result_count ?? 0)}
+                </strong>
+                <small>검색 평균 결과</small>
+              </div>
+              <div>
+                <strong>
+                  {bytesLabel(uploadMeasurement?.total_size_bytes)}
+                </strong>
+                <small>실제 R2 업로드 누적</small>
               </div>
             </div>
             {apiMetrics.length ? (

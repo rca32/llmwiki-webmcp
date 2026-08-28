@@ -412,12 +412,22 @@ let activeBrowser;
   if (activeContentUpload.status() !== 415)
     throw new Error("Active-content attachment MIME was not rejected.");
   const safeAttachmentBytes = Buffer.from("attachment-idor-sentinel", "utf8");
+  const uploadMeasurementBefore = await context.request
+    .get(`${baseUrl}/api/operations`)
+    .then((response) => response.json())
+    .then(
+      (operations) =>
+        operations.data.api_measurements?.find(
+          (measurement) => measurement.command_name === "attachment.upload",
+        ) ?? { size_sample_count: 0, total_size_bytes: 0 },
+    );
+  const attachmentOperationId = crypto.randomUUID();
   const attachmentUpload = await editorContext.request.post(
     `${baseUrl}/api/attachments`,
     {
       multipart: {
         page_id: editorPage.page_id,
-        operation_id: crypto.randomUUID(),
+        operation_id: attachmentOperationId,
         file: {
           name: "idor.txt",
           mimeType: "text/plain",
@@ -429,6 +439,54 @@ let activeBrowser;
   if (attachmentUpload.status() !== 201)
     throw new Error("Editor could not upload a safe attachment.");
   const attachment = (await attachmentUpload.json()).data;
+  const attachmentReplay = await editorContext.request.post(
+    `${baseUrl}/api/attachments`,
+    {
+      multipart: {
+        page_id: editorPage.page_id,
+        operation_id: attachmentOperationId,
+        file: {
+          name: "idor.txt",
+          mimeType: "text/plain",
+          buffer: safeAttachmentBytes,
+        },
+      },
+    },
+  );
+  if (
+    attachmentReplay.status() !== 201 ||
+    (await attachmentReplay.json()).data.attachment_id !==
+      attachment.attachment_id
+  )
+    throw new Error("Attachment idempotency replay changed the result.");
+  let uploadMeasurementAfter;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    uploadMeasurementAfter = await context.request
+      .get(`${baseUrl}/api/operations`)
+      .then((response) => response.json())
+      .then((operations) =>
+        operations.data.api_measurements?.find(
+          (measurement) => measurement.command_name === "attachment.upload",
+        ),
+      );
+    if (
+      Number(uploadMeasurementAfter?.size_sample_count ?? 0) >
+      Number(uploadMeasurementBefore.size_sample_count)
+    )
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (
+    Number(uploadMeasurementAfter?.size_sample_count ?? 0) -
+      Number(uploadMeasurementBefore.size_sample_count) !==
+      1 ||
+    Number(uploadMeasurementAfter?.total_size_bytes ?? 0) -
+      Number(uploadMeasurementBefore.total_size_bytes) !==
+      safeAttachmentBytes.byteLength
+  )
+    throw new Error(
+      "R2 upload measurements counted a replay or recorded the wrong byte size.",
+    );
   const viewerAttachmentRead = await viewerContext.request.get(
     `${baseUrl}/api/attachments/${attachment.attachment_id}`,
   );
@@ -727,12 +785,47 @@ let activeBrowser;
     throw new Error(
       `Stale update did not return a recoverable conflict envelope: ${JSON.stringify(staleEnvelope)}.`,
     );
+  const searchMeasurementBefore = await context.request
+    .get(`${baseUrl}/api/operations`)
+    .then((response) => response.json())
+    .then(
+      (operations) =>
+        operations.data.api_measurements?.find(
+          (measurement) => measurement.command_name === "search.query",
+        ) ?? { result_sample_count: 0, total_result_count: 0 },
+    );
   const search = await context.request.post(`${baseUrl}/api/search`, {
     data: { query: "SECURITY_SENTINEL", limit: 20 },
   });
   const searchData = (await search.json()).data;
   if (!searchData.results.some((result) => result.page_id === created.page_id))
     throw new Error("Body search did not find the security page.");
+  let searchMeasurementAfter;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    searchMeasurementAfter = await context.request
+      .get(`${baseUrl}/api/operations`)
+      .then((response) => response.json())
+      .then((operations) =>
+        operations.data.api_measurements?.find(
+          (measurement) => measurement.command_name === "search.query",
+        ),
+      );
+    if (
+      Number(searchMeasurementAfter?.result_sample_count ?? 0) >
+      Number(searchMeasurementBefore.result_sample_count)
+    )
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (
+    Number(searchMeasurementAfter?.result_sample_count ?? 0) -
+      Number(searchMeasurementBefore.result_sample_count) !==
+      1 ||
+    Number(searchMeasurementAfter?.total_result_count ?? 0) -
+      Number(searchMeasurementBefore.total_result_count) !==
+      searchData.results.length
+  )
+    throw new Error("Search result measurements did not match the response.");
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: new RegExp(securityTitle) }).click();
   await page.keyboard.press("Control+K");
@@ -906,6 +999,8 @@ let activeBrowser;
   await page.locator(".operations-stage").waitFor();
   await page.getByText("에이전트 도구 호출 상태").waitFor();
   await page.getByText("공통 명령 처리 상태").waitFor();
+  await page.getByText("검색 평균 결과").waitFor();
+  await page.getByText("실제 R2 업로드 누적").waitFor();
   await page.locator('[aria-label="API 요청 지표"] article').first().waitFor();
   await page
     .locator(".webmcp-metric-list article", { hasText: "wiki_search" })

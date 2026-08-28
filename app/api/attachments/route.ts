@@ -1,6 +1,7 @@
 import { AppError, success } from "../../../lib/contracts";
 import { listAttachments, uploadAttachment } from "../../../db/wiki-repository";
 import { errorResponse, originFrom, requestId } from "../../../lib/http";
+import { completeApiRequest } from "../../../lib/request-observability";
 import { requireWikiSession } from "../../../lib/server-session";
 import {
   operationId,
@@ -78,18 +79,24 @@ export async function POST(request: Request) {
       1,
       200,
     );
-    const result = await uploadAttachment({
-      wikiId: session.wikiId!,
-      email: session.email,
-      pageId: optionalNullableString(form.get("page_id"), "page_id"),
-      filename,
-      mimeType: mime,
-      data: await file.arrayBuffer(),
-      operationId: operationId(form.get("operation_id")),
-      requestId: id,
-      origin: originFrom(request),
-    });
-    return Response.json(success(result, id), { status: 201 });
+    const data = await file.arrayBuffer(),
+      result = await uploadAttachment({
+        wikiId: session.wikiId!,
+        email: session.email,
+        pageId: optionalNullableString(form.get("page_id"), "page_id"),
+        filename,
+        mimeType: mime,
+        data,
+        operationId: operationId(form.get("operation_id")),
+        requestId: id,
+        origin: originFrom(request),
+      });
+    completeApiRequest(
+      id,
+      "success",
+      result.uploaded ? { sizeBytes: data.byteLength } : {},
+    );
+    return Response.json(success(result.attachment, id), { status: 201 });
   } catch (error) {
     return errorResponse(error, id);
   }

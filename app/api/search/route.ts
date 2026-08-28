@@ -1,6 +1,7 @@
 import { success } from "../../../lib/contracts";
 import { searchPages } from "../../../db/wiki-repository";
 import { errorResponse, jsonBody, requestId } from "../../../lib/http";
+import { completeApiRequest } from "../../../lib/request-observability";
 import { requireWikiSession } from "../../../lib/server-session";
 import {
   PAGE_TYPES,
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
       types,
       limit,
     );
+    completeApiRequest(id, "success", { resultCount: results.length });
     return Response.json(success({ results }, id), {
       headers: { "cache-control": "no-store" },
     });

@@ -6,6 +6,11 @@ type RequestObservation = {
   startedAt: number;
 };
 
+export type ApiMeasurement = {
+  resultCount?: number;
+  sizeBytes?: number;
+};
+
 const activeRequests = new Map<string, RequestObservation>();
 const COMMAND_NAME = /^[a-z][a-z0-9_.-]{0,79}$/;
 
@@ -17,7 +22,11 @@ export function startApiRequest(commandName: string) {
   return id;
 }
 
-export function completeApiRequest(requestId: string, outcome: ApiOutcome) {
+export function completeApiRequest(
+  requestId: string,
+  outcome: ApiOutcome,
+  measurement: ApiMeasurement = {},
+) {
   const observation = activeRequests.get(requestId);
   if (!observation) return;
   activeRequests.delete(requestId);
@@ -32,6 +41,8 @@ export function completeApiRequest(requestId: string, outcome: ApiOutcome) {
         outcome,
         latencyMs,
         requestId,
+        resultCount: measurement.resultCount,
+        sizeBytes: measurement.sizeBytes,
       }),
     )
     .catch((error: unknown) => {

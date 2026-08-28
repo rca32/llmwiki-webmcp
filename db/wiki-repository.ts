@@ -374,6 +374,11 @@ async function ensureWebMcpTelemetrySchema() {
         `CREATE TABLE IF NOT EXISTS api_request_metrics (command_name TEXT NOT NULL,outcome TEXT NOT NULL,request_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_request_id TEXT NOT NULL,last_requested_at TEXT NOT NULL,PRIMARY KEY(command_name,outcome))`,
       )
       .run();
+    await d
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS api_command_measurements (command_name TEXT PRIMARY KEY NOT NULL,result_sample_count INTEGER NOT NULL DEFAULT 0,total_result_count INTEGER NOT NULL DEFAULT 0,max_result_count INTEGER NOT NULL DEFAULT 0,last_result_count INTEGER NOT NULL DEFAULT 0,size_sample_count INTEGER NOT NULL DEFAULT 0,total_size_bytes INTEGER NOT NULL DEFAULT 0,max_size_bytes INTEGER NOT NULL DEFAULT 0,last_size_bytes INTEGER NOT NULL DEFAULT 0,last_measured_at TEXT NOT NULL)`,
+      )
+      .run();
   })();
   return telemetrySchemaReady;
 }
@@ -383,23 +388,52 @@ export async function recordApiRequestMetric(input: {
   outcome: string;
   latencyMs: number;
   requestId: string;
+  resultCount?: number;
+  sizeBytes?: number;
 }) {
   await ensureWebMcpTelemetrySchema();
-  const timestamp = now();
-  await db()
-    .prepare(
-      `INSERT INTO api_request_metrics(command_name,outcome,request_count,total_latency_ms,max_latency_ms,last_latency_ms,last_request_id,last_requested_at) VALUES(?,?,1,?,?,?,?,?) ON CONFLICT(command_name,outcome) DO UPDATE SET request_count=request_count+1,total_latency_ms=total_latency_ms+excluded.last_latency_ms,max_latency_ms=MAX(max_latency_ms,excluded.last_latency_ms),last_latency_ms=excluded.last_latency_ms,last_request_id=excluded.last_request_id,last_requested_at=excluded.last_requested_at`,
-    )
-    .bind(
-      input.commandName,
-      input.outcome,
-      input.latencyMs,
-      input.latencyMs,
-      input.latencyMs,
-      input.requestId,
-      timestamp,
-    )
-    .run();
+  const timestamp = now(),
+    d = db(),
+    statements = [
+      d
+        .prepare(
+          `INSERT INTO api_request_metrics(command_name,outcome,request_count,total_latency_ms,max_latency_ms,last_latency_ms,last_request_id,last_requested_at) VALUES(?,?,1,?,?,?,?,?) ON CONFLICT(command_name,outcome) DO UPDATE SET request_count=request_count+1,total_latency_ms=total_latency_ms+excluded.last_latency_ms,max_latency_ms=MAX(max_latency_ms,excluded.last_latency_ms),last_latency_ms=excluded.last_latency_ms,last_request_id=excluded.last_request_id,last_requested_at=excluded.last_requested_at`,
+        )
+        .bind(
+          input.commandName,
+          input.outcome,
+          input.latencyMs,
+          input.latencyMs,
+          input.latencyMs,
+          input.requestId,
+          timestamp,
+        ),
+    ];
+  if (input.resultCount !== undefined || input.sizeBytes !== undefined) {
+    const resultSample = input.resultCount === undefined ? 0 : 1,
+      resultCount = input.resultCount ?? 0,
+      sizeSample = input.sizeBytes === undefined ? 0 : 1,
+      sizeBytes = input.sizeBytes ?? 0;
+    statements.push(
+      d
+        .prepare(
+          `INSERT INTO api_command_measurements(command_name,result_sample_count,total_result_count,max_result_count,last_result_count,size_sample_count,total_size_bytes,max_size_bytes,last_size_bytes,last_measured_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(command_name) DO UPDATE SET result_sample_count=result_sample_count+excluded.result_sample_count,total_result_count=total_result_count+excluded.total_result_count,max_result_count=MAX(max_result_count,excluded.max_result_count),last_result_count=CASE WHEN excluded.result_sample_count=1 THEN excluded.last_result_count ELSE last_result_count END,size_sample_count=size_sample_count+excluded.size_sample_count,total_size_bytes=total_size_bytes+excluded.total_size_bytes,max_size_bytes=MAX(max_size_bytes,excluded.max_size_bytes),last_size_bytes=CASE WHEN excluded.size_sample_count=1 THEN excluded.last_size_bytes ELSE last_size_bytes END,last_measured_at=excluded.last_measured_at`,
+        )
+        .bind(
+          input.commandName,
+          resultSample,
+          resultCount,
+          resultCount,
+          resultCount,
+          sizeSample,
+          sizeBytes,
+          sizeBytes,
+          sizeBytes,
+          timestamp,
+        ),
+    );
+  }
+  await d.batch(statements);
 }
 
 export async function recordWebMcpInvocation(input: {
@@ -465,6 +499,11 @@ export async function getOperationsSummary(wikiId: string) {
       `SELECT command_name,outcome,request_count,ROUND(CAST(total_latency_ms AS REAL)/MAX(request_count,1)) AS average_latency_ms,max_latency_ms,last_latency_ms,last_request_id,last_requested_at FROM api_request_metrics ORDER BY last_requested_at DESC,command_name,outcome`,
     )
     .all();
+  const apiMeasurements = await db()
+    .prepare(
+      `SELECT command_name,result_sample_count,total_result_count,ROUND(CAST(total_result_count AS REAL)/MAX(result_sample_count,1),1) AS average_result_count,max_result_count,last_result_count,size_sample_count,total_size_bytes,ROUND(CAST(total_size_bytes AS REAL)/MAX(size_sample_count,1)) AS average_size_bytes,max_size_bytes,last_size_bytes,last_measured_at FROM api_command_measurements ORDER BY last_measured_at DESC,command_name`,
+    )
+    .all();
   return {
     usage: usage ?? null,
     latest_backup: latestBackup ?? null,
@@ -472,6 +511,7 @@ export async function getOperationsSummary(wikiId: string) {
     pending_repairs: Number(pendingRepairs?.count ?? 0),
     webmcp_metrics: webmcpMetrics.results,
     api_metrics: apiMetrics.results,
+    api_measurements: apiMeasurements.results,
   };
 }
 
@@ -3043,12 +3083,15 @@ export async function uploadAttachment(input: {
       payload,
     });
   if (reservation.cached)
-    return reservation.cached as unknown as {
-      attachment_id: string;
-      filename: string;
-      mime_type: string;
-      size_bytes: number;
-      sha256: string;
+    return {
+      attachment: reservation.cached as unknown as {
+        attachment_id: string;
+        filename: string;
+        mime_type: string;
+        size_bytes: number;
+        sha256: string;
+      },
+      uploaded: false,
     };
   const attachmentId = uuid(),
     key = `attachments/${input.wikiId}/${attachmentId}`,
@@ -3145,7 +3188,7 @@ export async function uploadAttachment(input: {
           input.operationId,
         ),
     ]);
-    return result;
+    return { attachment: result, uploaded: true };
   } catch (error) {
     try {
       await env.FILES.delete(key);
