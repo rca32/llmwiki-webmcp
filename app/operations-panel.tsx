@@ -273,10 +273,6 @@ export function OperationsPanel({
       );
       setProgress("백업 패키지 생성 중…");
       const archive = zipSync(files, { level: 0 });
-      download(
-        new Blob([arrayBufferOf(archive)], { type: "application/zip" }),
-        `liminal-wiki-${profile}-${manifest.backup_run_id}.zip`,
-      );
       await api(`/api/export/${manifest.backup_run_id}/ack`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -289,9 +285,15 @@ export function OperationsPanel({
         }),
       });
       setMessage(
-        `${profile === "full" ? "전체" : "이동용"} 백업 ${manifest.parts.length}개 파트를 검증하고 저장했습니다.`,
+        `${profile === "full" ? "전체" : "이동용"} 백업 ${manifest.parts.length}개 파트를 검증하고 다운로드를 시작했습니다.`,
       );
       await refresh();
+      // Sites hosts may reload the page when a Blob download begins. Persist
+      // the verified manifest ACK before triggering that browser-owned flow.
+      download(
+        new Blob([arrayBufferOf(archive)], { type: "application/zip" }),
+        `liminal-wiki-${profile}-${manifest.backup_run_id}.zip`,
+      );
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "백업을 만들지 못했습니다.",
