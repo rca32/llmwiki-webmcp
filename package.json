@@ -16,6 +16,8 @@
     "test": "vitest run --config vitest.config.ts",
     "test:backup-roundtrip": "node tests/backup-roundtrip.cjs",
     "test:backup-spike": "node tests/backup-roundtrip.cjs --bytes=104857600",
+    "test:performance": "node tests/performance-benchmark.cjs",
+    "test:performance:ci": "start-server-and-test dev http://127.0.0.1:3000 test:performance",
     "test:bundle": "node tests/check-bundle-size.cjs",
     "test:notices": "node scripts/check-third-party-notices.cjs",
     "test:ui": "node tests/ui-smoke.cjs && node tests/ui-lifecycle.cjs",

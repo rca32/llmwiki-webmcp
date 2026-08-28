@@ -1784,6 +1784,31 @@ export async function searchPages(
   );
 }
 
+async function benchmarkSamples(
+  operation: () => Promise<unknown>,
+  targetP95Ms?: number,
+) {
+  await operation();
+  const samples: number[] = [];
+  for (let index = 0; index < 20; index++) {
+    const started = performance.now();
+    await operation();
+    samples.push(performance.now() - started);
+  }
+  const sorted = [...samples].sort((a, b) => a - b),
+    p95 = sorted[Math.ceil(sorted.length * 0.95) - 1],
+    result: Record<string, unknown> = {
+      samples_ms: samples.map((sample) => Number(sample.toFixed(2))),
+      p50_ms: Number(sorted[Math.floor(sorted.length * 0.5)].toFixed(2)),
+      p95_ms: Number(p95.toFixed(2)),
+    };
+  if (targetP95Ms !== undefined) {
+    result.target_p95_ms = targetP95Ms;
+    result.target_met = p95 <= targetP95Ms;
+  }
+  return result;
+}
+
 export async function runSearchBenchmark(wikiId: string, pageCount: number) {
   const d = db(),
     runId = uuid(),
@@ -1798,6 +1823,8 @@ export async function runSearchBenchmark(wikiId: string, pageCount: number) {
       "comparison",
       "query",
     ];
+  let benchmarkResult: Record<string, unknown> | undefined,
+    samplePageId = "";
   try {
     for (let offset = 0; offset < pageCount; offset += 50) {
       const statements = Array.from(
@@ -1805,6 +1832,7 @@ export async function runSearchBenchmark(wikiId: string, pageCount: number) {
         (_, index) => {
           const sequence = offset + index,
             id = uuid();
+          if (sequence === 0) samplePageId = id;
           return d
             .prepare(
               `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,'{}',1,?,?,?,?,?,?)`,
@@ -1828,22 +1856,28 @@ export async function runSearchBenchmark(wikiId: string, pageCount: number) {
       );
       await d.batch(statements);
     }
-    await searchPages(wikiId, marker, pageTypes, 20);
-    const samples: number[] = [];
-    for (let index = 0; index < 20; index++) {
-      const started = performance.now();
-      await searchPages(wikiId, marker, pageTypes, 20);
-      samples.push(performance.now() - started);
-    }
-    const sorted = [...samples].sort((a, b) => a - b),
-      p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
-    return {
+    const search = await benchmarkSamples(
+        () => searchPages(wikiId, marker, pageTypes, 20),
+        500,
+      ),
+      pageRead = await benchmarkSamples(
+        () => getPage(wikiId, samplePageId),
+        300,
+      ),
+      treeNodes = await listPages(wikiId, null, 200, 64),
+      tree = await benchmarkSamples(() => listPages(wikiId, null, 200, 64));
+    benchmarkResult = {
       page_count: pageCount,
-      samples_ms: samples.map((sample) => Number(sample.toFixed(2))),
-      p50_ms: Number(sorted[Math.floor(sorted.length * 0.5)].toFixed(2)),
-      p95_ms: Number(p95.toFixed(2)),
-      target_p95_ms: 500,
-      target_met: p95 <= 500,
+      ...search,
+      search,
+      page_read: pageRead,
+      tree_first_page: {
+        ...tree,
+        requested_node_limit: 200,
+        returned_node_count: treeNodes.length,
+        maximum_first_screen_nodes: 500,
+        node_cap_met: treeNodes.length <= 500,
+      },
     };
   } finally {
     await d
@@ -1851,6 +1885,16 @@ export async function runSearchBenchmark(wikiId: string, pageCount: number) {
       .bind(wikiId, runId)
       .run();
   }
+  const remaining = await d
+    .prepare(
+      `SELECT COUNT(*) AS count FROM pages WHERE wiki_id=? AND last_operation_id=?`,
+    )
+    .bind(wikiId, runId)
+    .first<{ count: number }>();
+  return {
+    ...benchmarkResult,
+    cleanup_verified: Number(remaining?.count ?? 0) === 0,
+  };
 }
 export async function listRevisions(
   wikiId: string,

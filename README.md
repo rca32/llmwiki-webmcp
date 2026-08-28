@@ -40,6 +40,12 @@ The 100 MB gate uses the same drill with disk-backed parts so the coordinator ne
 npm run test:backup-spike
 ```
 
+Run the isolated 10,000-page performance gate for search, page read, and the capped first tree listing. The fixture is removed before the command succeeds:
+
+```bash
+npm run test:performance:ci
+```
+
 Generate a new append-only migration after changing `db/schema.ts`:
 
 ```bash

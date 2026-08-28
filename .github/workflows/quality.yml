@@ -30,4 +30,6 @@ jobs:
       - if: github.ref == 'refs/heads/main'
         run: npm run test:ui:ci
       - if: github.ref == 'refs/heads/main'
+        run: npm run test:performance:ci
+      - if: github.ref == 'refs/heads/main'
         run: npm run test:backup-spike
