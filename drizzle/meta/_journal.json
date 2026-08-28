@@ -22,6 +22,13 @@
       "when": 1787881733471,
       "tag": "0002_shallow_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787954802534,
+      "tag": "0003_hesitant_ezekiel",
+      "breakpoints": true
     }
   ]
 }

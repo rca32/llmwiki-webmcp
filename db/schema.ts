@@ -158,6 +158,21 @@ export const auditEvents = sqliteTable(
   },
   (t) => [index("idx_audit_events_wiki_recent").on(t.wikiId, t.createdAt)],
 );
+export const webmcpToolMetrics = sqliteTable(
+  "webmcp_tool_metrics",
+  {
+    wikiId: text("wiki_id").notNull(),
+    toolName: text("tool_name").notNull(),
+    outcome: text("outcome").notNull(),
+    invocationCount: integer("invocation_count").notNull().default(0),
+    totalLatencyMs: integer("total_latency_ms").notNull().default(0),
+    maxLatencyMs: integer("max_latency_ms").notNull().default(0),
+    lastLatencyMs: integer("last_latency_ms").notNull().default(0),
+    lastCorrelationId: text("last_correlation_id").notNull(),
+    lastInvokedAt: text("last_invoked_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.wikiId, t.toolName, t.outcome] })],
+);
 export const wikiUsage = sqliteTable("wiki_usage", {
   wikiId: text("wiki_id").primaryKey(),
   pageBytes: integer("page_bytes").notNull().default(0),

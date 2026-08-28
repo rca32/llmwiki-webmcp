@@ -64,6 +64,16 @@ type Operations = {
   latest_backup: Record<string, unknown> | null;
   latest_acknowledged_full_backup: Record<string, unknown> | null;
   pending_repairs: number;
+  webmcp_metrics: Array<{
+    tool_name: string;
+    outcome: "success" | "denied" | "conflict" | "validation" | "error";
+    invocation_count: number;
+    average_latency_ms: number;
+    max_latency_ms: number;
+    last_latency_ms: number;
+    last_correlation_id: string;
+    last_invoked_at: string;
+  }>;
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -508,7 +518,21 @@ export function OperationsPanel({
 
   const acknowledgedAt =
       operations?.latest_acknowledged_full_backup?.acknowledged_at,
-    acknowledgedDate = acknowledgedAt ? new Date(String(acknowledgedAt)) : null;
+    acknowledgedDate = acknowledgedAt ? new Date(String(acknowledgedAt)) : null,
+    webmcpMetrics = operations?.webmcp_metrics ?? [],
+    webmcpCalls = webmcpMetrics.reduce(
+      (total, metric) => total + Number(metric.invocation_count),
+      0,
+    ),
+    webmcpWeightedLatency = webmcpMetrics.reduce(
+      (total, metric) =>
+        total +
+        Number(metric.average_latency_ms) * Number(metric.invocation_count),
+      0,
+    ),
+    webmcpAverageLatency = webmcpCalls
+      ? Math.round(webmcpWeightedLatency / webmcpCalls)
+      : 0;
 
   if (!hasWiki)
     return (
@@ -719,6 +743,60 @@ export function OperationsPanel({
                 D1 원자성 검사
               </button>
             </div>
+          </section>
+        )}
+        {capabilities.can_full_backup && (
+          <section className="operation-card webmcp-observability-card">
+            <span>WEBMCP OBSERVABILITY</span>
+            <h3>에이전트 도구 호출 상태</h3>
+            <p>
+              입력·응답 콘텐츠와 인증정보는 저장하지 않고 도구별 결과와
+              지연시간만 집계합니다.
+            </p>
+            <div className="metric-grid webmcp-summary">
+              <div>
+                <strong>{webmcpCalls}</strong>
+                <small>총 호출</small>
+              </div>
+              <div>
+                <strong>{webmcpAverageLatency} ms</strong>
+                <small>평균 지연</small>
+              </div>
+              <div>
+                <strong>
+                  {webmcpMetrics.reduce(
+                    (total, metric) =>
+                      total +
+                      (metric.outcome === "success"
+                        ? Number(metric.invocation_count)
+                        : 0),
+                    0,
+                  )}
+                </strong>
+                <small>성공</small>
+              </div>
+            </div>
+            {webmcpMetrics.length ? (
+              <div className="webmcp-metric-list" aria-label="WebMCP 호출 지표">
+                {webmcpMetrics.map((metric) => (
+                  <article
+                    key={`${metric.tool_name}:${metric.outcome}`}
+                    data-outcome={metric.outcome}
+                  >
+                    <div>
+                      <strong>{metric.tool_name}</strong>
+                      <small>
+                        {metric.outcome} · 평균 {metric.average_latency_ms} ms ·
+                        최대 {metric.max_latency_ms} ms
+                      </small>
+                    </div>
+                    <b>{metric.invocation_count}회</b>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <small>아직 기록된 WebMCP 호출이 없습니다.</small>
+            )}
           </section>
         )}
         {capabilities.can_manage_members && (

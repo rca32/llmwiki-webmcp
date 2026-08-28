@@ -1317,6 +1317,50 @@ body {
   color: #5c5f55;
   font-size: 8px;
 }
+.webmcp-observability-card {
+  grid-column: 1/-1;
+}
+.webmcp-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.webmcp-metric-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+  max-height: 250px;
+  overflow: auto;
+}
+.webmcp-metric-list article {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid #e2e3da;
+}
+.webmcp-metric-list strong,
+.webmcp-metric-list small {
+  display: block;
+}
+.webmcp-metric-list strong {
+  font-family: var(--font-mono), monospace;
+  font-size: 9px;
+}
+.webmcp-metric-list small {
+  margin-top: 3px;
+  color: #85877d;
+  font-size: 8px;
+}
+.webmcp-metric-list b {
+  color: #64752c;
+  font-family: var(--font-mono), monospace;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.webmcp-metric-list article[data-outcome="error"] b,
+.webmcp-metric-list article[data-outcome="denied"] b,
+.webmcp-metric-list article[data-outcome="conflict"] b {
+  color: var(--coral);
+}
 .members-card {
   grid-column: 1/-1;
 }
@@ -1471,6 +1515,12 @@ body {
   .members-card {
     grid-column: auto;
   }
+  .webmcp-observability-card {
+    grid-column: auto;
+  }
+  .webmcp-metric-list {
+    grid-template-columns: 1fr;
+  }
   .member-form {
     grid-template-columns: 1fr;
   }
@@ -1490,5 +1540,8 @@ body {
   }
   .metric-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .webmcp-summary {
+    grid-template-columns: 1fr;
   }
 }

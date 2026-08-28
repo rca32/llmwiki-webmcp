@@ -59,6 +59,36 @@ let activeBrowser;
       errors.push(`HTTP ${response.status()} ${response.url()}`);
   });
 
+  const initialSession = await context.request
+    .get(`${baseUrl}/api/session/capabilities`)
+    .then((response) => response.json());
+  if (initialSession.data.capabilities.can_bootstrap) {
+    const bootstrap = await context.request.post(`${baseUrl}/api/wikis`, {
+      data: {
+        title: "Liminal Wiki UI Test",
+        expected_version: initialSession.data.site_version,
+      },
+    });
+    if (bootstrap.status() !== 201)
+      throw new Error("UI smoke could not bootstrap an empty local Site.");
+  }
+  const initialPages = await context.request
+    .get(`${baseUrl}/api/pages?depth=1&limit=1`)
+    .then((response) => response.json());
+  if (!initialPages.data.pages.length) {
+    const seed = await context.request.post(`${baseUrl}/api/pages`, {
+      data: {
+        title: "UI Test Seed",
+        page_type: "note",
+        markdown: "# UI Test Seed\n\nStable local browser-test fixture.",
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    });
+    if (seed.status() !== 201)
+      throw new Error("UI smoke could not create its local seed page.");
+  }
+
   const shellLoadSamplesMs = [];
   for (let sample = 0; sample < 4; sample++) {
     const navigationStarted = Date.now();
@@ -257,6 +287,66 @@ let activeBrowser;
   );
   if (deniedOutsiderRead.status() !== 403)
     throw new Error("Non-member page read was not denied.");
+  const telemetryCorrelation = `ui-smoke-${roleStamp}`;
+  const telemetryRecord = await viewerContext.request.post(
+    `${baseUrl}/api/telemetry/webmcp`,
+    {
+      data: {
+        tool_name: "wiki_search",
+        outcome: "success",
+        latency_ms: 17,
+        correlation_id: telemetryCorrelation,
+      },
+    },
+  );
+  if (!telemetryRecord.ok())
+    throw new Error("A viewer could not record bounded WebMCP telemetry.");
+  const deniedOutsiderTelemetry = await outsiderContext.request.post(
+    `${baseUrl}/api/telemetry/webmcp`,
+    {
+      data: {
+        tool_name: "wiki_search",
+        outcome: "success",
+        latency_ms: 17,
+        correlation_id: telemetryCorrelation,
+      },
+    },
+  );
+  if (deniedOutsiderTelemetry.status() !== 403)
+    throw new Error("A non-member could record WebMCP telemetry.");
+  const rejectedTelemetryContent = await context.request.post(
+    `${baseUrl}/api/telemetry/webmcp`,
+    {
+      data: {
+        tool_name: "wiki_search",
+        outcome: "success",
+        latency_ms: 17,
+        correlation_id: telemetryCorrelation,
+        query: "PRIVATE_TELEMETRY_CONTENT_MUST_NOT_PERSIST",
+      },
+    },
+  );
+  if (rejectedTelemetryContent.status() !== 400)
+    throw new Error("WebMCP telemetry accepted an unsupported content field.");
+  const operationsAfterTelemetry = await context.request
+    .get(`${baseUrl}/api/operations`)
+    .then((response) => response.json());
+  const recordedMetric = operationsAfterTelemetry.data.webmcp_metrics.find(
+    (metric) =>
+      metric.tool_name === "wiki_search" && metric.outcome === "success",
+  );
+  if (
+    !recordedMetric ||
+    Number(recordedMetric.invocation_count) < 1 ||
+    recordedMetric.last_correlation_id !== telemetryCorrelation
+  )
+    throw new Error("WebMCP telemetry did not round-trip through operations.");
+  if (
+    JSON.stringify(operationsAfterTelemetry).includes(
+      "PRIVATE_TELEMETRY_CONTENT_MUST_NOT_PERSIST",
+    )
+  )
+    throw new Error("WebMCP telemetry exposed rejected content.");
   const editorPageTitle = `Editor Matrix ${roleStamp}`;
   const editorCreate = await editorContext.request.post(
     `${baseUrl}/api/pages`,
@@ -782,6 +872,11 @@ let activeBrowser;
 
   await page.getByRole("button", { name: "운영과 복구" }).click();
   await page.locator(".operations-stage").waitFor();
+  await page.getByText("에이전트 도구 호출 상태").waitFor();
+  await page
+    .locator(".webmcp-metric-list article", { hasText: "wiki_search" })
+    .first()
+    .waitFor();
   await page.locator(".audit-list article").first().waitFor();
   const auditEventCount = await page.locator(".audit-list article").count();
   if (auditEventCount < 1)

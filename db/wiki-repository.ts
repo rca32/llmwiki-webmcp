@@ -47,6 +47,7 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_attachments_wiki_page ON attachments(wiki_id,page_id,status)`,
   `CREATE TABLE IF NOT EXISTS idempotency_keys (wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,operation_id TEXT NOT NULL,operation_name TEXT NOT NULL,request_hash TEXT NOT NULL,request_id TEXT NOT NULL,status TEXT NOT NULL,lease_expires_at TEXT NOT NULL,failure_retryable INTEGER,attempts INTEGER NOT NULL DEFAULT 1,result_json TEXT,created_at TEXT NOT NULL,completed_at TEXT,expires_at TEXT NOT NULL,PRIMARY KEY(wiki_id,actor_email,operation_name,operation_id))`,
   `CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,origin TEXT NOT NULL,action TEXT NOT NULL,target_type TEXT NOT NULL,target_id TEXT NOT NULL,outcome TEXT NOT NULL,request_id TEXT NOT NULL,metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS webmcp_tool_metrics (wiki_id TEXT NOT NULL,tool_name TEXT NOT NULL,outcome TEXT NOT NULL,invocation_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_correlation_id TEXT NOT NULL,last_invoked_at TEXT NOT NULL,PRIMARY KEY(wiki_id,tool_name,outcome))`,
   `CREATE TABLE IF NOT EXISTS wiki_usage (wiki_id TEXT PRIMARY KEY NOT NULL,page_bytes INTEGER NOT NULL DEFAULT 0,revision_inline_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_revision_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_attachment_bytes INTEGER NOT NULL DEFAULT 0,r2_soft_deleted_bytes INTEGER NOT NULL DEFAULT 0,r2_pending_bytes INTEGER NOT NULL DEFAULT 0,r2_staging_import_bytes INTEGER NOT NULL DEFAULT 0,r2_orphan_estimate_bytes INTEGER NOT NULL DEFAULT 0,page_count INTEGER NOT NULL DEFAULT 0,revision_count INTEGER NOT NULL DEFAULT 0,attachment_count INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS site_state (id INTEGER PRIMARY KEY NOT NULL,active_wiki_id TEXT,bootstrap_status TEXT NOT NULL,reserved_by TEXT,reserved_at TEXT,lease_expires_at TEXT,last_error TEXT,version INTEGER NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS site_runtime_settings (id INTEGER PRIMARY KEY NOT NULL,write_mode TEXT NOT NULL DEFAULT 'read_write',reason TEXT,updated_by TEXT,updated_at TEXT NOT NULL)`,
@@ -360,6 +361,31 @@ export async function listAuditEvents(wikiId: string, limit: number) {
   }));
 }
 
+export async function recordWebMcpInvocation(input: {
+  wikiId: string;
+  toolName: string;
+  outcome: string;
+  latencyMs: number;
+  correlationId: string;
+}) {
+  const timestamp = now();
+  await db()
+    .prepare(
+      `INSERT INTO webmcp_tool_metrics(wiki_id,tool_name,outcome,invocation_count,total_latency_ms,max_latency_ms,last_latency_ms,last_correlation_id,last_invoked_at) VALUES(?,?,?,1,?,?,?,?,?) ON CONFLICT(wiki_id,tool_name,outcome) DO UPDATE SET invocation_count=invocation_count+1,total_latency_ms=total_latency_ms+excluded.last_latency_ms,max_latency_ms=MAX(max_latency_ms,excluded.last_latency_ms),last_latency_ms=excluded.last_latency_ms,last_correlation_id=excluded.last_correlation_id,last_invoked_at=excluded.last_invoked_at`,
+    )
+    .bind(
+      input.wikiId,
+      input.toolName,
+      input.outcome,
+      input.latencyMs,
+      input.latencyMs,
+      input.latencyMs,
+      input.correlationId,
+      timestamp,
+    )
+    .run();
+}
+
 export async function getOperationsSummary(wikiId: string) {
   const usage = await db()
     .prepare(
@@ -385,11 +411,18 @@ export async function getOperationsSummary(wikiId: string) {
     )
     .bind(wikiId)
     .first<{ count: number }>();
+  const webmcpMetrics = await db()
+    .prepare(
+      `SELECT tool_name,outcome,invocation_count,ROUND(CAST(total_latency_ms AS REAL)/MAX(invocation_count,1)) AS average_latency_ms,max_latency_ms,last_latency_ms,last_correlation_id,last_invoked_at FROM webmcp_tool_metrics WHERE wiki_id=? ORDER BY last_invoked_at DESC,tool_name,outcome`,
+    )
+    .bind(wikiId)
+    .all();
   return {
     usage: usage ?? null,
     latest_backup: latestBackup ?? null,
     latest_acknowledged_full_backup: latestFullBackup ?? null,
     pending_repairs: Number(pendingRepairs?.count ?? 0),
+    webmcp_metrics: webmcpMetrics.results,
   };
 }
 

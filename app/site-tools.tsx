@@ -450,7 +450,7 @@ export function toolsForCapabilities(capabilities: {
   const tools: SiteTool[] = [];
   if (capabilities.can_read) tools.push(...readTools());
   if (capabilities.can_write) tools.push(...writeTools());
-  return tools;
+  return tools.map(observeTool);
 }
 
 export function SiteTools() {
@@ -552,6 +552,84 @@ function optionalEnumArray(value: unknown) {
 }
 function safeError(error: unknown) {
   return error instanceof Error ? error.message : "Unknown registration error";
+}
+function observeTool(tool: SiteTool): SiteTool {
+  return {
+    ...tool,
+    execute: async (input) => {
+      const startedAt = performance.now();
+      try {
+        const result = await tool.execute(input);
+        await reportToolInvocation(
+          tool.name,
+          classifyToolOutcome(result),
+          startedAt,
+          correlationIdFrom(result),
+        );
+        return result;
+      } catch (error) {
+        await reportToolInvocation(
+          tool.name,
+          "error",
+          startedAt,
+          `webmcp_${crypto.randomUUID()}`,
+        );
+        throw error;
+      }
+    },
+  };
+}
+function classifyToolOutcome(
+  result: unknown,
+): "success" | "denied" | "conflict" | "validation" | "error" {
+  if (!result || typeof result !== "object") return "error";
+  const envelope = result as {
+    ok?: unknown;
+    error?: { code?: unknown };
+  };
+  if (envelope.ok === true) return "success";
+  const code = envelope.error?.code;
+  if (code === "unauthenticated" || code === "forbidden") return "denied";
+  if (code === "version_conflict") return "conflict";
+  if (code === "validation_error" || code === "quota_exceeded")
+    return "validation";
+  return "error";
+}
+function correlationIdFrom(result: unknown) {
+  const candidate =
+    result && typeof result === "object"
+      ? (result as { request_id?: unknown }).request_id
+      : null;
+  return typeof candidate === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(candidate)
+    ? candidate
+    : `webmcp_${crypto.randomUUID()}`;
+}
+async function reportToolInvocation(
+  toolName: string,
+  outcome: "success" | "denied" | "conflict" | "validation" | "error",
+  startedAt: number,
+  correlationId: string,
+) {
+  const latencyMs = Math.min(
+    300_000,
+    Math.max(0, Math.round(performance.now() - startedAt)),
+  );
+  try {
+    await fetch("/api/telemetry/webmcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        tool_name: toolName,
+        outcome,
+        latency_ms: latencyMs,
+        correlation_id: correlationId,
+      }),
+    });
+  } catch {
+    console.warn("WebMCP invocation telemetry could not be recorded.");
+  }
 }
 async function writeRequest(path: string, method: string, body: JsonObject) {
   const result = await requestJson(path, {
