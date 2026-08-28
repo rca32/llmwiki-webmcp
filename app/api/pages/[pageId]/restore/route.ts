@@ -15,7 +15,7 @@ import {
 
 type Context = { params: Promise<{ pageId: string }> };
 export async function POST(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("revision.restore");
   try {
     const session = await requireWikiSession("can_restore"),
       { pageId } = await params,

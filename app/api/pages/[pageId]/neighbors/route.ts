@@ -6,7 +6,7 @@ import { requiredInteger } from "../../../../../lib/validation";
 
 type Context = { params: Promise<{ pageId: string }> };
 export async function GET(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("page.neighbors");
   try {
     const session = await requireWikiSession("can_read"),
       { pageId } = await params,

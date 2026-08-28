@@ -10,7 +10,7 @@ import {
 } from "../../../../db/wiki-repository";
 
 export async function POST() {
-  const id = requestId();
+  const id = requestId("maintenance.diagnostics");
   try {
     const session = await requireWikiSession("can_full_backup"),
       atomicity = await probeD1AtomicBatch({

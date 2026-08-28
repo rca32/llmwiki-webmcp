@@ -10,7 +10,7 @@ import {
 
 type Context = { params: Promise<{ backupRunId: string }> };
 export async function POST(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("export.ack");
   try {
     const session = await requireWikiSession("can_export_portable"),
       { backupRunId } = await params,

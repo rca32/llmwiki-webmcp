@@ -4,7 +4,7 @@ import { errorResponse, requestId } from "../../../../lib/http";
 import { requireWikiSession } from "../../../../lib/server-session";
 
 export async function POST() {
-  const id = requestId();
+  const id = requestId("maintenance.storage");
   try {
     const session = await requireWikiSession("can_full_backup"),
       result = await runStorageMaintenance({

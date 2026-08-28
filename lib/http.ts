@@ -1,6 +1,8 @@
 import { AppError, failure } from "./contracts";
+import { completeApiRequest, startApiRequest } from "./request-observability";
+import { apiOutcomeForError } from "./request-outcome";
 
-export const requestId = () => `req_${crypto.randomUUID()}`;
+export const requestId = (commandName: string) => startApiRequest(commandName);
 export async function jsonBody(request: Request): Promise<unknown> {
   try {
     return await request.json();
@@ -14,6 +16,7 @@ export async function jsonBody(request: Request): Promise<unknown> {
 }
 export function errorResponse(error: unknown, id: string): Response {
   const result = failure(error, id);
+  completeApiRequest(id, apiOutcomeForError(result.body.error.code));
   return Response.json(result.body, {
     status: result.status,
     headers: { "cache-control": "no-store" },

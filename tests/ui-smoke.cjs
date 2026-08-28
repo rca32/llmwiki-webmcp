@@ -328,9 +328,26 @@ let activeBrowser;
   );
   if (rejectedTelemetryContent.status() !== 400)
     throw new Error("WebMCP telemetry accepted an unsupported content field.");
-  const operationsAfterTelemetry = await context.request
-    .get(`${baseUrl}/api/operations`)
-    .then((response) => response.json());
+  let operationsAfterTelemetry;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    operationsAfterTelemetry = await context.request
+      .get(`${baseUrl}/api/operations`)
+      .then((response) => response.json());
+    const apiMetrics = operationsAfterTelemetry.data.api_metrics ?? [];
+    if (
+      apiMetrics.some(
+        (metric) =>
+          metric.command_name === "page.create" && metric.outcome === "denied",
+      ) &&
+      apiMetrics.some(
+        (metric) =>
+          metric.command_name === "telemetry.webmcp.record" &&
+          metric.outcome === "validation",
+      )
+    )
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   const recordedMetric = operationsAfterTelemetry.data.webmcp_metrics.find(
     (metric) =>
       metric.tool_name === "wiki_search" && metric.outcome === "success",
@@ -347,6 +364,21 @@ let activeBrowser;
     )
   )
     throw new Error("WebMCP telemetry exposed rejected content.");
+  const apiMetrics = operationsAfterTelemetry.data.api_metrics ?? [];
+  if (
+    !apiMetrics.some(
+      (metric) =>
+        metric.command_name === "page.create" && metric.outcome === "denied",
+    ) ||
+    !apiMetrics.some(
+      (metric) =>
+        metric.command_name === "telemetry.webmcp.record" &&
+        metric.outcome === "validation",
+    )
+  )
+    throw new Error(
+      "API outcome metrics did not round-trip through operations.",
+    );
   const editorPageTitle = `Editor Matrix ${roleStamp}`;
   const editorCreate = await editorContext.request.post(
     `${baseUrl}/api/pages`,
@@ -873,6 +905,8 @@ let activeBrowser;
   await page.getByRole("button", { name: "운영과 복구" }).click();
   await page.locator(".operations-stage").waitFor();
   await page.getByText("에이전트 도구 호출 상태").waitFor();
+  await page.getByText("공통 명령 처리 상태").waitFor();
+  await page.locator('[aria-label="API 요청 지표"] article').first().waitFor();
   await page
     .locator(".webmcp-metric-list article", { hasText: "wiki_search" })
     .first()

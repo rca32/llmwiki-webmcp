@@ -5,7 +5,7 @@ import { requireWikiSession } from "../../../../lib/server-session";
 import { requireObject } from "../../../../lib/validation";
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("export.prepare");
   try {
     const body = requireObject(await jsonBody(request)),
       profile = body.profile ?? "portable";

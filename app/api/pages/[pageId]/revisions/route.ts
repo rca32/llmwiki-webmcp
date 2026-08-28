@@ -5,7 +5,7 @@ import { requireWikiSession } from "../../../../../lib/server-session";
 
 type Context = { params: Promise<{ pageId: string }> };
 export async function GET(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("revision.list");
   try {
     const session = await requireWikiSession("can_read"),
       { pageId } = await params,

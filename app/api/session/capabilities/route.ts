@@ -3,7 +3,7 @@ import { errorResponse, requestId } from "../../../../lib/http";
 import { getWikiSession } from "../../../../lib/server-session";
 
 export async function GET() {
-  const id = requestId();
+  const id = requestId("session.capabilities");
   try {
     const session = await getWikiSession();
     return Response.json(

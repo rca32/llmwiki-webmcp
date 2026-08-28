@@ -5,7 +5,7 @@ import { requireImportAuthority } from "../../../../lib/server-session";
 import { requireObject } from "../../../../lib/validation";
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("import.session_create");
   try {
     const session = await requireImportAuthority(),
       body = requireObject(await jsonBody(request)),

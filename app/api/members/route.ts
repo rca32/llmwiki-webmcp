@@ -5,7 +5,7 @@ import { listWikiMembers, upsertWikiMember } from "../../../db/wiki-repository";
 import { requireObject, requiredString } from "../../../lib/validation";
 
 export async function GET() {
-  const id = requestId();
+  const id = requestId("member.list");
   try {
     const session = await requireWikiSession("can_manage_members");
     return Response.json(
@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("member.upsert");
   try {
     const session = await requireWikiSession("can_manage_members"),
       body = requireObject(await jsonBody(request)),

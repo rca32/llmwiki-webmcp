@@ -5,7 +5,7 @@ import { runSearchBenchmark } from "../../../../db/wiki-repository";
 import { requireObject, requiredInteger } from "../../../../lib/validation";
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("maintenance.search_benchmark");
   try {
     if (process.env.NODE_ENV === "production")
       throw new AppError(

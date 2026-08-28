@@ -22,7 +22,7 @@ import {
 } from "../../../lib/validation";
 
 export async function GET(request: Request) {
-  const id = requestId();
+  const id = requestId("page.list");
   try {
     const session = await requireWikiSession("can_read");
     const url = new URL(request.url),
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   }
 }
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("page.create");
   try {
     const session = await requireWikiSession("can_write");
     const body = requireObject(await jsonBody(request));

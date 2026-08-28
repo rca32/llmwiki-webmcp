@@ -10,16 +10,17 @@ import {
   requestId,
 } from "../../../../lib/http";
 import { requireWikiSession } from "../../../../lib/server-session";
+import { completeApiRequest } from "../../../../lib/request-observability";
 import { operationId, requireObject } from "../../../../lib/validation";
 
 type Context = { params: Promise<{ attachmentId: string }> };
 export async function GET(_request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("attachment.download");
   try {
     const session = await requireWikiSession("can_read"),
       { attachmentId } = await params,
       { row, data } = await getAttachment(session.wikiId!, attachmentId);
-    return new Response(data, {
+    const response = new Response(data, {
       headers: {
         "content-type": row.mime_type,
         "content-length": String(row.size_bytes),
@@ -28,12 +29,14 @@ export async function GET(_request: Request, { params }: Context) {
         "cache-control": "private, no-store",
       },
     });
+    completeApiRequest(id, "success");
+    return response;
   } catch (error) {
     return errorResponse(error, id);
   }
 }
 export async function DELETE(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("attachment.delete");
   try {
     const session = await requireWikiSession("can_manage_attachments"),
       { attachmentId } = await params,

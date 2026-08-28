@@ -5,7 +5,7 @@ import { requireWikiSession } from "../../../lib/server-session";
 import { requiredInteger } from "../../../lib/validation";
 
 export async function GET(request: Request) {
-  const id = requestId();
+  const id = requestId("graph.read");
   try {
     const session = await requireWikiSession("can_read"),
       url = new URL(request.url),

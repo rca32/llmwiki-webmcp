@@ -21,7 +21,7 @@ import {
 
 type Context = { params: Promise<{ pageId: string }> };
 export async function GET(_request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("page.read");
   try {
     const session = await requireWikiSession("can_read");
     const { pageId } = await params;
@@ -34,7 +34,7 @@ export async function GET(_request: Request, { params }: Context) {
   }
 }
 export async function PATCH(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("page.update");
   try {
     const session = await requireWikiSession("can_write");
     const { pageId } = await params,
@@ -72,7 +72,7 @@ export async function PATCH(request: Request, { params }: Context) {
   }
 }
 export async function DELETE(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("page.delete");
   try {
     const session = await requireWikiSession("can_soft_delete");
     const { pageId } = await params,

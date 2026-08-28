@@ -4,7 +4,7 @@ import { requireWikiSession } from "../../../lib/server-session";
 import { getOperationsSummary } from "../../../db/wiki-repository";
 
 export async function GET() {
-  const id = requestId();
+  const id = requestId("operations.summary");
   try {
     const session = await requireWikiSession("can_full_backup");
     return Response.json(

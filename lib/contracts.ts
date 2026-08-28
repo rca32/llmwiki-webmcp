@@ -139,6 +139,9 @@ export function success<T>(
   requestId: string,
   changeSet: ChangeSet | null = null,
 ): SuccessEnvelope<T> {
+  void import("./request-observability").then(({ completeApiRequest }) =>
+    completeApiRequest(requestId, "success"),
+  );
   return { ok: true, data, request_id: requestId, change_set: changeSet };
 }
 export function failure(

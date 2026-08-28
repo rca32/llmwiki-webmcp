@@ -16,7 +16,7 @@ import {
 
 type Context = { params: Promise<{ pageId: string }> };
 export async function POST(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("page.restore_deleted");
   try {
     const session = await requireWikiSession("can_soft_delete"),
       { pageId } = await params,

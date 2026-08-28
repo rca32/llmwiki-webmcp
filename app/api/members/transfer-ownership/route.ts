@@ -5,7 +5,7 @@ import { transferWikiOwnership } from "../../../../db/wiki-repository";
 import { requireObject, requiredString } from "../../../../lib/validation";
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("member.transfer_ownership");
   try {
     const session = await requireWikiSession("can_manage_members"),
       body = requireObject(await jsonBody(request)),

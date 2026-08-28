@@ -12,7 +12,7 @@ import {
 } from "../../../lib/validation";
 
 export async function GET() {
-  const id = requestId();
+  const id = requestId("wiki.list");
   try {
     const session = await requireWikiSession("can_read");
     return Response.json(
@@ -25,7 +25,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("wiki.bootstrap");
   try {
     const session = await requireWikiSession("can_bootstrap");
     const body = requireObject(await jsonBody(request));

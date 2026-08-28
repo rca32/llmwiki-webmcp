@@ -74,6 +74,16 @@ type Operations = {
     last_correlation_id: string;
     last_invoked_at: string;
   }>;
+  api_metrics: Array<{
+    command_name: string;
+    outcome: "success" | "denied" | "conflict" | "validation" | "error";
+    request_count: number;
+    average_latency_ms: number;
+    max_latency_ms: number;
+    last_latency_ms: number;
+    last_request_id: string;
+    last_requested_at: string;
+  }>;
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -532,6 +542,20 @@ export function OperationsPanel({
     ),
     webmcpAverageLatency = webmcpCalls
       ? Math.round(webmcpWeightedLatency / webmcpCalls)
+      : 0,
+    apiMetrics = operations?.api_metrics ?? [],
+    apiRequests = apiMetrics.reduce(
+      (total, metric) => total + Number(metric.request_count),
+      0,
+    ),
+    apiWeightedLatency = apiMetrics.reduce(
+      (total, metric) =>
+        total +
+        Number(metric.average_latency_ms) * Number(metric.request_count),
+      0,
+    ),
+    apiAverageLatency = apiRequests
+      ? Math.round(apiWeightedLatency / apiRequests)
       : 0;
 
   if (!hasWiki)
@@ -796,6 +820,65 @@ export function OperationsPanel({
               </div>
             ) : (
               <small>아직 기록된 WebMCP 호출이 없습니다.</small>
+            )}
+          </section>
+        )}
+        {capabilities.can_full_backup && (
+          <section className="operation-card webmcp-observability-card">
+            <span>API OBSERVABILITY</span>
+            <h3>공통 명령 처리 상태</h3>
+            <p>
+              UI와 직접 API 요청을 같은 명령 이름으로 집계합니다. URL 인자, 요청
+              본문, 인증정보는 저장하지 않습니다.
+            </p>
+            <div className="metric-grid webmcp-summary">
+              <div>
+                <strong>{apiRequests}</strong>
+                <small>총 요청</small>
+              </div>
+              <div>
+                <strong>{apiAverageLatency} ms</strong>
+                <small>평균 지연</small>
+              </div>
+              <div>
+                <strong>
+                  {apiMetrics.reduce(
+                    (total, metric) =>
+                      total +
+                      (metric.outcome === "success"
+                        ? Number(metric.request_count)
+                        : 0),
+                    0,
+                  )}
+                </strong>
+                <small>성공</small>
+              </div>
+            </div>
+            {apiMetrics.length ? (
+              <div
+                className="webmcp-metric-list"
+                role="region"
+                aria-label="API 요청 지표"
+                tabIndex={0}
+              >
+                {apiMetrics.map((metric) => (
+                  <article
+                    key={`${metric.command_name}:${metric.outcome}`}
+                    data-outcome={metric.outcome}
+                  >
+                    <div>
+                      <strong>{metric.command_name}</strong>
+                      <small>
+                        {metric.outcome} · 평균 {metric.average_latency_ms} ms ·
+                        최대 {metric.max_latency_ms} ms
+                      </small>
+                    </div>
+                    <b>{metric.request_count}회</b>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <small>아직 집계된 API 요청이 없습니다.</small>
             )}
           </section>
         )}

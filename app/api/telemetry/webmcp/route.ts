@@ -37,7 +37,7 @@ const ALLOWED_FIELDS = new Set([
 ]);
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("telemetry.webmcp.record");
   try {
     const session = await requireWikiSession("can_read");
     const body = requireObject(await jsonBody(request));

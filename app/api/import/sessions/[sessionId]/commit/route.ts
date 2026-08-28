@@ -5,7 +5,7 @@ import { requireImportAuthority } from "../../../../../../lib/server-session";
 
 type Context = { params: Promise<{ sessionId: string }> };
 export async function POST(_request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("import.commit");
   try {
     const session = await requireImportAuthority(),
       { sessionId } = await params,

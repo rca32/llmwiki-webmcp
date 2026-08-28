@@ -5,7 +5,7 @@ import { listAuditEvents } from "../../../db/wiki-repository";
 import { requiredInteger } from "../../../lib/validation";
 
 export async function GET(request: Request) {
-  const id = requestId();
+  const id = requestId("audit.list");
   try {
     const session = await requireWikiSession("can_read"),
       url = new URL(request.url),

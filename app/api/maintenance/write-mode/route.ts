@@ -9,7 +9,7 @@ import {
 } from "../../../../lib/validation";
 
 export async function PUT(request: Request) {
-  const id = requestId();
+  const id = requestId("maintenance.write_mode");
   try {
     const session = await requireWikiSession("can_manage_members"),
       body = requireObject(await jsonBody(request)),

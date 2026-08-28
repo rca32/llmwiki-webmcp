@@ -10,7 +10,7 @@ import { requireObject, requiredString } from "../../../../lib/validation";
 type Context = { params: Promise<{ memberEmail: string }> };
 
 export async function PATCH(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("member.update");
   try {
     const session = await requireWikiSession("can_manage_members"),
       { memberEmail } = await params,
@@ -37,7 +37,7 @@ export async function PATCH(request: Request, { params }: Context) {
 }
 
 export async function DELETE(_request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("member.remove");
   try {
     const session = await requireWikiSession("can_manage_members"),
       { memberEmail } = await params,

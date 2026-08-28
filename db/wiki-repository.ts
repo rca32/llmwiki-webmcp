@@ -362,13 +362,44 @@ export async function listAuditEvents(wikiId: string, limit: number) {
 }
 
 async function ensureWebMcpTelemetrySchema() {
-  telemetrySchemaReady ??= db()
-    .prepare(
-      `CREATE TABLE IF NOT EXISTS webmcp_tool_metrics (wiki_id TEXT NOT NULL,tool_name TEXT NOT NULL,outcome TEXT NOT NULL,invocation_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_correlation_id TEXT NOT NULL,last_invoked_at TEXT NOT NULL,PRIMARY KEY(wiki_id,tool_name,outcome))`,
-    )
-    .run()
-    .then(() => undefined);
+  telemetrySchemaReady ??= (async () => {
+    const d = db();
+    await d
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS webmcp_tool_metrics (wiki_id TEXT NOT NULL,tool_name TEXT NOT NULL,outcome TEXT NOT NULL,invocation_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_correlation_id TEXT NOT NULL,last_invoked_at TEXT NOT NULL,PRIMARY KEY(wiki_id,tool_name,outcome))`,
+      )
+      .run();
+    await d
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS api_request_metrics (command_name TEXT NOT NULL,outcome TEXT NOT NULL,request_count INTEGER NOT NULL DEFAULT 0,total_latency_ms INTEGER NOT NULL DEFAULT 0,max_latency_ms INTEGER NOT NULL DEFAULT 0,last_latency_ms INTEGER NOT NULL DEFAULT 0,last_request_id TEXT NOT NULL,last_requested_at TEXT NOT NULL,PRIMARY KEY(command_name,outcome))`,
+      )
+      .run();
+  })();
   return telemetrySchemaReady;
+}
+
+export async function recordApiRequestMetric(input: {
+  commandName: string;
+  outcome: string;
+  latencyMs: number;
+  requestId: string;
+}) {
+  await ensureWebMcpTelemetrySchema();
+  const timestamp = now();
+  await db()
+    .prepare(
+      `INSERT INTO api_request_metrics(command_name,outcome,request_count,total_latency_ms,max_latency_ms,last_latency_ms,last_request_id,last_requested_at) VALUES(?,?,1,?,?,?,?,?) ON CONFLICT(command_name,outcome) DO UPDATE SET request_count=request_count+1,total_latency_ms=total_latency_ms+excluded.last_latency_ms,max_latency_ms=MAX(max_latency_ms,excluded.last_latency_ms),last_latency_ms=excluded.last_latency_ms,last_request_id=excluded.last_request_id,last_requested_at=excluded.last_requested_at`,
+    )
+    .bind(
+      input.commandName,
+      input.outcome,
+      input.latencyMs,
+      input.latencyMs,
+      input.latencyMs,
+      input.requestId,
+      timestamp,
+    )
+    .run();
 }
 
 export async function recordWebMcpInvocation(input: {
@@ -429,12 +460,18 @@ export async function getOperationsSummary(wikiId: string) {
     )
     .bind(wikiId)
     .all();
+  const apiMetrics = await db()
+    .prepare(
+      `SELECT command_name,outcome,request_count,ROUND(CAST(total_latency_ms AS REAL)/MAX(request_count,1)) AS average_latency_ms,max_latency_ms,last_latency_ms,last_request_id,last_requested_at FROM api_request_metrics ORDER BY last_requested_at DESC,command_name,outcome`,
+    )
+    .all();
   return {
     usage: usage ?? null,
     latest_backup: latestBackup ?? null,
     latest_acknowledged_full_backup: latestFullBackup ?? null,
     pending_repairs: Number(pendingRepairs?.count ?? 0),
     webmcp_metrics: webmcpMetrics.results,
+    api_metrics: apiMetrics.results,
   };
 }
 

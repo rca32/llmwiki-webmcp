@@ -19,7 +19,7 @@ const BLOCKED_MIME = new Set([
   "text/javascript",
 ]);
 export async function GET(request: Request) {
-  const id = requestId();
+  const id = requestId("attachment.list");
   try {
     const session = await requireWikiSession("can_read"),
       url = new URL(request.url),
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   }
 }
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("attachment.upload");
   try {
     const session = await requireWikiSession("can_manage_attachments"),
       form = await request.formData(),

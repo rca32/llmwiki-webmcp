@@ -1,10 +1,11 @@
 import { getExportPart } from "../../../../db/wiki-repository";
 import { errorResponse, requestId } from "../../../../lib/http";
 import { requireWikiSession } from "../../../../lib/server-session";
+import { completeApiRequest } from "../../../../lib/request-observability";
 import { requiredInteger, requiredString } from "../../../../lib/validation";
 
 export async function GET(request: Request) {
-  const id = requestId();
+  const id = requestId("export.stream");
   try {
     const session = await requireWikiSession("can_export_portable"),
       url = new URL(request.url),
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
         runId,
         partNumber,
       );
-    return new Response(object.body, {
+    const response = new Response(object.body, {
       headers: {
         "content-type":
           part.kind === "metadata"
@@ -40,6 +41,8 @@ export async function GET(request: Request) {
         "cache-control": "private, no-store",
       },
     });
+    completeApiRequest(id, "success");
+    return response;
   } catch (error) {
     return errorResponse(error, id);
   }

@@ -173,6 +173,20 @@ export const webmcpToolMetrics = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.wikiId, t.toolName, t.outcome] })],
 );
+export const apiRequestMetrics = sqliteTable(
+  "api_request_metrics",
+  {
+    commandName: text("command_name").notNull(),
+    outcome: text("outcome").notNull(),
+    requestCount: integer("request_count").notNull().default(0),
+    totalLatencyMs: integer("total_latency_ms").notNull().default(0),
+    maxLatencyMs: integer("max_latency_ms").notNull().default(0),
+    lastLatencyMs: integer("last_latency_ms").notNull().default(0),
+    lastRequestId: text("last_request_id").notNull(),
+    lastRequestedAt: text("last_requested_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.commandName, t.outcome] })],
+);
 export const wikiUsage = sqliteTable("wiki_usage", {
   wikiId: text("wiki_id").primaryKey(),
   pageBytes: integer("page_bytes").notNull().default(0),

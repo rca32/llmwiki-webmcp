@@ -11,7 +11,7 @@ import { operationId, requireObject } from "../../../../../lib/validation";
 
 type Context = { params: Promise<{ attachmentId: string }> };
 export async function POST(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("attachment.restore");
   try {
     const session = await requireWikiSession("can_manage_attachments"),
       { attachmentId } = await params,

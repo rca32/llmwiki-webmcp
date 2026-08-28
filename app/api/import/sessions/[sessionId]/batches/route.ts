@@ -7,7 +7,7 @@ import { requiredInteger } from "../../../../../../lib/validation";
 const MAX_PART_BYTES = 512 * 1024;
 type Context = { params: Promise<{ sessionId: string }> };
 export async function POST(request: Request, { params }: Context) {
-  const id = requestId();
+  const id = requestId("import.batch");
   try {
     const session = await requireImportAuthority(),
       { sessionId } = await params,

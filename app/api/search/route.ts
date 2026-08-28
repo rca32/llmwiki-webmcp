@@ -11,7 +11,7 @@ import {
 } from "../../../lib/validation";
 
 export async function POST(request: Request) {
-  const id = requestId();
+  const id = requestId("search.query");
   try {
     const session = await requireWikiSession("can_read");
     const body = requireObject(await jsonBody(request));
