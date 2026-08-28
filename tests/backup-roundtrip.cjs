@@ -126,17 +126,22 @@ async function startProject(root, port) {
 }
 
 async function request(baseUrl, email, path, init = {}) {
+  const { response, envelope } = await jsonResponse(baseUrl, email, path, init);
+  if (!response.ok || !envelope?.ok)
+    throw new Error(
+      `${init.method ?? "GET"} ${path} failed (${response.status}): ${JSON.stringify(envelope)}`,
+    );
+  return envelope.data;
+}
+
+async function jsonResponse(baseUrl, email, path, init = {}) {
   const headers = new Headers(init.headers);
   headers.set("x-liminal-test-user-email", email);
   if (init.body && typeof init.body === "string")
     headers.set("content-type", "application/json");
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
   const envelope = await response.json().catch(() => null);
-  if (!response.ok || !envelope?.ok)
-    throw new Error(
-      `${init.method ?? "GET"} ${path} failed (${response.status}): ${JSON.stringify(envelope)}`,
-    );
-  return envelope.data;
+  return { response, envelope };
 }
 
 async function rawRequest(baseUrl, email, path, init = {}) {
@@ -166,13 +171,53 @@ async function main() {
     sourceOwner,
     "/api/session/capabilities",
   );
-  await request(sourceUrl, sourceOwner, "/api/wikis", {
+  const bootstrapAttempts = await Promise.all(
+    ["Round-trip source A", "Round-trip source B"].map((title) =>
+      jsonResponse(sourceUrl, sourceOwner, "/api/wikis", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          expected_version: sourceSession.site_version,
+        }),
+      }),
+    ),
+  );
+  const bootstrapStatuses = bootstrapAttempts
+    .map(({ response }) => response.status)
+    .sort((left, right) => left - right);
+  if (JSON.stringify(bootstrapStatuses) !== JSON.stringify([201, 409]))
+    throw new Error(
+      `Concurrent bootstrap did not produce one winner and one conflict: ${bootstrapStatuses.join(", ")}.`,
+    );
+  const bootstrapConflict = bootstrapAttempts.find(
+    ({ response }) => response.status === 409,
+  );
+  if (bootstrapConflict?.envelope?.error?.code !== "validation_error")
+    throw new Error(
+      `Concurrent bootstrap did not return the expected rejection envelope: ${JSON.stringify(bootstrapConflict?.envelope)}.`,
+    );
+  const nonOwner = "roundtrip-non-owner@sites.test";
+  const nonOwnerSession = await request(
+    sourceUrl,
+    nonOwner,
+    "/api/session/capabilities",
+  );
+  if (nonOwnerSession.capabilities.can_bootstrap)
+    throw new Error("An active wiki still advertised bootstrap capability.");
+  const rebootstrap = await jsonResponse(sourceUrl, nonOwner, "/api/wikis", {
     method: "POST",
     body: JSON.stringify({
-      title: "Round-trip source",
+      title: "Forbidden second wiki",
       expected_version: sourceSession.site_version,
     }),
   });
+  if (
+    rebootstrap.response.status !== 403 ||
+    rebootstrap.envelope?.error?.code !== "forbidden"
+  )
+    throw new Error(
+      `An active wiki accepted or misreported a second bootstrap (${rebootstrap.response.status}).`,
+    );
   const initialMarkdown =
     "# Round-trip sentinel\n\n[[Linked target]]\n\nversion one";
   const created = await request(sourceUrl, sourceOwner, "/api/pages", {
@@ -276,7 +321,66 @@ async function main() {
     "/api/import/sessions",
     { method: "POST", body: JSON.stringify({ manifest }) },
   );
-  for (const part of manifest.parts) {
+  const firstPart = manifest.parts[0];
+  if (!firstPart || manifest.parts.length < 2)
+    throw new Error("The round-trip fixture must produce at least two parts.");
+  const firstPartBytes = readFileSync(partPaths.get(firstPart.number));
+  const corruptedFirstPart = Buffer.from(firstPartBytes);
+  corruptedFirstPart[0] ^= 0xff;
+  const rejectedChecksum = await jsonResponse(
+    targetUrl,
+    targetOwner,
+    `/api/import/sessions/${importSession.session_id}/batches?part=${firstPart.number}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: corruptedFirstPart,
+    },
+  );
+  if (
+    rejectedChecksum.response.status !== 400 ||
+    rejectedChecksum.envelope?.error?.code !== "validation_error"
+  )
+    throw new Error(
+      `A checksum-mismatched import part was not rejected (${rejectedChecksum.response.status}).`,
+    );
+  const uploadPath = `/api/import/sessions/${importSession.session_id}/batches?part=${firstPart.number}`;
+  const firstUpload = await jsonResponse(targetUrl, targetOwner, uploadPath, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: firstPartBytes,
+  });
+  const duplicateUpload = await jsonResponse(
+    targetUrl,
+    targetOwner,
+    uploadPath,
+    {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: firstPartBytes,
+    },
+  );
+  if (
+    !firstUpload.response.ok ||
+    !duplicateUpload.response.ok ||
+    firstUpload.envelope?.data?.completed_batches !== 1 ||
+    duplicateUpload.envelope?.data?.completed_batches !== 1
+  )
+    throw new Error("Duplicate import upload was not idempotent.");
+  const prematureCommit = await jsonResponse(
+    targetUrl,
+    targetOwner,
+    `/api/import/sessions/${importSession.session_id}/commit`,
+    { method: "POST" },
+  );
+  if (
+    prematureCommit.response.status !== 409 ||
+    prematureCommit.envelope?.error?.code !== "validation_error"
+  )
+    throw new Error(
+      `Import commit did not reject missing parts (${prematureCommit.response.status}).`,
+    );
+  for (const part of manifest.parts.slice(1)) {
     const bytes = readFileSync(partPaths.get(part.number));
     await rawRequest(
       targetUrl,
@@ -386,6 +490,11 @@ async function main() {
       attachmentChecksumPreserved: true,
       retainedRevisionRestored: true,
       importingIdentityIsOwner: true,
+      bootstrapCasWinnerCount: 1,
+      activeWikiRebootstrapBlocked: true,
+      checksumMismatchRejected: true,
+      duplicateBatchIdempotent: true,
+      missingBatchCommitRejected: true,
       diskBackedParts: true,
       peakCoordinatorRssMiB: Math.ceil(peakRssBytes / 1024 / 1024),
     }),

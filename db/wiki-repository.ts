@@ -921,6 +921,343 @@ export async function probeRevisionCompensation(input: {
       repairResult.resolved_repairs >= 1,
   };
 }
+
+export async function probeWikiIsolation(input: {
+  wikiId: string;
+  email: string;
+  requestId: string;
+}) {
+  const d = db(),
+    foreignWikiId = uuid(),
+    foreignPageId = uuid(),
+    foreignAttachmentId = uuid(),
+    timestamp = now(),
+    suffix = foreignWikiId.slice(0, 8);
+  let pageLookupBlocked = false,
+    attachmentLookupBlocked = false,
+    listFiltered = false;
+  try {
+    await d.batch([
+      d
+        .prepare(
+          `INSERT INTO wikis(id,slug,title,status,created_at,updated_at) VALUES(?,?,?,'active',?,?)`,
+        )
+        .bind(
+          foreignWikiId,
+          `diagnostic-${suffix}`,
+          "Cross-wiki isolation diagnostic",
+          timestamp,
+          timestamp,
+        ),
+      d
+        .prepare(
+          `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,version,sort_order,created_by,updated_by,created_at,updated_at) VALUES(?,?,NULL,?,?,?,'note','diagnostic',1,0,?,?,?,?)`,
+        )
+        .bind(
+          foreignPageId,
+          foreignWikiId,
+          ROOT_PARENT,
+          `foreign-${suffix}`,
+          "Foreign diagnostic page",
+          input.email,
+          input.email,
+          timestamp,
+          timestamp,
+        ),
+      d
+        .prepare(
+          `INSERT INTO attachments(id,wiki_id,page_id,object_key,filename,mime_type,size_bytes,sha256,uploaded_by,status,created_at) VALUES(?,?,?,?,?,'application/octet-stream',1,?,?,'ready',?)`,
+        )
+        .bind(
+          foreignAttachmentId,
+          foreignWikiId,
+          foreignPageId,
+          `diagnostics/cross-wiki/${foreignAttachmentId}`,
+          "foreign.bin",
+          "0".repeat(64),
+          input.email,
+          timestamp,
+        ),
+    ]);
+    try {
+      await getPage(input.wikiId, foreignPageId);
+    } catch (error) {
+      pageLookupBlocked =
+        error instanceof AppError &&
+        error.code === "not_found" &&
+        error.status === 404;
+    }
+    try {
+      await getAttachment(input.wikiId, foreignAttachmentId);
+    } catch (error) {
+      attachmentLookupBlocked =
+        error instanceof AppError &&
+        error.code === "not_found" &&
+        error.status === 404;
+    }
+    listFiltered = !(await listPages(input.wikiId, null, 2000, 64)).some(
+      (page) => page.id === foreignPageId,
+    );
+  } finally {
+    await d.batch([
+      d.prepare(`DELETE FROM attachments WHERE id=?`).bind(foreignAttachmentId),
+      d.prepare(`DELETE FROM pages WHERE id=?`).bind(foreignPageId),
+      d.prepare(`DELETE FROM wikis WHERE id=?`).bind(foreignWikiId),
+    ]);
+  }
+  const result = {
+    page_lookup_blocked: pageLookupBlocked,
+    attachment_lookup_blocked: attachmentLookupBlocked,
+    list_filtered: listFiltered,
+  };
+  await d
+    .prepare(
+      `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','diagnostic.cross_wiki_isolation','wiki',?,?,?,?,?)`,
+    )
+    .bind(
+      uuid(),
+      input.wikiId,
+      input.email,
+      input.wikiId,
+      Object.values(result).every(Boolean) ? "success" : "error",
+      input.requestId,
+      JSON.stringify(result),
+      now(),
+    )
+    .run();
+  return result;
+}
+
+export async function probeMissingRevisionGuard(input: {
+  wikiId: string;
+  email: string;
+  requestId: string;
+}) {
+  if (!env.FILES)
+    throw new AppError(
+      "retryable_storage_error",
+      "Missing revision diagnostics require R2.",
+      503,
+      {},
+      true,
+    );
+  const d = db(),
+    pageId = uuid(),
+    revisionId = uuid(),
+    operationId = uuid(),
+    timestamp = now(),
+    markdown = "m".repeat(INLINE_REVISION_BYTES + 1),
+    snap = await snapshot(input.wikiId, pageId, 1, markdown, operationId);
+  if (!snap.key)
+    throw new AppError(
+      "internal_error",
+      "The missing revision diagnostic did not use R2.",
+      500,
+    );
+  let backupReadRejected = false,
+    restoreReadRejected = false,
+    markedMissing = false,
+    unavailableAfterMark = false;
+  try {
+    await d.batch([
+      d
+        .prepare(
+          `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,version,sort_order,created_by,updated_by,created_at,updated_at) VALUES(?,?,NULL,?,?,?,'note','diagnostic',1,0,?,?,?,?)`,
+        )
+        .bind(
+          pageId,
+          input.wikiId,
+          ROOT_PARENT,
+          `missing-${pageId.slice(0, 8)}`,
+          "Missing revision diagnostic",
+          input.email,
+          input.email,
+          timestamp,
+          timestamp,
+        ),
+      d
+        .prepare(
+          `INSERT INTO page_revisions(id,page_id,version,snapshot_inline,snapshot_object_key,content_sha256,change_summary,actor_email,origin,save_kind,operation_id,status,created_at) VALUES(?,?,1,NULL,?,?,?,?,'human','explicit',?,'ready',?)`,
+        )
+        .bind(
+          revisionId,
+          pageId,
+          snap.key,
+          snap.hash,
+          "Missing revision diagnostic",
+          input.email,
+          operationId,
+          timestamp,
+        ),
+    ]);
+    await env.FILES.delete(snap.key);
+    try {
+      await readVerifiedRevisionObject(snap.key, snap.hash, {
+        revision_id: revisionId,
+      });
+    } catch (error) {
+      backupReadRejected =
+        error instanceof AppError &&
+        error.code === "retryable_storage_error" &&
+        error.status === 503;
+    }
+    try {
+      await getRevisionSnapshot(input.wikiId, pageId, 1);
+    } catch (error) {
+      restoreReadRejected =
+        error instanceof AppError &&
+        error.code === "retryable_storage_error" &&
+        error.status === 503;
+    }
+    markedMissing =
+      (
+        await d
+          .prepare(`SELECT status FROM page_revisions WHERE id=?`)
+          .bind(revisionId)
+          .first<{ status: string }>()
+      )?.status === "missing";
+    try {
+      await getRevisionSnapshot(input.wikiId, pageId, 1);
+    } catch (error) {
+      unavailableAfterMark =
+        error instanceof AppError &&
+        error.code === "not_found" &&
+        error.status === 410;
+    }
+  } finally {
+    await env.FILES.delete(snap.key);
+    await d.batch([
+      d.prepare(`DELETE FROM page_revisions WHERE id=?`).bind(revisionId),
+      d.prepare(`DELETE FROM pages WHERE id=?`).bind(pageId),
+    ]);
+  }
+  const result = {
+    backup_read_rejected: backupReadRejected,
+    restore_read_rejected: restoreReadRejected,
+    marked_missing: markedMissing,
+    unavailable_after_mark: unavailableAfterMark,
+  };
+  await d
+    .prepare(
+      `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','diagnostic.missing_revision_guard','wiki',?,?,?,?,?)`,
+    )
+    .bind(
+      uuid(),
+      input.wikiId,
+      input.email,
+      input.wikiId,
+      Object.values(result).every(Boolean) ? "success" : "error",
+      input.requestId,
+      JSON.stringify(result),
+      now(),
+    )
+    .run();
+  return result;
+}
+
+export async function probeAttachmentPurge(input: {
+  wikiId: string;
+  email: string;
+  requestId: string;
+}) {
+  if (!env.FILES)
+    throw new AppError(
+      "retryable_storage_error",
+      "Attachment purge diagnostics require R2.",
+      503,
+      {},
+      true,
+    );
+  const d = db(),
+    attachmentId = uuid(),
+    key = `attachments/${input.wikiId}/diagnostic-${attachmentId}`,
+    data = new Uint8Array([1]).buffer,
+    timestamp = now(),
+    expiredAt = new Date(Date.now() - 31 * 86_400_000).toISOString();
+  let statusDeleted = false,
+    objectDeleted = false,
+    countedOnce = false;
+  await env.FILES.put(key, data, {
+    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: { sha256: await sha256Bytes(data) },
+  });
+  try {
+    await d.batch([
+      d
+        .prepare(
+          `INSERT INTO attachments(id,wiki_id,page_id,object_key,filename,mime_type,size_bytes,sha256,uploaded_by,status,created_at,deleted_at) VALUES(?,?,NULL,?,?,?,1,?,?,'soft_deleted',?,?)`,
+        )
+        .bind(
+          attachmentId,
+          input.wikiId,
+          key,
+          "purge-diagnostic.bin",
+          "application/octet-stream",
+          await sha256Bytes(data),
+          input.email,
+          timestamp,
+          expiredAt,
+        ),
+      d
+        .prepare(
+          `UPDATE wiki_usage SET r2_soft_deleted_bytes=r2_soft_deleted_bytes+1,updated_at=? WHERE wiki_id=?`,
+        )
+        .bind(timestamp, input.wikiId),
+    ]);
+    const purged = await purgeExpiredAttachments(
+      input.wikiId,
+      now(),
+      attachmentId,
+    );
+    countedOnce = purged === 1;
+    statusDeleted =
+      (
+        await d
+          .prepare(`SELECT status FROM attachments WHERE id=?`)
+          .bind(attachmentId)
+          .first<{ status: string }>()
+      )?.status === "deleted";
+    objectDeleted = !(await env.FILES.head(key));
+  } finally {
+    const leftover = await d
+      .prepare(`SELECT status FROM attachments WHERE id=?`)
+      .bind(attachmentId)
+      .first<{ status: string }>();
+    if (leftover && leftover.status !== "deleted")
+      await d
+        .prepare(
+          `UPDATE wiki_usage SET r2_soft_deleted_bytes=MAX(r2_soft_deleted_bytes-1,0),updated_at=? WHERE wiki_id=?`,
+        )
+        .bind(now(), input.wikiId)
+        .run();
+    await d
+      .prepare(`DELETE FROM attachments WHERE id=?`)
+      .bind(attachmentId)
+      .run();
+    await env.FILES.delete(key);
+  }
+  const result = {
+    soft_deleted_to_deleted: statusDeleted,
+    object_deleted: objectDeleted,
+    counted_once: countedOnce,
+  };
+  await d
+    .prepare(
+      `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','diagnostic.attachment_purge','wiki',?,?,?,?,?)`,
+    )
+    .bind(
+      uuid(),
+      input.wikiId,
+      input.email,
+      input.wikiId,
+      Object.values(result).every(Boolean) ? "success" : "error",
+      input.requestId,
+      JSON.stringify(result),
+      now(),
+    )
+    .run();
+  return result;
+}
 async function assertContentQuota(
   wikiId: string,
   pageDelta: number,
@@ -2959,6 +3296,35 @@ async function putVerified(key: string, data: string, contentType: string) {
   return { hash, size_bytes: bytes(data) };
 }
 
+async function readVerifiedRevisionObject(
+  key: string,
+  expectedHash: string,
+  details: Record<string, unknown>,
+) {
+  const object = await env.FILES?.get(key);
+  if (!object)
+    throw new AppError(
+      "retryable_storage_error",
+      "A revision snapshot object is missing.",
+      503,
+      details,
+      false,
+    );
+  const data = await object.arrayBuffer();
+  if ((await sha256Bytes(data)) !== expectedHash)
+    throw new AppError(
+      "retryable_storage_error",
+      "A revision snapshot failed checksum verification.",
+      503,
+      details,
+      false,
+    );
+  return {
+    markdown: new TextDecoder().decode(data),
+    size_bytes: data.byteLength,
+  };
+}
+
 export async function prepareExport(input: {
   wikiId: string;
   email: string;
@@ -3088,6 +3454,7 @@ export async function prepareExport(input: {
             ? revision.snapshot_object_key
             : null;
       let objectKey = existingKey;
+      let objectSize = 0;
       if (inline !== null) {
         objectKey = `backups/${input.wikiId}/${runId}/revision-${revisionId}.md`;
         const saved = await putVerified(
@@ -3103,6 +3470,13 @@ export async function prepareExport(input: {
             { revision_id: revisionId },
             true,
           );
+        objectSize = saved.size_bytes;
+      } else if (existingKey) {
+        objectSize = (
+          await readVerifiedRevisionObject(existingKey, contentHash, {
+            revision_id: revisionId,
+          })
+        ).size_bytes;
       }
       if (!objectKey)
         throw new AppError(
@@ -3112,12 +3486,11 @@ export async function prepareExport(input: {
           { revision_id: revisionId },
           false,
         );
-      const head = await env.FILES.head(objectKey);
       parts.push({
         number: parts.length,
         kind: "revision",
         filename: `revisions/snapshots/${revision.page_id}-v${revision.version}.md`,
-        size_bytes: inline !== null ? bytes(inline) : Number(head?.size ?? 0),
+        size_bytes: objectSize,
         sha256: contentHash,
         object_key: objectKey,
         revision_id: revisionId,
@@ -4310,6 +4683,69 @@ async function processPendingStorageRepairs(wikiId: string) {
   };
 }
 
+async function purgeExpiredAttachments(
+  wikiId: string,
+  timestamp: string,
+  attachmentId: string | null = null,
+) {
+  if (!env.FILES)
+    throw new AppError(
+      "retryable_storage_error",
+      "Attachment purge requires R2.",
+      503,
+      {},
+      true,
+    );
+  const d = db(),
+    purgeBefore = new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    purgeRows = await d
+      .prepare(
+        `SELECT id,object_key,size_bytes FROM attachments WHERE wiki_id=? AND status='soft_deleted' AND deleted_at<? AND (? IS NULL OR id=?) LIMIT 100`,
+      )
+      .bind(wikiId, purgeBefore, attachmentId, attachmentId)
+      .all<{ id: string; object_key: string; size_bytes: number }>();
+  let purgedAttachments = 0;
+  for (const attachment of purgeRows.results) {
+    await d
+      .prepare(
+        `UPDATE attachments SET status='deleting' WHERE id=? AND wiki_id=? AND status='soft_deleted'`,
+      )
+      .bind(attachment.id, wikiId)
+      .run();
+    try {
+      await env.FILES.delete(attachment.object_key);
+      await d.batch([
+        d
+          .prepare(
+            `UPDATE attachments SET status='deleted' WHERE id=? AND wiki_id=? AND status='deleting'`,
+          )
+          .bind(attachment.id, wikiId),
+        d
+          .prepare(
+            `UPDATE wiki_usage SET r2_soft_deleted_bytes=MAX(r2_soft_deleted_bytes-?,0),updated_at=? WHERE wiki_id=?`,
+          )
+          .bind(attachment.size_bytes, timestamp, wikiId),
+      ]);
+      purgedAttachments++;
+    } catch (error) {
+      await d
+        .prepare(
+          `INSERT INTO storage_repairs(id,wiki_id,object_key,kind,status,last_error,created_at,updated_at) VALUES(?,?,?,'pending_delete','pending',?,?,?)`,
+        )
+        .bind(
+          uuid(),
+          wikiId,
+          attachment.object_key,
+          error instanceof Error ? error.message : "delete_failed",
+          timestamp,
+          timestamp,
+        )
+        .run();
+    }
+  }
+  return purgedAttachments;
+}
+
 export async function runStorageMaintenance(input: {
   wikiId: string;
   email: string;
@@ -4325,59 +4761,14 @@ export async function runStorageMaintenance(input: {
     );
   const d = db(),
     timestamp = now(),
-    repairSummary = await processPendingStorageRepairs(input.wikiId);
+    repairSummary = await processPendingStorageRepairs(input.wikiId),
+    purgedAttachments = await purgeExpiredAttachments(input.wikiId, timestamp);
   let missingRevisions = 0,
     missingAttachments = 0,
     deletedOrphans = 0,
     tieredRevisions = 0,
     prunedRevisions = 0,
-    purgedAttachments = 0,
     expiredImports = 0;
-  const purgeBefore = new Date(Date.now() - 30 * 86_400_000).toISOString(),
-    purgeRows = await d
-      .prepare(
-        `SELECT id,object_key,size_bytes FROM attachments WHERE wiki_id=? AND status='soft_deleted' AND deleted_at<? LIMIT 100`,
-      )
-      .bind(input.wikiId, purgeBefore)
-      .all<{ id: string; object_key: string; size_bytes: number }>();
-  for (const attachment of purgeRows.results) {
-    await d
-      .prepare(
-        `UPDATE attachments SET status='deleting' WHERE id=? AND wiki_id=? AND status='soft_deleted'`,
-      )
-      .bind(attachment.id, input.wikiId)
-      .run();
-    try {
-      await env.FILES.delete(attachment.object_key);
-      await d.batch([
-        d
-          .prepare(
-            `UPDATE attachments SET status='deleted' WHERE id=? AND wiki_id=? AND status='deleting'`,
-          )
-          .bind(attachment.id, input.wikiId),
-        d
-          .prepare(
-            `UPDATE wiki_usage SET r2_soft_deleted_bytes=MAX(r2_soft_deleted_bytes-?,0),updated_at=? WHERE wiki_id=?`,
-          )
-          .bind(attachment.size_bytes, timestamp, input.wikiId),
-      ]);
-      purgedAttachments++;
-    } catch (error) {
-      await d
-        .prepare(
-          `INSERT INTO storage_repairs(id,wiki_id,object_key,kind,status,last_error,created_at,updated_at) VALUES(?,?,?,'pending_delete','pending',?,?,?)`,
-        )
-        .bind(
-          uuid(),
-          input.wikiId,
-          attachment.object_key,
-          error instanceof Error ? error.message : "delete_failed",
-          timestamp,
-          timestamp,
-        )
-        .run();
-    }
-  }
   const expiredSessions = await d
     .prepare(
       `SELECT id FROM import_sessions WHERE status NOT IN ('committed','expired') AND expires_at<? LIMIT 20`,

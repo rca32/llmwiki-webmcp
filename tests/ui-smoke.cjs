@@ -334,10 +334,20 @@ let activeBrowser;
     !atomicityProbe.ok() ||
     !atomicityResult.atomic ||
     !atomicityResult.revision_compensation?.direct_cleanup ||
-    !atomicityResult.revision_compensation?.queued_repair
+    !atomicityResult.revision_compensation?.queued_repair ||
+    !atomicityResult.wiki_isolation?.page_lookup_blocked ||
+    !atomicityResult.wiki_isolation?.attachment_lookup_blocked ||
+    !atomicityResult.wiki_isolation?.list_filtered ||
+    !atomicityResult.missing_revision_guard?.backup_read_rejected ||
+    !atomicityResult.missing_revision_guard?.restore_read_rejected ||
+    !atomicityResult.missing_revision_guard?.marked_missing ||
+    !atomicityResult.missing_revision_guard?.unavailable_after_mark ||
+    !atomicityResult.attachment_purge?.soft_deleted_to_deleted ||
+    !atomicityResult.attachment_purge?.object_deleted ||
+    !atomicityResult.attachment_purge?.counted_once
   )
     throw new Error(
-      "D1 atomicity or large-revision R2 compensation diagnostics failed.",
+      "D1 atomicity, R2 revision, or cross-wiki isolation diagnostics failed.",
     );
   const securityTitle = `Security ${Date.now()}`;
   const operationId = crypto.randomUUID();
@@ -784,6 +794,11 @@ let activeBrowser;
       d1BatchAtomic: true,
       largeRevisionDirectCleanup: true,
       queuedOrphanRepairResolved: true,
+      crossWikiPageLookupBlocked: true,
+      crossWikiAttachmentLookupBlocked: true,
+      missingRevisionBackupReadRejected: true,
+      missingRevisionRestoreReadRejected: true,
+      attachmentPurgeTransitionVerified: true,
       keyboardNavigationVerified: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",

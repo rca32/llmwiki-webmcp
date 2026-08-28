@@ -27,7 +27,7 @@ With the development server running, exercise the security/role matrix plus the 
 npm run test:ui
 ```
 
-Run a full-backup disaster-recovery drill against two temporary, isolated D1/R2 runtimes. The drill verifies every part checksum, imports into a blank Site, compares page IDs and hierarchy, checks attachment hashes, restores a retained revision, and confirms that the importing identity becomes owner:
+Run a full-backup disaster-recovery drill against two temporary, isolated D1/R2 runtimes. The drill verifies bootstrap CAS has one winner, rejects a second active-wiki bootstrap, exercises checksum mismatch, duplicate batch, and missing-batch commit handling, verifies every exported part checksum, imports into a blank Site, compares page IDs and hierarchy, checks attachment hashes, restores a retained revision, and confirms that the importing identity becomes owner:
 
 ```bash
 npm run test:backup-roundtrip
