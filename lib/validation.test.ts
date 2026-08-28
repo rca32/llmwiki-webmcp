@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  addRelatedWikiLink,
+  appendMarkdownToSection,
   extractWikiLinks,
+  linkMode,
   operationId,
   parseFrontmatter,
   slugify,
@@ -35,5 +38,23 @@ describe("wiki validation", () => {
     expect(() => parseFrontmatter("---\ninvalid line\n---\n# Page")).toThrow(
       /frontmatter/i,
     );
+  });
+
+  it("adds links through the requested Markdown representation", () => {
+    expect(
+      addRelatedWikiLink('---\ntags: ["mcp"]\n---\n\n# Source', "[[Target]]"),
+    ).toContain('related: ["[[Target]]"]');
+    expect(
+      appendMarkdownToSection(
+        "# Source\n\n## References\n\nExisting",
+        "- [[Target]]",
+        "References",
+      ),
+    ).toContain("Existing\n\n- [[Target]]");
+  });
+
+  it("rejects unsupported link modes", () => {
+    expect(linkMode("append_section")).toBe("append_section");
+    expect(() => linkMode("direct_index_write")).toThrow(/link_mode/);
   });
 });

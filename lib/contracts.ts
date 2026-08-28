@@ -7,6 +7,7 @@ export type PageType =
   | "synthesis"
   | "comparison"
   | "query";
+export type LinkMode = "related_frontmatter" | "append_section";
 export type ErrorCode =
   | "unauthenticated"
   | "forbidden"

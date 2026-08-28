@@ -25,6 +25,17 @@ describe("WebMCP descriptor contract", () => {
     for (const tool of tools)
       expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
   });
+  it("uses UUID patterns for every page and operation identifier", () => {
+    for (const tool of tools) {
+      const properties = tool.inputSchema.properties as Record<
+        string,
+        { pattern?: string }
+      >;
+      for (const [name, schema] of Object.entries(properties))
+        if (name.endsWith("_id"))
+          expect(schema.pattern, `${tool.name}.${name}`).toBeTruthy();
+    }
+  });
   it("marks reads and mutations accurately", () => {
     for (const tool of readTools())
       expect(tool.annotations.readOnlyHint, tool.name).toBe(true);
@@ -105,6 +116,53 @@ describe("WebMCP descriptor contract", () => {
     };
     expect(result.data.page.markdown).toBe(malicious);
     expect(result.data.content_trust).toBe("untrusted_wiki_content");
+  });
+
+  it("preserves structured conflict envelopes for agent recovery", async () => {
+    const conflict = {
+      ok: false,
+      error: {
+        code: "version_conflict",
+        message: "The page changed after it was read.",
+        retryable: false,
+        details: { current_version: 8, expected_version: 7 },
+      },
+      request_id: "request-conflict",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => conflict,
+      }),
+    );
+    const result = await writeTools()
+      .find((tool) => tool.name === "wiki_update_page")!
+      .execute({
+        page_id: "11111111-1111-4111-8111-111111111111",
+        expected_version: 7,
+        markdown: "# Stale",
+        change_summary: "stale test",
+        operation_id: "22222222-2222-4222-8222-222222222222",
+      });
+    expect(result).toEqual(conflict);
+  });
+
+  it("requires an explicit link representation and section pairing", async () => {
+    const linkTool = writeTools().find(
+      (tool) => tool.name === "wiki_link_pages",
+    )!;
+    await expect(
+      linkTool.execute({
+        source_page_id: "11111111-1111-4111-8111-111111111111",
+        target_page_id: "22222222-2222-4222-8222-222222222222",
+        expected_version: 1,
+        link_mode: "append_section",
+        section: null,
+        operation_id: "33333333-3333-4333-8333-333333333333",
+      }),
+    ).rejects.toThrow(/section is required/);
   });
 });
 

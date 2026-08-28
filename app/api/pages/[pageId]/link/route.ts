@@ -8,7 +8,9 @@ import {
 } from "../../../../../lib/http";
 import { requireWikiSession } from "../../../../../lib/server-session";
 import {
+  linkMode,
   operationId,
+  optionalNullableString,
   requireObject,
   requiredInteger,
   requiredString,
@@ -31,6 +33,8 @@ export async function POST(request: Request, { params }: Context) {
         36,
         36,
       ),
+      linkMode: linkMode(body.link_mode),
+      section: optionalNullableString(body.section, "section"),
       expectedVersion: requiredInteger(
         body.expected_version,
         "expected_version",

@@ -333,6 +333,115 @@ let activeBrowser;
     );
   const raceWinner = race.find((response) => response.status() === 200);
   let currentVersion = (await raceWinner.json()).data.version;
+  const linkStamp = Date.now();
+  const createLinkFixture = async (title, markdown) => {
+    const response = await context.request.post(`${baseUrl}/api/pages`, {
+      data: {
+        title,
+        page_type: "note",
+        markdown,
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    });
+    if (response.status() !== 201)
+      throw new Error(
+        `Link fixture create failed: ${response.status()} ${await response.text()}`,
+      );
+    return (await response.json()).data;
+  };
+  const linkTargetTitle = `Link Target ${linkStamp}`;
+  const linkTarget = await createLinkFixture(
+    linkTargetTitle,
+    `# ${linkTargetTitle}`,
+  );
+  const frontmatterSourceTitle = `Frontmatter Source ${linkStamp}`;
+  const frontmatterSource = await createLinkFixture(
+    frontmatterSourceTitle,
+    `---\ntags: ["webmcp"]\n---\n\n# ${frontmatterSourceTitle}`,
+  );
+  const sectionSourceTitle = `Section Source ${linkStamp}`;
+  const sectionSource = await createLinkFixture(
+    sectionSourceTitle,
+    `# ${sectionSourceTitle}\n\n## References\n\nExisting reference`,
+  );
+  const frontmatterLink = await context.request.post(
+    `${baseUrl}/api/pages/${frontmatterSource.page_id}/link`,
+    {
+      data: {
+        target_page_id: linkTarget.page_id,
+        link_mode: "related_frontmatter",
+        section: null,
+        expected_version: frontmatterSource.version,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!frontmatterLink.ok())
+    throw new Error(
+      `Frontmatter link failed: ${frontmatterLink.status()} ${await frontmatterLink.text()}`,
+    );
+  const frontmatterLinked = (await frontmatterLink.json()).data;
+  const sectionLink = await context.request.post(
+    `${baseUrl}/api/pages/${sectionSource.page_id}/link`,
+    {
+      data: {
+        target_page_id: linkTarget.page_id,
+        link_mode: "append_section",
+        section: "References",
+        expected_version: sectionSource.version,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!sectionLink.ok())
+    throw new Error(
+      `Section link failed: ${sectionLink.status()} ${await sectionLink.text()}`,
+    );
+  const sectionLinked = (await sectionLink.json()).data;
+  const invalidLink = await context.request.post(
+    `${baseUrl}/api/pages/${sectionSource.page_id}/link`,
+    {
+      data: {
+        target_page_id: linkTarget.page_id,
+        link_mode: "append_section",
+        section: null,
+        expected_version: sectionLinked.version,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (invalidLink.status() !== 400)
+    throw new Error(
+      `append_section without section should return 400, received ${invalidLink.status()}.`,
+    );
+  const [frontmatterRead, sectionRead, linkGraph] = await Promise.all([
+    context.request.get(`${baseUrl}/api/pages/${frontmatterSource.page_id}`),
+    context.request.get(`${baseUrl}/api/pages/${sectionSource.page_id}`),
+    context.request.get(`${baseUrl}/api/graph?limit=2000`),
+  ]);
+  const frontmatterMarkdown = (await frontmatterRead.json()).data.page.markdown;
+  const sectionMarkdown = (await sectionRead.json()).data.page.markdown;
+  const graphEdges = (await linkGraph.json()).data.edges;
+  if (
+    !frontmatterMarkdown.includes(`related: ["[[${linkTargetTitle}]]"]`) ||
+    !sectionMarkdown.includes(
+      `Existing reference\n\n- [[${linkTargetTitle}]]`,
+    ) ||
+    !graphEdges.some(
+      (edge) =>
+        edge.source === frontmatterSource.page_id &&
+        edge.target === linkTarget.page_id,
+    ) ||
+    !graphEdges.some(
+      (edge) =>
+        edge.source === sectionSource.page_id &&
+        edge.target === linkTarget.page_id,
+    )
+  )
+    throw new Error(
+      "Link modes did not persist and index the requested forms.",
+    );
   const stale = await context.request.patch(
     `${baseUrl}/api/pages/${created.page_id}`,
     {
@@ -347,6 +456,16 @@ let activeBrowser;
   if (stale.status() !== 409)
     throw new Error(
       `Stale update should return 409, received ${stale.status()}.`,
+    );
+  const staleEnvelope = await stale.json();
+  if (
+    staleEnvelope.error?.code !== "version_conflict" ||
+    staleEnvelope.error?.retryable !== false ||
+    staleEnvelope.error?.details?.current_version !== currentVersion ||
+    staleEnvelope.error?.details?.expected_version !== 999
+  )
+    throw new Error(
+      `Stale update did not return a recoverable conflict envelope: ${JSON.stringify(staleEnvelope)}.`,
     );
   const search = await context.request.post(`${baseUrl}/api/search`, {
     data: { query: "SECURITY_SENTINEL", limit: 20 },
@@ -543,6 +662,27 @@ let activeBrowser;
     throw new Error(
       `Security page cleanup failed: ${cleanup.status()} ${await cleanup.text()}`,
     );
+  for (const fixture of [
+    { ...frontmatterSource, version: frontmatterLinked.version },
+    { ...sectionSource, version: sectionLinked.version },
+    linkTarget,
+  ]) {
+    const response = await context.request.delete(
+      `${baseUrl}/api/pages/${fixture.page_id}`,
+      {
+        data: {
+          expected_version: fixture.version,
+          confirmation: `DELETE ${fixture.title}`,
+          reason: "Link mode smoke cleanup",
+          operation_id: crypto.randomUUID(),
+        },
+      },
+    );
+    if (!response.ok())
+      throw new Error(
+        `Link fixture cleanup failed: ${response.status()} ${await response.text()}`,
+      );
+  }
   for (const email of [editorEmail, viewerEmail]) {
     const response = await context.request.delete(
       `${baseUrl}/api/members/${encodeURIComponent(email)}`,
@@ -575,6 +715,7 @@ let activeBrowser;
       staleWriteBlocked: true,
       conflictResolverVerified: true,
       concurrentCasWinnerCount: 1,
+      linkModesVerified: true,
       markdownXssBlocked: true,
       gfmMathMermaidRendered: true,
       roleMatrixVerified: true,

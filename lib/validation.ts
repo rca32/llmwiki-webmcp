@@ -1,4 +1,4 @@
-import { AppError, type PageType } from "./contracts";
+import { AppError, type LinkMode, type PageType } from "./contracts";
 export const PAGE_TYPES: PageType[] = [
   "note",
   "source",
@@ -78,6 +78,16 @@ export function operationId(value: unknown): string {
     );
   return result.toLowerCase();
 }
+export function linkMode(value: unknown): LinkMode {
+  if (value !== "related_frontmatter" && value !== "append_section")
+    throw new AppError(
+      "validation_error",
+      "link_mode must be related_frontmatter or append_section.",
+      400,
+      { field: "link_mode" },
+    );
+  return value;
+}
 export function slugify(title: string): string {
   const slug = title
     .normalize("NFKC")
@@ -151,6 +161,55 @@ export function parseFrontmatter(
     } else result[key] = raw.replace(/^(['"])(.*)\1$/, "$2");
   }
   return result;
+}
+export function appendMarkdownToSection(
+  markdown: string,
+  content: string,
+  section: string | null,
+) {
+  if (!section) return `${markdown.trimEnd()}\n\n${content}`;
+  const lines = markdown.split("\n"),
+    headingIndex = lines.findIndex(
+      (line) =>
+        line
+          .replace(/^#+\s*/, "")
+          .trim()
+          .toLowerCase() === section.toLowerCase(),
+    );
+  if (headingIndex < 0)
+    return `${markdown.trimEnd()}\n\n## ${section}\n\n${content}`;
+  let insertAt = headingIndex + 1;
+  const level = lines[headingIndex].match(/^#+/)?.[0].length ?? 1;
+  while (insertAt < lines.length) {
+    const next = lines[insertAt].match(/^(#+)\s/);
+    if (next && next[1].length <= level) break;
+    insertAt++;
+  }
+  lines.splice(insertAt, 0, "", content);
+  return lines.join("\n");
+}
+export function addRelatedWikiLink(markdown: string, wikiLink: string) {
+  const normalized = markdown.replaceAll("\r\n", "\n");
+  if (!normalized.startsWith("---\n"))
+    return `---\nrelated: ${JSON.stringify([wikiLink])}\n---\n\n${normalized}`;
+  const closingIndex = normalized.indexOf("\n---\n", 4);
+  if (closingIndex < 0) {
+    parseFrontmatter(normalized);
+    return normalized;
+  }
+  const frontmatter = parseFrontmatter(normalized),
+    existing = frontmatter.related,
+    related = Array.isArray(existing)
+      ? [...existing, wikiLink]
+      : existing === undefined
+        ? [wikiLink]
+        : [String(existing), wikiLink],
+    lines = normalized.slice(4, closingIndex).split("\n"),
+    relatedIndex = lines.findIndex((line) => /^related:\s*/i.test(line));
+  if (relatedIndex >= 0)
+    lines[relatedIndex] = `related: ${JSON.stringify(related)}`;
+  else lines.push(`related: ${JSON.stringify(related)}`);
+  return `---\n${lines.join("\n")}\n---\n${normalized.slice(closingIndex + 5)}`;
 }
 export async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(

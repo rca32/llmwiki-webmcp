@@ -2,11 +2,14 @@ import { env } from "cloudflare:workers";
 import {
   AppError,
   type ChangeSet,
+  type LinkMode,
   type PageType,
   type Role,
   type WikiPage,
 } from "../lib/contracts";
 import {
+  addRelatedWikiLink,
+  appendMarkdownToSection,
   extractWikiLinks,
   parseFrontmatter,
   sha256,
@@ -1341,29 +1344,11 @@ export async function appendPage(input: {
   origin: "human" | "webmcp";
 }) {
   const page = await getPage(input.wikiId, input.pageId);
-  let markdown = page.markdown;
-  if (input.section) {
-    const lines = markdown.split("\n"),
-      headingIndex = lines.findIndex(
-        (line) =>
-          line
-            .replace(/^#+\s*/, "")
-            .trim()
-            .toLowerCase() === input.section!.toLowerCase(),
-      );
-    if (headingIndex >= 0) {
-      let insertAt = headingIndex + 1;
-      const level = lines[headingIndex].match(/^#+/)?.[0].length ?? 1;
-      while (insertAt < lines.length) {
-        const next = lines[insertAt].match(/^(#+)\s/);
-        if (next && next[1].length <= level) break;
-        insertAt++;
-      }
-      lines.splice(insertAt, 0, "", input.content);
-      markdown = lines.join("\n");
-    } else
-      markdown = `${markdown.trimEnd()}\n\n## ${input.section}\n\n${input.content}`;
-  } else markdown = `${markdown.trimEnd()}\n\n${input.content}`;
+  const markdown = appendMarkdownToSection(
+    page.markdown,
+    input.content,
+    input.section,
+  );
   return updatePage({
     wikiId: input.wikiId,
     email: input.email,
@@ -2323,11 +2308,27 @@ export async function linkPages(input: {
   email: string;
   sourcePageId: string;
   targetPageId: string;
+  linkMode: LinkMode;
+  section: string | null;
   expectedVersion: number;
   operationId: string;
   requestId: string;
   origin: "human" | "webmcp";
 }) {
+  if (input.linkMode === "append_section" && !input.section)
+    throw new AppError(
+      "validation_error",
+      "section is required for append_section links.",
+      400,
+      { field: "section", link_mode: input.linkMode },
+    );
+  if (input.linkMode === "related_frontmatter" && input.section)
+    throw new AppError(
+      "validation_error",
+      "section is only valid for append_section links.",
+      400,
+      { field: "section", link_mode: input.linkMode },
+    );
   const [source, target] = await Promise.all([
     getPage(input.wikiId, input.sourcePageId),
     getPage(input.wikiId, input.targetPageId),
@@ -2348,20 +2349,34 @@ export async function linkPages(input: {
       409,
       { source_page_id: source.id, target_page_id: target.id },
     );
-  const related = /^##\s+Related\s*$/im.test(source.markdown)
-    ? `${source.markdown.trimEnd()}\n\n- ${wikiLink}`
-    : `${source.markdown.trimEnd()}\n\n## Related\n\n- ${wikiLink}`;
-  return updatePage({
-    wikiId: input.wikiId,
-    email: input.email,
-    pageId: source.id,
-    expectedVersion: input.expectedVersion,
-    markdown: related,
-    changeSummary: `Linked to ${target.title}`,
-    operationId: input.operationId,
-    requestId: input.requestId,
-    origin: input.origin,
-  });
+  const markdown =
+      input.linkMode === "related_frontmatter"
+        ? addRelatedWikiLink(source.markdown, wikiLink)
+        : appendMarkdownToSection(
+            source.markdown,
+            `- ${wikiLink}`,
+            input.section,
+          ),
+    result = await updatePage({
+      wikiId: input.wikiId,
+      email: input.email,
+      pageId: source.id,
+      expectedVersion: input.expectedVersion,
+      markdown,
+      changeSummary: `Linked to ${target.title} via ${input.linkMode}`,
+      operationId: input.operationId,
+      requestId: input.requestId,
+      origin: input.origin,
+    });
+  return {
+    ...result,
+    link: {
+      source_page_id: source.id,
+      target_page_id: target.id,
+      link_mode: input.linkMode,
+      section: input.section,
+    },
+  };
 }
 
 export async function getGraph(wikiId: string, limit: number) {

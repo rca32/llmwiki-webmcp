@@ -3,6 +3,23 @@
 import { useEffect } from "react";
 
 type JsonObject = Record<string, unknown>;
+type ApiEnvelope<T = unknown> =
+  | {
+      ok: true;
+      data: T;
+      request_id: string;
+      change_set: unknown | null;
+    }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+        retryable: boolean;
+        details: JsonObject;
+      };
+      request_id: string;
+    };
 type Annotation = {
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
@@ -60,12 +77,16 @@ const pageIdSchema = {
   type: "string",
   minLength: 36,
   maxLength: 36,
+  pattern:
+    "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
   description: "Stable page UUID",
 };
 const operationSchema = {
   type: "string",
   minLength: 36,
   maxLength: 36,
+  pattern:
+    "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
   description: "Fresh client-generated UUID used for idempotency",
 };
 
@@ -79,11 +100,17 @@ export function readTools(): SiteTool[] {
       inputSchema: closed({}),
       annotations: readAnnotations,
       execute: async () => {
-        const session = await requestJson("/api/session/capabilities");
+        const session = await requestJson<JsonObject>(
+          "/api/session/capabilities",
+        );
+        if (!session.ok) return session;
         return {
-          session,
-          current_page_id: document.documentElement.dataset.pageId ?? null,
-          selection: window.getSelection()?.toString().slice(0, 2000) ?? "",
+          ...session,
+          data: {
+            ...session.data,
+            current_page_id: document.documentElement.dataset.pageId ?? null,
+            selection: window.getSelection()?.toString().slice(0, 2000) ?? "",
+          },
         };
       },
     },
@@ -99,7 +126,7 @@ export function readTools(): SiteTool[] {
       }),
       annotations: readAnnotations,
       execute: async (input) => {
-        const parent = nullableText(input, "parent_id", 36),
+        const parent = nullableUuid(input, "parent_id"),
           limit = boundedInteger(input.limit, 1, 20, 20),
           depth = boundedInteger(input.depth, 0, 2, 0);
         return requestJson(
@@ -157,13 +184,14 @@ export function readTools(): SiteTool[] {
       ),
       annotations: readAnnotations,
       execute: async (input) => {
-        const pageId = requiredText(input, "page_id", 36),
+        const pageId = requiredUuid(input, "page_id"),
           max = boundedInteger(input.max_chars, 1, 60000, 12000),
           offset = boundedInteger(input.offset, 0, Number.MAX_SAFE_INTEGER, 0);
-        const envelope = (await requestJson(
+        const envelope = await requestJson<{ page?: JsonObject }>(
           `/api/pages/${encodeURIComponent(pageId)}`,
-        )) as { data?: { page?: JsonObject } };
-        const page = envelope.data?.page ?? {},
+        );
+        if (!envelope.ok) return envelope;
+        const page = envelope.data.page ?? {},
           markdown = typeof page.markdown === "string" ? page.markdown : "";
         return {
           ...envelope,
@@ -200,7 +228,7 @@ export function readTools(): SiteTool[] {
       annotations: readAnnotations,
       execute: async (input) =>
         requestJson(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/neighbors?depth=${boundedInteger(input.depth, 0, 2, 1)}&limit=${boundedInteger(input.limit, 1, 20, 20)}`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/neighbors?depth=${boundedInteger(input.depth, 0, 2, 1)}&limit=${boundedInteger(input.limit, 1, 20, 20)}`,
         ),
     },
     {
@@ -218,7 +246,7 @@ export function readTools(): SiteTool[] {
       annotations: readAnnotations,
       execute: async (input) =>
         requestJson(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/revisions?limit=${boundedInteger(input.limit, 1, 20, 10)}`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/revisions?limit=${boundedInteger(input.limit, 1, 20, 10)}`,
         ),
     },
   ];
@@ -244,7 +272,7 @@ export function writeTools(): SiteTool[] {
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest("/api/pages", "POST", {
-          parent_id: nullableText(input, "parent_id", 36),
+          parent_id: nullableUuid(input, "parent_id"),
           title: requiredText(input, "title", 200),
           page_type: requiredEnum(input, "page_type", PAGE_TYPES),
           markdown: requiredText(input, "markdown", 262144),
@@ -275,7 +303,7 @@ export function writeTools(): SiteTool[] {
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}`,
           "PATCH",
           {
             expected_version: boundedInteger(input.expected_version, 1),
@@ -303,7 +331,7 @@ export function writeTools(): SiteTool[] {
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/append`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/append`,
           "POST",
           {
             expected_version: boundedInteger(input.expected_version, 1),
@@ -337,11 +365,11 @@ export function writeTools(): SiteTool[] {
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/move`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/move`,
           "POST",
           {
             expected_version: boundedInteger(input.expected_version, 1),
-            parent_id: nullableText(input, "parent_id", 36),
+            parent_id: nullableUuid(input, "parent_id"),
             sort_order: boundedInteger(input.sort_order, 0, 1000000),
             operation_id: requiredUuid(input, "operation_id"),
           },
@@ -356,12 +384,18 @@ export function writeTools(): SiteTool[] {
         {
           source_page_id: pageIdSchema,
           target_page_id: pageIdSchema,
+          link_mode: {
+            type: "string",
+            enum: ["related_frontmatter", "append_section"],
+          },
+          section: { type: ["string", "null"], minLength: 1, maxLength: 200 },
           expected_version: { type: "integer", minimum: 1 },
           operation_id: operationSchema,
         },
         [
           "source_page_id",
           "target_page_id",
+          "link_mode",
           "expected_version",
           "operation_id",
         ],
@@ -369,10 +403,12 @@ export function writeTools(): SiteTool[] {
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest(
-          `/api/pages/${encodeURIComponent(requiredText(input, "source_page_id", 36))}/link`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "source_page_id"))}/link`,
           "POST",
           {
-            target_page_id: requiredText(input, "target_page_id", 36),
+            target_page_id: requiredUuid(input, "target_page_id"),
+            link_mode: requiredLinkMode(input),
+            section: sectionForLinkMode(input),
             expected_version: boundedInteger(input.expected_version, 1),
             operation_id: requiredUuid(input, "operation_id"),
           },
@@ -395,7 +431,7 @@ export function writeTools(): SiteTool[] {
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest(
-          `/api/pages/${encodeURIComponent(requiredText(input, "page_id", 36))}/restore`,
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/restore`,
           "POST",
           {
             expected_version: boundedInteger(input.expected_version, 1),
@@ -423,10 +459,12 @@ export function SiteTools() {
     if (typeof modelContext?.registerTool !== "function") return;
     const controller = new AbortController();
     void (async () => {
-      const session = (await requestJson("/api/session/capabilities")) as {
-        data?: { capabilities?: { can_read?: boolean; can_write?: boolean } };
-      };
-      const tools = toolsForCapabilities(session.data?.capabilities ?? {});
+      const session = await requestJson<{
+        capabilities?: { can_read?: boolean; can_write?: boolean };
+      }>("/api/session/capabilities");
+      const tools = toolsForCapabilities(
+        session.ok ? (session.data.capabilities ?? {}) : {},
+      );
       await Promise.all(
         tools.map((tool) =>
           modelContext.registerTool(tool, { signal: controller.signal }),
@@ -451,6 +489,11 @@ function nullableText(input: JsonObject, key: string, max: number) {
   if (value === undefined || value === null || value === "") return null;
   return requiredText(input, key, max);
 }
+function nullableUuid(input: JsonObject, key: string) {
+  const value = input[key];
+  if (value === undefined || value === null || value === "") return null;
+  return requiredUuid(input, key);
+}
 function boundedInteger(
   value: unknown,
   min: number,
@@ -469,9 +512,29 @@ function boundedInteger(
 }
 function requiredUuid(input: JsonObject, key: string) {
   const value = requiredText(input, key, 36);
-  if (!/^[0-9a-f-]{36}$/i.test(value))
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  )
     throw new Error(`${key} must be a UUID.`);
   return value;
+}
+function requiredLinkMode(input: JsonObject) {
+  const mode = requiredEnum(input, "link_mode", [
+    "related_frontmatter",
+    "append_section",
+  ]);
+  return mode;
+}
+function sectionForLinkMode(input: JsonObject) {
+  const mode = requiredLinkMode(input),
+    section = nullableText(input, "section", 200);
+  if (mode === "append_section" && !section)
+    throw new Error("section is required for append_section links.");
+  if (mode === "related_frontmatter" && section)
+    throw new Error("section is only valid for append_section links.");
+  return section;
 }
 function requiredEnum(input: JsonObject, key: string, allowed: string[]) {
   const value = requiredText(input, key, 100);
@@ -491,22 +554,26 @@ function safeError(error: unknown) {
   return error instanceof Error ? error.message : "Unknown registration error";
 }
 async function writeRequest(path: string, method: string, body: JsonObject) {
-  const result = (await requestJson(path, {
+  const result = await requestJson(path, {
     method,
     headers: { "content-type": "application/json", "x-wiki-origin": "webmcp" },
     body: JSON.stringify(body),
-  })) as { change_set?: unknown };
-  window.dispatchEvent(
-    new CustomEvent("wiki:changed", { detail: result.change_set ?? null }),
-  );
+  });
+  if (result.ok)
+    window.dispatchEvent(
+      new CustomEvent("wiki:changed", { detail: result.change_set ?? null }),
+    );
   return result;
 }
-async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
+async function requestJson<T = unknown>(
+  path: string,
+  init?: RequestInit,
+): Promise<ApiEnvelope<T>> {
   const response = await fetch(path, { ...init, credentials: "same-origin" });
-  const result = (await response.json()) as { error?: { message?: string } };
-  if (!response.ok)
+  const result = (await response.json()) as ApiEnvelope<T>;
+  if (typeof result?.ok !== "boolean")
     throw new Error(
-      result.error?.message ?? `Request failed (${response.status}).`,
+      `Request returned an invalid envelope (${response.status}).`,
     );
   return result;
 }
