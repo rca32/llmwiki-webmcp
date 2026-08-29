@@ -348,12 +348,42 @@ export function OperationsPanel({
       if (!manifestBytes)
         throw new Error("manifest.json이 없는 백업 패키지입니다.");
       const manifest = JSON.parse(strFromU8(manifestBytes)) as BackupManifest;
+      const metadataPart = manifest.parts.find(
+          (part) => part.kind === "metadata" && part.number === 0,
+        ),
+        metadataBytes = metadataPart ? files[metadataPart.filename] : null,
+        metadata = metadataBytes
+          ? (JSON.parse(strFromU8(metadataBytes)) as Record<string, unknown>)
+          : {},
+        memberReferences = Array.isArray(metadata.members_reference)
+          ? (metadata.members_reference as Record<string, unknown>[]).slice(
+              0,
+              20,
+            )
+          : [],
+        memberReferenceLines = memberReferences.map((member) => {
+          const email =
+              typeof member.user_email === "string"
+                ? member.user_email.slice(0, 254)
+                : "알 수 없는 사용자",
+            role =
+              typeof member.role === "string"
+                ? member.role.slice(0, 20)
+                : "unknown";
+          return `참조 멤버: ${email} (${role})`;
+        });
       const confirmed = window.confirm(
         [
           "이 빈 Site에 다음 백업을 복원할까요?",
           `프로필: ${manifest.profile}`,
           `페이지: ${manifest.page_count} · 첨부: ${manifest.attachment_count} · 리비전: ${manifest.revision_count}`,
           `생성 시각: ${new Date(manifest.exported_at).toLocaleString("ko-KR")}`,
+          ...memberReferenceLines,
+          ...(memberReferences.length
+            ? [
+                "참조 멤버와 원래 역할은 표시만 하며 권한으로 복원하지 않습니다.",
+              ]
+            : []),
           "복원이 완료되면 이 Site의 활성 위키가 됩니다.",
         ].join("\n"),
       );
@@ -404,7 +434,11 @@ export function OperationsPanel({
         if (commitAttempt > Math.ceil(total_batches / 8) + 2)
           throw new Error("복원 확정이 예상 횟수 안에 완료되지 않았습니다.");
       } while (commitResult.status === "committing");
-      setMessage("빈 Site에 백업을 복원했습니다.");
+      setMessage(
+        memberReferences.length
+          ? `빈 Site에 백업을 복원했습니다. 참조 멤버 ${memberReferences.length}명은 권한으로 활성화하지 않았습니다.`
+          : "빈 Site에 백업을 복원했습니다.",
+      );
       await onWorkspaceChanged();
     } catch (error) {
       setMessage(

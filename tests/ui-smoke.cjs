@@ -177,6 +177,18 @@ let activeBrowser;
       "An older workspace response replaced the newest page list.",
     );
   await page.unroute("**/api/pages?depth=64&limit=200", workspaceRaceHandler);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const reducedMotionDuration = await page
+    .locator(".agent-pulse span")
+    .evaluate((element) => getComputedStyle(element).animationDuration);
+  if (
+    !reducedMotionDuration.endsWith("s") ||
+    Number.parseFloat(reducedMotionDuration) > 0.00001
+  )
+    throw new Error(
+      `Reduced-motion preference did not collapse animation duration (${reducedMotionDuration}).`,
+    );
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   const workspaceRestored = page.waitForResponse(
     (response) => response.url() === workspaceListUrl && response.ok(),
   );
@@ -685,13 +697,13 @@ let activeBrowser;
   const raceWinner = race.find((response) => response.status() === 200);
   let currentVersion = (await raceWinner.json()).data.version;
   const linkStamp = Date.now();
-  const createLinkFixture = async (title, markdown) => {
+  const createLinkFixture = async (title, markdown, parentId = null) => {
     const response = await context.request.post(`${baseUrl}/api/pages`, {
       data: {
         title,
         page_type: "note",
         markdown,
-        parent_id: null,
+        parent_id: parentId,
         operation_id: crypto.randomUUID(),
       },
     });
@@ -792,6 +804,55 @@ let activeBrowser;
   )
     throw new Error(
       "Link modes did not persist and index the requested forms.",
+    );
+  const ambiguityTitle = `Ambiguous Target ${linkStamp}`,
+    ambiguityParentOne = await createLinkFixture(
+      `Ambiguity Parent One ${linkStamp}`,
+      `# Ambiguity Parent One ${linkStamp}`,
+    ),
+    ambiguityParentTwo = await createLinkFixture(
+      `Ambiguity Parent Two ${linkStamp}`,
+      `# Ambiguity Parent Two ${linkStamp}`,
+    ),
+    ambiguityTargetOne = await createLinkFixture(
+      ambiguityTitle,
+      `# ${ambiguityTitle}\n\nFirst duplicate.`,
+      ambiguityParentOne.page_id,
+    ),
+    ambiguityTargetTwo = await createLinkFixture(
+      ambiguityTitle,
+      `# ${ambiguityTitle}\n\nSecond duplicate.`,
+      ambiguityParentTwo.page_id,
+    ),
+    ambiguitySource = await createLinkFixture(
+      `Ambiguity Source ${linkStamp}`,
+      `# Ambiguity Source ${linkStamp}\n\n[[${ambiguityTitle}]]`,
+    ),
+    ambiguityNeighbors = await context.request
+      .get(
+        `${baseUrl}/api/pages/${ambiguitySource.page_id}/neighbors?depth=1&limit=20`,
+      )
+      .then((response) => response.json()),
+    ambiguityGraph = await context.request
+      .get(`${baseUrl}/api/graph?limit=2000`)
+      .then((response) => response.json());
+  if (
+    !ambiguityNeighbors.data.neighbors.some(
+      (neighbor) =>
+        neighbor.source_page_id === ambiguitySource.page_id &&
+        neighbor.target_page_id === null &&
+        neighbor.target_text === ambiguityTitle,
+    ) ||
+    ambiguityGraph.data.edges.some(
+      (edge) =>
+        edge.source === ambiguitySource.page_id &&
+        [ambiguityTargetOne.page_id, ambiguityTargetTwo.page_id].includes(
+          edge.target,
+        ),
+    )
+  )
+    throw new Error(
+      "Duplicate wiki-link titles were resolved instead of remaining ambiguous.",
     );
   const stale = await context.request.patch(
     `${baseUrl}/api/pages/${created.page_id}`,
@@ -1072,6 +1133,11 @@ let activeBrowser;
       `Security page cleanup failed: ${cleanup.status()} ${await cleanup.text()}`,
     );
   for (const fixture of [
+    ambiguitySource,
+    ambiguityTargetOne,
+    ambiguityTargetTwo,
+    ambiguityParentOne,
+    ambiguityParentTwo,
     { ...frontmatterSource, version: frontmatterLinked.version },
     { ...sectionSource, version: sectionLinked.version },
     linkTarget,
@@ -1125,6 +1191,7 @@ let activeBrowser;
       conflictResolverVerified: true,
       concurrentCasWinnerCount: 1,
       linkModesVerified: true,
+      ambiguousWikiLinkPreserved: true,
       securityHeadersVerified: true,
       markdownXssBlocked: true,
       gfmMathMermaidRendered: true,
@@ -1145,6 +1212,7 @@ let activeBrowser;
       missingRevisionRestoreReadRejected: true,
       attachmentPurgeTransitionVerified: true,
       keyboardNavigationVerified: true,
+      reducedMotionVerified: true,
       workspaceRefreshRaceProtected: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",

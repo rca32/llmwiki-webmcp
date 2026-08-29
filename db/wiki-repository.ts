@@ -24,6 +24,7 @@ import {
 } from "../lib/revision-retention";
 import { safeOperationalErrorTag } from "../lib/security-policy";
 import { assertActiveAttachmentCapacity } from "../lib/storage-quota";
+import { idempotencyDisposition } from "../lib/idempotency-policy";
 
 const ROOT_PARENT = "__root__";
 const INLINE_REVISION_BYTES = 64 * 1024;
@@ -820,16 +821,18 @@ async function reserveIdempotency(input: {
       409,
       { operation_id: input.operationId },
     );
-  if (existing.status === "completed" && existing.result_json)
+  const disposition = idempotencyDisposition({
+    status: existing.status,
+    resultJson: existing.result_json,
+    leaseExpiresAt: existing.lease_expires_at,
+    failureRetryable: existing.failure_retryable,
+  });
+  if (disposition === "replay")
     return {
       requestHash,
-      cached: JSON.parse(existing.result_json) as Record<string, unknown>,
+      cached: JSON.parse(existing.result_json!) as Record<string, unknown>,
     };
-  if (
-    (existing.status === "pending" &&
-      new Date(existing.lease_expires_at).getTime() <= Date.now()) ||
-    (existing.status === "failed" && existing.failure_retryable === 1)
-  ) {
+  if (disposition === "reclaim") {
     const reclaimed = await d
       .prepare(
         `UPDATE idempotency_keys SET status='pending',request_id=?,lease_expires_at=?,failure_retryable=NULL,result_json=NULL,completed_at=NULL,attempts=attempts+1 WHERE wiki_id=? AND actor_email=? AND operation_name=? AND operation_id=? AND request_hash=? AND ((status='pending' AND lease_expires_at<=?) OR (status='failed' AND failure_retryable=1))`,
@@ -848,8 +851,8 @@ async function reserveIdempotency(input: {
     if ((reclaimed.meta.changes ?? 0) === 1)
       return { requestHash, cached: null };
   }
-  if (existing.status === "failed" && existing.result_json) {
-    const saved = JSON.parse(existing.result_json) as {
+  if (disposition === "reject_failed") {
+    const saved = JSON.parse(existing.result_json!) as {
       code: string;
       message: string;
       details?: Record<string, unknown>;
@@ -1526,7 +1529,7 @@ export async function createPage(input: {
       ...extractWikiLinks(input.markdown).map((target) =>
         d
           .prepare(
-            `INSERT INTO page_links(id,wiki_id,source_page_id,target_page_id,target_text,link_kind,created_at) VALUES(?,?,?,(SELECT id FROM pages WHERE wiki_id=? AND title=? AND deleted_at IS NULL LIMIT 1),?,'wikilink',?)`,
+            `INSERT INTO page_links(id,wiki_id,source_page_id,target_page_id,target_text,link_kind,created_at) VALUES(?,?,?,(SELECT CASE WHEN COUNT(*)=1 THEN MIN(id) ELSE NULL END FROM pages WHERE wiki_id=? AND title=? AND deleted_at IS NULL),?,'wikilink',?)`,
           )
           .bind(
             uuid(),
@@ -1752,7 +1755,7 @@ export async function updatePage(input: {
       ...links.map((target) =>
         d
           .prepare(
-            `INSERT INTO page_links(id,wiki_id,source_page_id,target_page_id,target_text,link_kind,created_at) SELECT ?,?,?,(SELECT id FROM pages WHERE wiki_id=? AND title=? AND deleted_at IS NULL LIMIT 1),?,'wikilink',? FROM pages p WHERE p.id=? AND p.wiki_id=? AND p.last_operation_id=?`,
+            `INSERT INTO page_links(id,wiki_id,source_page_id,target_page_id,target_text,link_kind,created_at) SELECT ?,?,?,(SELECT CASE WHEN COUNT(*)=1 THEN MIN(id) ELSE NULL END FROM pages WHERE wiki_id=? AND title=? AND deleted_at IS NULL),?,'wikilink',? FROM pages p WHERE p.id=? AND p.wiki_id=? AND p.last_operation_id=?`,
           )
           .bind(
             uuid(),
@@ -1935,11 +1938,62 @@ async function benchmarkSamples(
   return result;
 }
 
-export async function runSearchBenchmark(wikiId: string, pageCount: number) {
+function searchBenchmarkMarker(runId: string) {
+  return `sb-${runId.slice(0, 16)}`;
+}
+
+export async function seedSearchBenchmark(
+  wikiId: string,
+  runId: string,
+  offset: number,
+  count: number,
+) {
   const d = db(),
-    runId = uuid(),
-    marker = `sb-${runId.slice(0, 16)}`,
+    marker = searchBenchmarkMarker(runId),
     timestamp = now(),
+    insertBatchSize = 100;
+  for (
+    let batchOffset = 0;
+    batchOffset < count;
+    batchOffset += insertBatchSize
+  ) {
+    const statements = Array.from(
+      { length: Math.min(insertBatchSize, count - batchOffset) },
+      (_, index) => {
+        const sequence = offset + batchOffset + index;
+        return d
+          .prepare(
+            `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,'{}',1,?,?,?,?,?,?)`,
+          )
+          .bind(
+            uuid(),
+            wikiId,
+            ROOT_PARENT,
+            `benchmark-${runId.slice(0, 8)}-${sequence}`,
+            `Benchmark page ${sequence}`,
+            "note",
+            `# Benchmark page ${sequence}\n\n${marker}`,
+            sequence,
+            "system@benchmark.local",
+            "system@benchmark.local",
+            runId,
+            timestamp,
+            timestamp,
+          );
+      },
+    );
+    await d.batch(statements);
+  }
+  return { seeded_count: count, next_offset: offset + count };
+}
+
+export async function measureSearchBenchmark(
+  wikiId: string,
+  runId: string,
+  pageCount: number,
+) {
+  const d = db(),
+    marker = searchBenchmarkMarker(runId),
     pageTypes: PageType[] = [
       "note",
       "source",
@@ -1948,79 +2002,61 @@ export async function runSearchBenchmark(wikiId: string, pageCount: number) {
       "synthesis",
       "comparison",
       "query",
-    ];
-  let benchmarkResult: Record<string, unknown> | undefined,
-    samplePageId = "";
-  try {
-    for (let offset = 0; offset < pageCount; offset += 50) {
-      const statements = Array.from(
-        { length: Math.min(50, pageCount - offset) },
-        (_, index) => {
-          const sequence = offset + index,
-            id = uuid();
-          if (sequence === 0) samplePageId = id;
-          return d
-            .prepare(
-              `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,'{}',1,?,?,?,?,?,?)`,
-            )
-            .bind(
-              id,
-              wikiId,
-              ROOT_PARENT,
-              `benchmark-${runId.slice(0, 8)}-${sequence}`,
-              `Benchmark page ${sequence}`,
-              "note",
-              `# Benchmark page ${sequence}\n\n${marker}`,
-              sequence,
-              "system@benchmark.local",
-              "system@benchmark.local",
-              runId,
-              timestamp,
-              timestamp,
-            );
-        },
-      );
-      await d.batch(statements);
-    }
-    const search = await benchmarkSamples(
-        () => searchPages(wikiId, marker, pageTypes, 20),
-        500,
-      ),
-      pageRead = await benchmarkSamples(
-        () => getPage(wikiId, samplePageId),
-        300,
-      ),
-      treeNodes = await listPages(wikiId, null, 200, 64),
-      tree = await benchmarkSamples(() => listPages(wikiId, null, 200, 64));
-    benchmarkResult = {
-      page_count: pageCount,
-      ...search,
-      search,
-      page_read: pageRead,
-      tree_first_page: {
-        ...tree,
-        requested_node_limit: 200,
-        returned_node_count: treeNodes.length,
-        maximum_first_screen_nodes: 500,
-        node_cap_met: treeNodes.length <= 500,
-      },
-    };
-  } finally {
-    await d
-      .prepare(`DELETE FROM pages WHERE wiki_id=? AND last_operation_id=?`)
+    ],
+    fixture = await d
+      .prepare(
+        `SELECT COUNT(*) AS count,MIN(id) AS sample_page_id FROM pages WHERE wiki_id=? AND last_operation_id=?`,
+      )
       .bind(wikiId, runId)
-      .run();
-  }
+      .first<{ count: number; sample_page_id: string | null }>();
+  if (Number(fixture?.count ?? 0) !== pageCount || !fixture?.sample_page_id)
+    throw new AppError(
+      "validation_error",
+      "The search benchmark fixture is incomplete.",
+      409,
+      {
+        expected_page_count: pageCount,
+        actual_page_count: fixture?.count ?? 0,
+      },
+    );
+  const search = await benchmarkSamples(
+      () => searchPages(wikiId, marker, pageTypes, 20),
+      500,
+    ),
+    pageRead = await benchmarkSamples(
+      () => getPage(wikiId, fixture.sample_page_id!),
+      300,
+    ),
+    treeNodes = await listPages(wikiId, null, 200, 64),
+    tree = await benchmarkSamples(() => listPages(wikiId, null, 200, 64));
+  return {
+    page_count: pageCount,
+    ...search,
+    search,
+    page_read: pageRead,
+    tree_first_page: {
+      ...tree,
+      requested_node_limit: 200,
+      returned_node_count: treeNodes.length,
+      maximum_first_screen_nodes: 500,
+      node_cap_met: treeNodes.length <= 500,
+    },
+  };
+}
+
+export async function cleanupSearchBenchmark(wikiId: string, runId: string) {
+  const d = db();
+  await d
+    .prepare(`DELETE FROM pages WHERE wiki_id=? AND last_operation_id=?`)
+    .bind(wikiId, runId)
+    .run();
   const remaining = await d
     .prepare(
       `SELECT COUNT(*) AS count FROM pages WHERE wiki_id=? AND last_operation_id=?`,
     )
     .bind(wikiId, runId)
     .first<{ count: number }>();
-  return {
-    ...benchmarkResult,
-    cleanup_verified: Number(remaining?.count ?? 0) === 0,
-  };
+  return { cleanup_verified: Number(remaining?.count ?? 0) === 0 };
 }
 export async function listRevisions(
   wikiId: string,
@@ -2671,7 +2707,7 @@ export async function restoreDeletedPage(input: {
       ...links.map((target) =>
         d
           .prepare(
-            `INSERT INTO page_links(id,wiki_id,source_page_id,target_page_id,target_text,link_kind,created_at) SELECT ?,?,?,(SELECT id FROM pages WHERE wiki_id=? AND title=? AND deleted_at IS NULL LIMIT 1),?,'wikilink',? FROM pages p WHERE p.id=? AND p.last_operation_id=?`,
+            `INSERT INTO page_links(id,wiki_id,source_page_id,target_page_id,target_text,link_kind,created_at) SELECT ?,?,?,(SELECT CASE WHEN COUNT(*)=1 THEN MIN(id) ELSE NULL END FROM pages WHERE wiki_id=? AND title=? AND deleted_at IS NULL),?,'wikilink',? FROM pages p WHERE p.id=? AND p.last_operation_id=?`,
           )
           .bind(
             uuid(),
@@ -4218,6 +4254,21 @@ function importedString(value: unknown, field: string, max = 262_144) {
     );
   return value;
 }
+function importedUuid(value: unknown, field: string) {
+  const result = importedString(value, field, 36);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      result,
+    )
+  )
+    throw new AppError(
+      "validation_error",
+      `Imported ${field} must be a UUID.`,
+      400,
+      { field },
+    );
+  return result;
+}
 function importedInteger(value: unknown, field: string, min = 0) {
   if (!Number.isInteger(value) || Number(value) < min)
     throw new AppError(
@@ -4347,9 +4398,7 @@ export async function commitImport(input: {
       "comparison",
       "query",
     ]),
-    pageIds = new Set(
-      rawPages.map((page) => importedString(page.id, "page.id", 36)),
-    );
+    pageIds = new Set(rawPages.map((page) => importedUuid(page.id, "page.id")));
   if (pageIds.size !== rawPages.length)
     throw new AppError(
       "validation_error",
@@ -4358,18 +4407,16 @@ export async function commitImport(input: {
     );
   const attachmentIds = new Set(
       rawAttachments.map((attachment) =>
-        importedString(attachment.id, "attachment.id", 36),
+        importedUuid(attachment.id, "attachment.id"),
       ),
     ),
     revisionIds = new Set(
-      rawRevisions.map((revision) =>
-        importedString(revision.id, "revision.id", 36),
-      ),
+      rawRevisions.map((revision) => importedUuid(revision.id, "revision.id")),
     ),
     revisionVersions = new Set(
       rawRevisions.map(
         (revision) =>
-          `${importedString(revision.page_id, "revision.page_id", 36)}:${importedInteger(revision.version, "revision.version", 1)}`,
+          `${importedUuid(revision.page_id, "revision.page_id")}:${importedInteger(revision.version, "revision.version", 1)}`,
       ),
     );
   if (
@@ -4383,11 +4430,11 @@ export async function commitImport(input: {
       400,
     );
   const pages = rawPages.map((page) => {
-    const id = importedString(page.id, "page.id", 36),
+    const id = importedUuid(page.id, "page.id"),
       parentId =
         page.parent_id === null
           ? null
-          : importedString(page.parent_id, "page.parent_id", 36),
+          : importedUuid(page.parent_id, "page.parent_id"),
       title = importedString(page.title, "page.title", 200),
       slug = importedString(page.slug, "page.slug", 120),
       pageType = importedString(
@@ -4420,14 +4467,23 @@ export async function commitImport(input: {
       markdown,
       version,
       sortOrder: importedInteger(page.sort_order ?? 0, "page.sort_order"),
-      frontmatter:
-        typeof page.frontmatter_json === "string"
-          ? page.frontmatter_json
-          : "{}",
+      frontmatter: JSON.stringify(parseFrontmatter(markdown)),
       createdAt: typeof page.created_at === "string" ? page.created_at : now(),
       updatedAt: typeof page.updated_at === "string" ? page.updated_at : now(),
     };
   });
+  const siblingSlugs = new Set<string>();
+  for (const page of pages) {
+    const siblingSlug = `${page.parentId ?? ROOT_PARENT}:${page.slug}`;
+    if (siblingSlugs.has(siblingSlug))
+      throw new AppError(
+        "validation_error",
+        "Imported sibling page slugs must be unique.",
+        400,
+        { parent_id: page.parentId, slug: page.slug },
+      );
+    siblingSlugs.add(siblingSlug);
+  }
   for (const page of pages) {
     const seen = new Set<string>([page.id]);
     let parentId = page.parentId;
@@ -4504,11 +4560,11 @@ export async function commitImport(input: {
     if (part.kind === "attachment") {
       const attachment = rawAttachments.find((item) =>
           part.filename.startsWith(
-            `attachments/${importedString(item.id, "attachment.id", 36)}-`,
+            `attachments/${importedUuid(item.id, "attachment.id")}-`,
           ),
         ),
         attachmentId = attachment
-          ? importedString(attachment.id, "attachment.id", 36)
+          ? importedUuid(attachment.id, "attachment.id")
           : "";
       if (!attachment)
         throw new AppError(
@@ -4527,7 +4583,7 @@ export async function commitImport(input: {
       const revision = rawRevisions.find(
         (item) =>
           part.filename ===
-          `revisions/snapshots/${importedString(item.page_id, "revision.page_id", 36)}-v${importedInteger(item.version, "revision.version", 1)}.md`,
+          `revisions/snapshots/${importedUuid(item.page_id, "revision.page_id")}-v${importedInteger(item.version, "revision.version", 1)}.md`,
       );
       if (!revision)
         throw new AppError(
@@ -4536,7 +4592,7 @@ export async function commitImport(input: {
           400,
           { part: part.number },
         );
-      finalKey = `revisions/${session.staging_wiki_id}/${importedString(revision.page_id, "revision.page_id", 36)}/${importedInteger(revision.version, "revision.version", 1)}-import-${input.sessionId}.md`;
+      finalKey = `revisions/${session.staging_wiki_id}/${importedUuid(revision.page_id, "revision.page_id")}/${importedInteger(revision.version, "revision.version", 1)}-import-${input.sessionId}.md`;
       contentType = "text/markdown; charset=utf-8";
     }
     await env.FILES.put(finalKey, data, {
@@ -4594,7 +4650,7 @@ export async function commitImport(input: {
     }> = [];
   try {
     for (const attachment of rawAttachments) {
-      const id = importedString(attachment.id, "attachment.id", 36),
+      const id = importedUuid(attachment.id, "attachment.id"),
         part = session.manifest.parts.find(
           (item) =>
             item.kind === "attachment" &&
@@ -4628,7 +4684,7 @@ export async function commitImport(input: {
       const pageId =
         attachment.page_id === null
           ? null
-          : importedString(attachment.page_id, "attachment.page_id", 36);
+          : importedUuid(attachment.page_id, "attachment.page_id");
       if (pageId && !pageIds.has(pageId))
         throw new AppError(
           "validation_error",
@@ -4656,7 +4712,7 @@ export async function commitImport(input: {
     }
     if (rawRevisions.length) {
       for (const revision of rawRevisions) {
-        const pageId = importedString(revision.page_id, "revision.page_id", 36),
+        const pageId = importedUuid(revision.page_id, "revision.page_id"),
           version = importedInteger(revision.version, "revision.version", 1),
           part = session.manifest.parts.find(
             (item) =>
@@ -4694,7 +4750,7 @@ export async function commitImport(input: {
           );
         const key = `revisions/${session.staging_wiki_id}/${pageId}/${version}-import-${input.sessionId}.md`;
         revisionRows.push({
-          id: importedString(revision.id, "revision.id", 36),
+          id: importedUuid(revision.id, "revision.id"),
           pageId,
           version,
           inline: null,
@@ -4842,19 +4898,14 @@ export async function commitImport(input: {
             ),
         ),
         ...rawLinks.map((link) => {
-          const source = importedString(
+          const source = importedUuid(
               link.source_page_id,
               "link.source_page_id",
-              36,
             ),
             target =
               link.target_page_id === null
                 ? null
-                : importedString(
-                    link.target_page_id,
-                    "link.target_page_id",
-                    36,
-                  );
+                : importedUuid(link.target_page_id, "link.target_page_id");
           if (!pageIds.has(source) || (target && !pageIds.has(target)))
             throw new AppError(
               "validation_error",

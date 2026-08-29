@@ -49,6 +49,46 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function metadataOnlyImport(metadata) {
+  const data = Buffer.from(JSON.stringify(metadata));
+  const hashBase = {
+    schema_version: 1,
+    backup_run_id: randomUUID(),
+    exported_at: new Date().toISOString(),
+    wiki_id: randomUUID(),
+    profile: "portable",
+    page_count: metadata.pages.length,
+    attachment_count: metadata.attachments.length,
+    revision_count: metadata.revisions.length,
+    parts: [
+      {
+        number: 0,
+        kind: "metadata",
+        filename: "metadata/wiki-export.json",
+        size_bytes: data.byteLength,
+        sha256: sha256(data),
+      },
+    ],
+  };
+  return {
+    data,
+    manifest: {
+      ...hashBase,
+      manifest_hash: sha256(Buffer.from(stableJson(hashBase))),
+    },
+  };
+}
+
 function isolatedProject(name) {
   const target = join(runtimeRoot, name);
   const excluded = new Set([
@@ -434,6 +474,88 @@ async function main() {
     throw new Error(
       `A non-matching identity was not denied empty-Site import (${unauthorizedImport.response.status}).`,
     );
+  const validImportPage = (overrides = {}) => ({
+    id: randomUUID(),
+    parent_id: null,
+    slug: "valid-import-page",
+    title: "Valid import page",
+    page_type: "note",
+    markdown: "# Valid import page",
+    frontmatter_json: "{}",
+    version: 1,
+    sort_order: 0,
+    ...overrides,
+  });
+  const rejectedMetadataImports = [
+    {
+      name: "invalid page identity",
+      fixture: metadataOnlyImport({
+        pages: [validImportPage({ id: "not-a-valid-import-page-uuid" })],
+        links: [],
+        attachments: [],
+        revisions: [],
+      }),
+    },
+    {
+      name: "duplicate sibling slug",
+      fixture: metadataOnlyImport({
+        pages: [
+          validImportPage({ slug: "duplicate-import-slug" }),
+          validImportPage({
+            slug: "duplicate-import-slug",
+            title: "Duplicate sibling",
+          }),
+        ],
+        links: [],
+        attachments: [],
+        revisions: [],
+      }),
+    },
+    {
+      name: "malformed frontmatter",
+      fixture: metadataOnlyImport({
+        pages: [
+          validImportPage({
+            markdown: "---\ninvalid-line-without-colon\n---\n\n# Invalid",
+          }),
+        ],
+        links: [],
+        attachments: [],
+        revisions: [],
+      }),
+    },
+  ];
+  for (const { name, fixture } of rejectedMetadataImports) {
+    const invalidSession = await request(
+      targetUrl,
+      targetOwner,
+      "/api/import/sessions",
+      { method: "POST", body: JSON.stringify({ manifest: fixture.manifest }) },
+    );
+    await rawRequest(
+      targetUrl,
+      targetOwner,
+      `/api/import/sessions/${invalidSession.session_id}/batches?part=0`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: fixture.data,
+      },
+    );
+    const rejected = await jsonResponse(
+      targetUrl,
+      targetOwner,
+      `/api/import/sessions/${invalidSession.session_id}/commit`,
+      { method: "POST" },
+    );
+    if (
+      rejected.response.status !== 400 ||
+      rejected.envelope?.error?.code !== "validation_error"
+    )
+      throw new Error(
+        `Unsafe import metadata was not rejected: ${name} (${rejected.response.status}).`,
+      );
+  }
   const importSession = await request(
     targetUrl,
     targetOwner,
@@ -683,6 +805,9 @@ async function main() {
       checksumMismatchRejected: true,
       duplicateBatchIdempotent: true,
       missingBatchCommitRejected: true,
+      invalidImportIdentityRejected: true,
+      duplicateImportSiblingSlugRejected: true,
+      malformedImportFrontmatterRejected: true,
       uiEmptySiteImport,
       diskBackedParts: true,
       peakCoordinatorRssMiB: Math.ceil(peakRssBytes / 1024 / 1024),
