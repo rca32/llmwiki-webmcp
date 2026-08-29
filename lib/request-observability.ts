@@ -45,8 +45,8 @@ export function completeApiRequest(
         sizeBytes: measurement.sizeBytes,
       }),
     )
-    .catch((error: unknown) => {
-      console.error("API observability recording failed", error);
+    .catch(() => {
+      console.error("API observability recording failed");
     });
   waitUntil(recording);
 }

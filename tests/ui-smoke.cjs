@@ -59,6 +59,20 @@ let activeBrowser;
       errors.push(`HTTP ${response.status()} ${response.url()}`);
   });
 
+  const hardenedResponse = await context.request.get(baseUrl);
+  const hardenedHeaders = hardenedResponse.headers();
+  if (!hardenedResponse.ok())
+    throw new Error("The hardened application shell did not respond.");
+  if (
+    !hardenedHeaders["content-security-policy"]?.includes(
+      "object-src 'none'",
+    ) ||
+    !hardenedHeaders["content-security-policy"]?.includes("base-uri 'self'") ||
+    hardenedHeaders["x-content-type-options"] !== "nosniff" ||
+    !hardenedHeaders["permissions-policy"]?.includes("camera=()")
+  )
+    throw new Error("Required browser security headers are missing.");
+
   const initialSession = await context.request
     .get(`${baseUrl}/api/session/capabilities`)
     .then((response) => response.json());
@@ -556,6 +570,25 @@ let activeBrowser;
   );
   if (traversalImport.status() !== 400)
     throw new Error("Import manifest path traversal was not rejected.");
+  const attachmentCountImport = await context.request.post(
+    `${baseUrl}/api/import/sessions`,
+    {
+      data: {
+        manifest: {
+          ...traversalManifest,
+          attachment_count: 201,
+          parts: [
+            {
+              ...traversalManifest.parts[0],
+              filename: "metadata.json",
+            },
+          ],
+        },
+      },
+    },
+  );
+  if (attachmentCountImport.status() !== 413)
+    throw new Error("Import attachment-count limit was not enforced.");
   const oversizedImport = await context.request.post(
     `${baseUrl}/api/import/sessions`,
     {
@@ -574,7 +607,7 @@ let activeBrowser;
     },
   );
   if (oversizedImport.status() !== 400)
-    throw new Error("Import package total-size limit was not enforced.");
+    throw new Error("Import part-size limit was not enforced.");
   await editorContext.close();
   await viewerContext.close();
   await outsiderContext.close();
@@ -1092,6 +1125,7 @@ let activeBrowser;
       conflictResolverVerified: true,
       concurrentCasWinnerCount: 1,
       linkModesVerified: true,
+      securityHeadersVerified: true,
       markdownXssBlocked: true,
       gfmMathMermaidRendered: true,
       roleMatrixVerified: true,
@@ -1099,7 +1133,8 @@ let activeBrowser;
       attachmentIdorBlocked: true,
       activeContentUploadBlocked: true,
       importTraversalBlocked: true,
-      importTotalSizeLimited: true,
+      importAttachmentCountLimited: true,
+      importPartSizeLimited: true,
       promptInjectionMarkedUntrusted: true,
       d1BatchAtomic: true,
       largeRevisionDirectCleanup: true,

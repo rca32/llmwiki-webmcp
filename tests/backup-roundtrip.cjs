@@ -24,6 +24,7 @@ const runtimeParent = resolve(
 mkdirSync(runtimeParent, { recursive: true });
 const runtimeRoot = mkdtempSync(join(runtimeParent, "liminal-wiki-roundtrip-"));
 const servers = [];
+const serverOutput = new Map();
 const bytesArgument = process.argv.find((value) =>
   value.startsWith("--bytes="),
 );
@@ -112,6 +113,7 @@ async function startProject(root, port, bootstrapOwnerEmail) {
   let output = "";
   const capture = (chunk) => {
     output = `${output}${chunk}`.slice(-20_000);
+    serverOutput.set(child, output);
   };
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
@@ -135,7 +137,7 @@ async function request(baseUrl, email, path, init = {}) {
   const { response, envelope } = await jsonResponse(baseUrl, email, path, init);
   if (!response.ok || !envelope?.ok)
     throw new Error(
-      `${init.method ?? "GET"} ${path} failed (${response.status}): ${JSON.stringify(envelope)}`,
+      `${init.method ?? "GET"} ${path} failed (${response.status}): ${JSON.stringify(envelope)}\nRecent isolated Site output:\n${[...serverOutput.values()].join("\n--- isolated Site ---\n")}`,
     );
   return envelope.data;
 }
@@ -511,12 +513,22 @@ async function main() {
     );
     sampleMemory();
   }
-  await request(
-    targetUrl,
-    targetOwner,
-    `/api/import/sessions/${importSession.session_id}/commit`,
-    { method: "POST" },
-  );
+  let commitAttempts = 0,
+    commitResult;
+  do {
+    commitAttempts++;
+    commitResult = await request(
+      targetUrl,
+      targetOwner,
+      `/api/import/sessions/${importSession.session_id}/commit`,
+      { method: "POST" },
+    );
+    sampleMemory();
+    if (commitAttempts > Math.ceil(manifest.parts.length / 8) + 2)
+      throw new Error("Resumable import commit exceeded its retry bound.");
+  } while (commitResult.status === "committing");
+  if (commitResult.status !== "committed")
+    throw new Error(`Unexpected import commit status ${commitResult.status}.`);
 
   const targetSession = await request(
     targetUrl,
@@ -658,6 +670,7 @@ async function main() {
       attachmentCount: manifest.attachment_count,
       revisionCount: manifest.revision_count,
       partCount: manifest.parts.length,
+      commitAttempts,
       checksumsVerified: true,
       pageIdsAndHierarchyPreserved: true,
       attachmentChecksumPreserved: true,
@@ -697,13 +710,27 @@ main()
       ),
     );
     const resolvedRuntime = resolve(runtimeRoot);
-    if (resolvedRuntime.startsWith(runtimeParent + sep))
-      rmSync(resolvedRuntime, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 100,
-      });
+    if (resolvedRuntime.startsWith(runtimeParent + sep)) {
+      let cleanupError;
+      for (let attempt = 0; attempt < 10; attempt++)
+        try {
+          rmSync(resolvedRuntime, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+          cleanupError = undefined;
+          break;
+        } catch (error) {
+          cleanupError = error;
+          await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+        }
+      if (cleanupError)
+        console.warn(
+          `Could not remove isolated runtime ${resolvedRuntime}: ${cleanupError.code ?? "unknown"}`,
+        );
+    }
     if (ownsRuntimeParent && readdirSync(runtimeParent).length === 0)
       rmdirSync(runtimeParent);
   });

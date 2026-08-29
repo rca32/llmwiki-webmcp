@@ -62,8 +62,10 @@ export async function getWikiSession(): Promise<WikiSession> {
     configuredOwner.length === 0 &&
     email.endsWith("@sites.test");
   const canBootstrap =
-    membership.bootstrapStatus === "empty" &&
-    (configuredOwner === email || localOwner);
+    (membership.bootstrapStatus === "empty" &&
+      (configuredOwner === email || localOwner)) ||
+    (membership.bootstrapStatus === "reserved" &&
+      membership.reservedBy === email);
   return {
     email,
     displayName: user.displayName,

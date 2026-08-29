@@ -386,10 +386,24 @@ export function OperationsPanel({
           },
         );
       }
-      setProgress("검증된 위키 확정 중…");
-      await api(`/api/import/sessions/${session_id}/commit`, {
-        method: "POST",
-      });
+      let commitAttempt = 0,
+        commitResult: {
+          status: "committing" | "committed";
+          remaining_parts?: number;
+        };
+      do {
+        commitAttempt++;
+        setProgress(
+          commitAttempt === 1
+            ? "검증된 위키 확정 중…"
+            : `복원 객체 확정 중 · 남은 파트 ${commitResult!.remaining_parts ?? 0}`,
+        );
+        commitResult = await api(`/api/import/sessions/${session_id}/commit`, {
+          method: "POST",
+        });
+        if (commitAttempt > Math.ceil(total_batches / 8) + 2)
+          throw new Error("복원 확정이 예상 횟수 안에 완료되지 않았습니다.");
+      } while (commitResult.status === "committing");
       setMessage("빈 Site에 백업을 복원했습니다.");
       await onWorkspaceChanged();
     } catch (error) {

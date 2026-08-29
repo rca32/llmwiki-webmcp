@@ -22,6 +22,8 @@ import {
   selectRevisionPruneCandidates,
   type RevisionRetentionRow,
 } from "../lib/revision-retention";
+import { safeOperationalErrorTag } from "../lib/security-policy";
+import { assertActiveAttachmentCapacity } from "../lib/storage-quota";
 
 const ROOT_PARENT = "__root__";
 const INLINE_REVISION_BYTES = 64 * 1024;
@@ -103,10 +105,11 @@ export async function getMembership(email: string): Promise<{
   siteVersion: number;
   writeMode: WriteMode;
   writeModeReason: string | null;
+  reservedBy: string | null;
 }> {
   const row = await db()
     .prepare(
-      `SELECT s.active_wiki_id AS wiki_id,s.bootstrap_status,s.version AS site_version,w.title AS wiki_title,m.role,COALESCE(rs.write_mode,'read_write') AS write_mode,rs.reason AS write_mode_reason FROM site_state s LEFT JOIN site_runtime_settings rs ON rs.id=1 LEFT JOIN wikis w ON w.id=s.active_wiki_id AND w.status='active' LEFT JOIN wiki_members m ON m.wiki_id=s.active_wiki_id AND m.user_email=? WHERE s.id=1`,
+      `SELECT s.active_wiki_id AS wiki_id,s.bootstrap_status,s.reserved_by,s.version AS site_version,w.title AS wiki_title,m.role,COALESCE(rs.write_mode,'read_write') AS write_mode,rs.reason AS write_mode_reason FROM site_state s LEFT JOIN site_runtime_settings rs ON rs.id=1 LEFT JOIN wikis w ON w.id=s.active_wiki_id AND w.status='active' LEFT JOIN wiki_members m ON m.wiki_id=s.active_wiki_id AND m.user_email=? WHERE s.id=1`,
     )
     .bind(email)
     .first<Record<string, unknown>>();
@@ -119,6 +122,7 @@ export async function getMembership(email: string): Promise<{
     writeMode: row?.write_mode === "read_only" ? "read_only" : "read_write",
     writeModeReason:
       typeof row?.write_mode_reason === "string" ? row.write_mode_reason : null,
+    reservedBy: typeof row?.reserved_by === "string" ? row.reserved_by : null,
   };
 }
 
@@ -952,7 +956,7 @@ async function compensateSnapshot(
           uuid(),
           wikiId,
           snap.key,
-          `${reason}: ${error instanceof Error ? error.message : String(error)}`,
+          `${reason}:${safeOperationalErrorTag(error)}`,
           timestamp,
           timestamp,
         )
@@ -2961,11 +2965,14 @@ export async function getGraph(wikiId: string, limit: number) {
 async function assertAttachmentQuota(wikiId: string, incomingBytes: number) {
   const usage = await db()
     .prepare(
-      `SELECT r2_ready_revision_bytes,r2_ready_attachment_bytes,r2_soft_deleted_bytes,r2_pending_bytes,r2_staging_import_bytes,r2_orphan_estimate_bytes FROM wiki_usage WHERE wiki_id=?`,
+      `SELECT r2_ready_revision_bytes,r2_ready_attachment_bytes,r2_soft_deleted_bytes,r2_pending_bytes,r2_staging_import_bytes,r2_orphan_estimate_bytes,attachment_count FROM wiki_usage WHERE wiki_id=?`,
     )
     .bind(wikiId)
     .first<Record<string, number>>();
-  const used = Object.values(usage ?? {}).reduce(
+  const { attachment_count: attachmentCount = 0, ...storageUsage } =
+    usage ?? {};
+  assertActiveAttachmentCapacity(Number(attachmentCount));
+  const used = Object.values(storageUsage).reduce(
     (sum, value) => sum + Number(value ?? 0),
     0,
   );
@@ -3197,7 +3204,14 @@ export async function uploadAttachment(input: {
         .prepare(
           `INSERT INTO storage_repairs(id,wiki_id,object_key,kind,status,last_error,created_at,updated_at) VALUES(?,?,?,'delete_orphan','pending',?,?,?)`,
         )
-        .bind(uuid(), input.wikiId, key, String(cleanupError), now(), now())
+        .bind(
+          uuid(),
+          input.wikiId,
+          key,
+          safeOperationalErrorTag(cleanupError),
+          now(),
+          now(),
+        )
         .run();
     }
     await d.batch([
@@ -3360,6 +3374,20 @@ export async function restoreAttachment(input: {
     );
     await failIdempotency({ ...input, operationName, error });
     throw error;
+  }
+  try {
+    await assertAttachmentQuota(input.wikiId, 0);
+  } catch (error) {
+    const appError =
+      error instanceof AppError
+        ? error
+        : new AppError(
+            "internal_error",
+            "The attachment quota could not be checked.",
+            500,
+          );
+    await failIdempotency({ ...input, operationName, error: appError });
+    throw appError;
   }
   const timestamp = now(),
     result = { attachment_id: input.attachmentId, status: "ready" };
@@ -3867,6 +3895,12 @@ function validateImportManifest(value: unknown): ImportManifest {
   if (
     manifest.schema_version !== 1 ||
     !["portable", "full"].includes(manifest.profile) ||
+    !Number.isInteger(manifest.page_count) ||
+    manifest.page_count < 0 ||
+    !Number.isInteger(manifest.attachment_count) ||
+    manifest.attachment_count < 0 ||
+    !Number.isInteger(manifest.revision_count) ||
+    manifest.revision_count < 0 ||
     !Array.isArray(manifest.parts) ||
     manifest.parts.length < 1 ||
     manifest.parts.length > 1000
@@ -3876,6 +3910,7 @@ function validateImportManifest(value: unknown): ImportManifest {
       "The import manifest schema is not supported.",
       400,
     );
+  assertActiveAttachmentCapacity(0, manifest.attachment_count);
   const numbers = new Set<number>(),
     filenames = new Set<string>();
   let totalSize = 0;
@@ -4208,8 +4243,23 @@ export async function commitImport(input: {
       true,
     );
   const session = await importSession(input.email, input.sessionId);
+  if (session.status === "committed") {
+    const wiki = await db()
+      .prepare(`SELECT title FROM wikis WHERE id=? AND status='active'`)
+      .bind(session.staging_wiki_id)
+      .first<{ title: string }>();
+    return {
+      wiki_id: session.staging_wiki_id,
+      title: wiki?.title ?? "Imported Wiki",
+      page_count: session.manifest.page_count,
+      link_count: 0,
+      attachment_count: session.manifest.attachment_count,
+      revision_count: session.manifest.revision_count,
+      status: "committed",
+    };
+  }
   if (
-    session.status !== "validated" ||
+    !["validated", "committing"].includes(session.status) ||
     session.completed_batches !== session.total_batches
   )
     throw new AppError(
@@ -4223,9 +4273,19 @@ export async function commitImport(input: {
       },
     );
   const state = await db()
-    .prepare(`SELECT bootstrap_status,version FROM site_state WHERE id=1`)
-    .first<{ bootstrap_status: string; version: number }>();
-  if (state?.bootstrap_status !== "empty")
+    .prepare(
+      `SELECT bootstrap_status,reserved_by,version FROM site_state WHERE id=1`,
+    )
+    .first<{
+      bootstrap_status: string;
+      reserved_by: string | null;
+      version: number;
+    }>();
+  const ownsReservation =
+    state?.bootstrap_status === "reserved" &&
+    state.reserved_by === input.email &&
+    session.status === "committing";
+  if (state?.bootstrap_status !== "empty" && !ownsReservation)
     throw new AppError(
       "validation_error",
       "Import commit is allowed only when this Site has no active wiki.",
@@ -4261,6 +4321,7 @@ export async function commitImport(input: {
   if (
     rawPages.length !== session.manifest.page_count ||
     rawAttachments.length !== session.manifest.attachment_count ||
+    rawRevisions.length !== session.manifest.revision_count ||
     rawPages.length > 200 ||
     rawAttachments.length > 200 ||
     rawLinks.length > 2000 ||
@@ -4293,6 +4354,32 @@ export async function commitImport(input: {
     throw new AppError(
       "validation_error",
       "Imported page IDs must be unique.",
+      400,
+    );
+  const attachmentIds = new Set(
+      rawAttachments.map((attachment) =>
+        importedString(attachment.id, "attachment.id", 36),
+      ),
+    ),
+    revisionIds = new Set(
+      rawRevisions.map((revision) =>
+        importedString(revision.id, "revision.id", 36),
+      ),
+    ),
+    revisionVersions = new Set(
+      rawRevisions.map(
+        (revision) =>
+          `${importedString(revision.page_id, "revision.page_id", 36)}:${importedInteger(revision.version, "revision.version", 1)}`,
+      ),
+    );
+  if (
+    attachmentIds.size !== rawAttachments.length ||
+    revisionIds.size !== rawRevisions.length ||
+    revisionVersions.size !== rawRevisions.length
+  )
+    throw new AppError(
+      "validation_error",
+      "Imported attachment and revision identities must be unique.",
       400,
     );
   const pages = rawPages.map((page) => {
@@ -4359,26 +4446,130 @@ export async function commitImport(input: {
   }
   const timestamp = now(),
     d = db(),
-    reserved = await d
+    leaseExpiresAt = new Date(Date.now() + 300_000).toISOString();
+  if (!ownsReservation) {
+    const reserved = await d
       .prepare(
         `UPDATE site_state SET bootstrap_status='reserved',reserved_by=?,reserved_at=?,lease_expires_at=?,version=version+1,updated_at=? WHERE id=1 AND bootstrap_status='empty' AND version=?`,
       )
-      .bind(
-        input.email,
-        timestamp,
-        new Date(Date.now() + 300_000).toISOString(),
-        timestamp,
-        state.version,
-      )
+      .bind(input.email, timestamp, leaseExpiresAt, timestamp, state.version)
       .run();
-  if ((reserved.meta.changes ?? 0) !== 1)
-    throw new AppError(
-      "validation_error",
-      "Another bootstrap or import reserved this Site first.",
-      409,
-    );
-  const finalObjectKeys: string[] = [],
-    attachmentRows: Array<{
+    if ((reserved.meta.changes ?? 0) !== 1)
+      throw new AppError(
+        "validation_error",
+        "Another bootstrap or import reserved this Site first.",
+        409,
+      );
+    await d
+      .prepare(
+        `UPDATE import_sessions SET status='committing',error_summary=NULL WHERE id=? AND actor_email=? AND status='validated'`,
+      )
+      .bind(input.sessionId, input.email)
+      .run();
+  } else
+    await d
+      .prepare(
+        `UPDATE site_state SET lease_expires_at=?,updated_at=? WHERE id=1 AND bootstrap_status='reserved' AND reserved_by=?`,
+      )
+      .bind(leaseExpiresAt, timestamp, input.email)
+      .run();
+
+  const objectParts = session.manifest.parts.filter(
+      (part) => part.kind === "attachment" || part.kind === "revision",
+    ),
+    batchStates = await d
+      .prepare(
+        `SELECT batch_index,status FROM import_batches WHERE session_id=?`,
+      )
+      .bind(input.sessionId)
+      .all<{ batch_index: number; status: string }>(),
+    statusByPart = new Map(
+      batchStates.results.map((row) => [row.batch_index, row.status]),
+    ),
+    pendingObjectParts = objectParts.filter(
+      (part) => statusByPart.get(part.number) !== "applied",
+    ),
+    commitBatch = pendingObjectParts.slice(0, 8);
+  for (const part of commitBatch) {
+    const data = await readImportPart(input.sessionId, part.number),
+      hash = await sha256Bytes(data);
+    if (data.byteLength !== part.size_bytes || hash !== part.sha256)
+      throw new AppError(
+        "validation_error",
+        "An imported object failed checksum or size validation during commit.",
+        400,
+        { part: part.number },
+      );
+    let finalKey: string, contentType: string;
+    if (part.kind === "attachment") {
+      const attachment = rawAttachments.find((item) =>
+          part.filename.startsWith(
+            `attachments/${importedString(item.id, "attachment.id", 36)}-`,
+          ),
+        ),
+        attachmentId = attachment
+          ? importedString(attachment.id, "attachment.id", 36)
+          : "";
+      if (!attachment)
+        throw new AppError(
+          "validation_error",
+          "An attachment part does not match import metadata.",
+          400,
+          { part: part.number },
+        );
+      finalKey = `attachments/${session.staging_wiki_id}/${attachmentId}`;
+      contentType = importedString(
+        attachment.mime_type,
+        "attachment.mime_type",
+        200,
+      );
+    } else {
+      const revision = rawRevisions.find(
+        (item) =>
+          part.filename ===
+          `revisions/snapshots/${importedString(item.page_id, "revision.page_id", 36)}-v${importedInteger(item.version, "revision.version", 1)}.md`,
+      );
+      if (!revision)
+        throw new AppError(
+          "validation_error",
+          "A revision part does not match import metadata.",
+          400,
+          { part: part.number },
+        );
+      finalKey = `revisions/${session.staging_wiki_id}/${importedString(revision.page_id, "revision.page_id", 36)}/${importedInteger(revision.version, "revision.version", 1)}-import-${input.sessionId}.md`;
+      contentType = "text/markdown; charset=utf-8";
+    }
+    await env.FILES.put(finalKey, data, {
+      httpMetadata: { contentType },
+      customMetadata: { sha256: hash },
+    });
+    await d
+      .prepare(
+        `UPDATE import_batches SET status='applied' WHERE session_id=? AND batch_index=? AND status='completed'`,
+      )
+      .bind(input.sessionId, part.number)
+      .run();
+    statusByPart.set(part.number, "applied");
+    try {
+      await env.FILES.delete(
+        `imports/${input.sessionId}/part-${String(part.number).padStart(4, "0")}`,
+      );
+    } catch {}
+  }
+  if (pendingObjectParts.length > commitBatch.length)
+    return {
+      wiki_id: session.staging_wiki_id,
+      title: "Imported Wiki",
+      page_count: pages.length,
+      link_count: rawLinks.length,
+      attachment_count: rawAttachments.length,
+      revision_count: rawRevisions.length || pages.length,
+      status: "committing",
+      phase: "objects",
+      processed_parts: commitBatch.length,
+      remaining_parts: pendingObjectParts.length - commitBatch.length,
+    };
+  const attachmentRows: Array<{
       id: string;
       pageId: string | null;
       key: string;
@@ -4416,37 +4607,38 @@ export async function commitImport(input: {
           400,
           { attachment_id: id },
         );
-      const data = await readImportPart(input.sessionId, part.number),
-        hash = await sha256Bytes(data);
+      const hash = importedString(attachment.sha256, "attachment.sha256", 64),
+        size = importedInteger(
+          attachment.size_bytes,
+          "attachment.size_bytes",
+          1,
+        );
       if (
-        hash !== importedString(attachment.sha256, "attachment.sha256", 64) ||
-        data.byteLength !==
-          importedInteger(attachment.size_bytes, "attachment.size_bytes", 1)
+        hash !== part.sha256 ||
+        size !== part.size_bytes ||
+        statusByPart.get(part.number) !== "applied"
       )
         throw new AppError(
           "validation_error",
-          "An imported attachment failed checksum or size validation.",
+          "An imported attachment was not fully staged.",
           400,
           { attachment_id: id },
         );
       const key = `attachments/${session.staging_wiki_id}/${id}`;
-      await env.FILES.put(key, data, {
-        httpMetadata: {
-          contentType: importedString(
-            attachment.mime_type,
-            "attachment.mime_type",
-            200,
-          ),
-        },
-        customMetadata: { sha256: hash },
-      });
-      finalObjectKeys.push(key);
+      const pageId =
+        attachment.page_id === null
+          ? null
+          : importedString(attachment.page_id, "attachment.page_id", 36);
+      if (pageId && !pageIds.has(pageId))
+        throw new AppError(
+          "validation_error",
+          "An imported attachment references a missing page.",
+          400,
+          { attachment_id: id, page_id: pageId },
+        );
       attachmentRows.push({
         id,
-        pageId:
-          attachment.page_id === null
-            ? null
-            : importedString(attachment.page_id, "attachment.page_id", 36),
+        pageId,
         key,
         filename: importedString(
           attachment.filename,
@@ -4454,7 +4646,7 @@ export async function commitImport(input: {
           200,
         ),
         mime: importedString(attachment.mime_type, "attachment.mime_type", 200),
-        size: data.byteLength,
+        size,
         hash,
         createdAt:
           typeof attachment.created_at === "string"
@@ -4478,39 +4670,36 @@ export async function commitImport(input: {
             400,
             { page_id: pageId, version },
           );
-        const data = await readImportPart(input.sessionId, part.number),
-          hash = await sha256Bytes(data),
-          expected = importedString(
-            revision.content_sha256,
-            "revision.content_sha256",
-            64,
-          );
-        if (hash !== expected)
+        const expected = importedString(
+          revision.content_sha256,
+          "revision.content_sha256",
+          64,
+        );
+        if (
+          part.sha256 !== expected ||
+          statusByPart.get(part.number) !== "applied"
+        )
           throw new AppError(
             "validation_error",
-            "An imported revision failed checksum validation.",
+            "An imported revision was not fully staged.",
             400,
             { page_id: pageId, version },
           );
-        const markdown = new TextDecoder().decode(data);
-        let inline: string | null = markdown,
-          key: string | null = null;
-        if (data.byteLength > INLINE_REVISION_BYTES) {
-          inline = null;
-          key = `revisions/${session.staging_wiki_id}/${pageId}/${version}-import-${input.sessionId}.md`;
-          await env.FILES.put(key, data, {
-            httpMetadata: { contentType: "text/markdown; charset=utf-8" },
-            customMetadata: { sha256: hash },
-          });
-          finalObjectKeys.push(key);
-        }
+        if (!pageIds.has(pageId))
+          throw new AppError(
+            "validation_error",
+            "An imported revision references a missing page.",
+            400,
+            { page_id: pageId, version },
+          );
+        const key = `revisions/${session.staging_wiki_id}/${pageId}/${version}-import-${input.sessionId}.md`;
         revisionRows.push({
           id: importedString(revision.id, "revision.id", 36),
           pageId,
           version,
-          inline,
+          inline: null,
           key,
-          hash,
+          hash: expected,
           summary:
             typeof revision.change_summary === "string"
               ? revision.change_summary
@@ -4530,21 +4719,14 @@ export async function commitImport(input: {
       }
     } else
       for (const page of pages) {
-        const snap = await snapshot(
-          session.staging_wiki_id,
-          page.id,
-          page.version,
-          page.markdown,
-          input.sessionId,
-        );
-        if (snap.key) finalObjectKeys.push(snap.key);
+        const hash = await sha256(page.markdown);
         revisionRows.push({
           id: uuid(),
           pageId: page.id,
           version: page.version,
-          inline: snap.inline,
-          key: snap.key,
-          hash: snap.hash,
+          inline: page.markdown,
+          key: null,
+          hash,
           summary: "Imported current page",
           actor: input.email,
           origin: "import",
@@ -4731,7 +4913,7 @@ export async function commitImport(input: {
           ),
         d
           .prepare(
-            `UPDATE import_sessions SET status='committed',error_summary=NULL WHERE id=? AND actor_email=? AND status='validated'`,
+            `UPDATE import_sessions SET status='committed',error_summary=NULL WHERE id=? AND actor_email=? AND status='committing'`,
           )
           .bind(input.sessionId, input.email),
         d
@@ -4741,10 +4923,9 @@ export async function commitImport(input: {
           .bind(session.staging_wiki_id, timestamp, input.email),
       ];
     await d.batch(statements);
-    for (const part of session.manifest.parts)
-      await env.FILES.delete(
-        `imports/${input.sessionId}/part-${String(part.number).padStart(4, "0")}`,
-      );
+    try {
+      await env.FILES.delete(`imports/${input.sessionId}/part-0000`);
+    } catch {}
     return {
       wiki_id: session.staging_wiki_id,
       title: wikiTitle,
@@ -4755,22 +4936,9 @@ export async function commitImport(input: {
       status: "committed",
     };
   } catch (error) {
-    for (const key of finalObjectKeys)
-      try {
-        await env.FILES.delete(key);
-      } catch {}
-    await d
-      .prepare(
-        `UPDATE site_state SET bootstrap_status='empty',reserved_by=NULL,reserved_at=NULL,lease_expires_at=NULL,last_error='import_failed',version=version+1,updated_at=? WHERE id=1 AND bootstrap_status='reserved' AND reserved_by=?`,
-      )
-      .bind(now(), input.email)
-      .run();
     await d
       .prepare(`UPDATE import_sessions SET error_summary=? WHERE id=?`)
-      .bind(
-        error instanceof Error ? error.message : "import_failed",
-        input.sessionId,
-      )
+      .bind(safeOperationalErrorTag(error), input.sessionId)
       .run();
     throw error;
   }
@@ -4838,11 +5006,7 @@ async function processPendingStorageRepairs(wikiId: string) {
         .prepare(
           `UPDATE storage_repairs SET attempts=attempts+1,last_error=?,updated_at=? WHERE id=? AND status='pending'`,
         )
-        .bind(
-          error instanceof Error ? error.message : String(error),
-          timestamp,
-          repair.id,
-        )
+        .bind(safeOperationalErrorTag(error), timestamp, repair.id)
         .run();
     }
   }
@@ -4905,7 +5069,7 @@ async function purgeExpiredAttachments(
           uuid(),
           wikiId,
           attachment.object_key,
-          error instanceof Error ? error.message : "delete_failed",
+          safeOperationalErrorTag(error),
           timestamp,
           timestamp,
         )
@@ -5122,7 +5286,7 @@ export async function runStorageMaintenance(input: {
             uuid(),
             input.wikiId,
             revision.snapshot_object_key,
-            String(error),
+            safeOperationalErrorTag(error),
             timestamp,
             timestamp,
           )
