@@ -2,9 +2,9 @@
 
 Last reviewed: 2026-08-29
 
-## Project license status
+## Project license
 
-The license for the original Liminal Wiki source code has not yet been selected. This file records third-party provenance and license identifiers; it does not grant a license to the original project source. A public or shared release must not be declared license-complete until the project owner selects and adds the project license.
+The original Liminal Wiki source code is licensed under `GPL-3.0-only`. The complete license text is included in [LICENSE](LICENSE). Third-party components remain under the licenses recorded below.
 
 ## Research baseline not included in this source tree
 
