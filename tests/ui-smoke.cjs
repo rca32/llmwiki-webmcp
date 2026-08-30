@@ -1208,6 +1208,14 @@ let activeBrowser;
   await page.unroute("**/api/pages/*", delayedPageDetail);
   await page.unroute("**/api/attachments?*", delayedPageDetail);
   const documentAccessibility = await new AxeBuilder({ page }).analyze();
+  for (const actionName of [
+    "페이지 링크 복사",
+    "페이지 Markdown 복사",
+    "Codex 추가 조사 요청 복사",
+  ]) {
+    if ((await page.getByRole("button", { name: actionName }).count()) !== 1)
+      throw new Error(`Page sharing action is missing: ${actionName}`);
+  }
 
   await page.getByRole("button", { name: "그래프" }).click();
   await page.locator(".graph-view").waitFor();

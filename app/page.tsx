@@ -10,8 +10,10 @@ import {
   useState,
 } from "react";
 import {
+  Bot,
   ChevronRight,
   Clock3,
+  Copy,
   FileText,
   Link2,
   Moon,
@@ -24,6 +26,12 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import {
+  buildCodexResearchPrompt,
+  buildPagePermalink,
+  readPagePermalink,
+  type PagePermalinkTarget,
+} from "@/lib/page-sharing";
 import { SiteTools } from "./site-tools";
 import {
   IconSidebar,
@@ -181,6 +189,27 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
           details: envelope.error.details,
         });
   return envelope.data;
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall through for browsers that expose Clipboard but deny the call.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("클립보드에 복사하지 못했습니다.");
 }
 
 function lineDiff(latest: string, draft: string) {
@@ -341,6 +370,8 @@ export default function Home() {
   const dirtyRef = useRef(false);
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
+  const initialPermalinkRef = useRef<PagePermalinkTarget | null>(null);
+  const permalinkReadRef = useRef(false);
   const dirty = markdown !== savedMarkdown;
   const changeView = useCallback((nextView: WorkspaceView) => {
     // Keep asynchronous workspace hydration from restoring the document view
@@ -537,18 +568,50 @@ export default function Home() {
     async (refreshActive = true) => {
       const requestNumber = ++workspaceRequestRef.current;
       try {
-        const activePagesPromise = settleRequest(
+        if (!permalinkReadRef.current) {
+          initialPermalinkRef.current = readPagePermalink(window.location.href);
+          permalinkReadRef.current = true;
+        }
+        const requestedTarget = initialPermalinkRef.current;
+        let activePagesPromise = settleRequest(
           api<{ pages: Page[] }>(
             "/api/pages?depth=64&limit=200&include_markdown=true",
           ),
         );
-        const session = await api<{
+        let session = await api<{
           wiki: { id: string; title: string; role: string } | null;
           capabilities: Caps;
           site_version: number;
           write_mode: "read_write" | "read_only";
           write_mode_reason: string | null;
         }>("/api/session/capabilities");
+        if (
+          requestedTarget &&
+          session.capabilities.can_read &&
+          requestedTarget.wikiId !== session.wiki?.id
+        ) {
+          try {
+            await api("/api/session/active-wiki", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ wiki_id: requestedTarget.wikiId }),
+            });
+            activePagesPromise = settleRequest(
+              api<{ pages: Page[] }>(
+                "/api/pages?depth=64&limit=200&include_markdown=true",
+              ),
+            );
+            session = await api<{
+              wiki: { id: string; title: string; role: string } | null;
+              capabilities: Caps;
+              site_version: number;
+              write_mode: "read_write" | "read_only";
+              write_mode_reason: string | null;
+            }>("/api/session/capabilities");
+          } catch {
+            setNotice("공유 링크의 Vault를 열 권한이 없거나 찾을 수 없습니다.");
+          }
+        }
         if (requestNumber !== workspaceRequestRef.current) return;
         if (currentWikiIdRef.current !== session.wiki?.id) {
           currentWikiIdRef.current = session.wiki?.id ?? null;
@@ -621,10 +684,21 @@ export default function Home() {
           !dirtyRef.current &&
           !autosavePausedRef.current
         ) {
+          const requestedPageId =
+            requestedTarget && requestedTarget.wikiId === session.wiki?.id
+              ? requestedTarget.pageId
+              : null;
           const target =
-            current && list.some((page) => page.id === current.id)
-              ? current.id
-              : list[0]?.id;
+            requestedPageId && list.some((page) => page.id === requestedPageId)
+              ? requestedPageId
+              : current && list.some((page) => page.id === current.id)
+                ? current.id
+                : list[0]?.id;
+          if (requestedPageId && target !== requestedPageId)
+            setNotice(
+              "공유 링크의 페이지를 찾을 수 없어 첫 페이지를 열었습니다.",
+            );
+          initialPermalinkRef.current = null;
           if (target) void openPage(target, true);
         } else setStatus("목록 갱신됨");
       } catch (error) {
@@ -767,9 +841,16 @@ export default function Home() {
     savedMarkdown,
   ]);
   useEffect(() => {
-    if (active) document.documentElement.dataset.pageId = active.id;
-    else delete document.documentElement.dataset.pageId;
-  }, [active]);
+    if (active) {
+      document.documentElement.dataset.pageId = active.id;
+      if (currentWiki)
+        window.history.replaceState(
+          null,
+          "",
+          buildPagePermalink(window.location.href, currentWiki.id, active.id),
+        );
+    } else delete document.documentElement.dataset.pageId;
+  }, [active, currentWiki]);
   useEffect(() => {
     if (currentWiki) document.documentElement.dataset.wikiId = currentWiki.id;
     else delete document.documentElement.dataset.wikiId;
@@ -1184,6 +1265,55 @@ export default function Home() {
     else setNotice(`“${title}” 페이지를 찾지 못했습니다.`);
   }
 
+  function activePermalink() {
+    if (!active || !currentWiki) return null;
+    return buildPagePermalink(window.location.href, currentWiki.id, active.id);
+  }
+
+  async function copyActiveLink() {
+    const link = activePermalink();
+    if (!link) return;
+    try {
+      await copyText(link);
+      setNotice("이 페이지를 바로 여는 링크를 복사했습니다.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "링크를 복사하지 못했습니다.",
+      );
+    }
+  }
+
+  async function copyActiveMarkdown() {
+    if (!active) return;
+    try {
+      await copyText(markdown);
+      setNotice(
+        dirty
+          ? "편집 중인 Markdown을 복사했습니다."
+          : "페이지 Markdown을 복사했습니다.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "본문을 복사하지 못했습니다.",
+      );
+    }
+  }
+
+  async function copyCodexRequest() {
+    const link = activePermalink();
+    if (!active || !link) return;
+    try {
+      await copyText(buildCodexResearchPrompt(active.title, link));
+      setNotice("Codex에 붙여넣을 추가 조사 요청을 복사했습니다.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Codex 요청을 복사하지 못했습니다.",
+      );
+    }
+  }
+
   async function uploadFile(file: File) {
     if (!active || !caps.can_manage_attachments) return;
     const form = new FormData();
@@ -1572,6 +1702,42 @@ export default function Home() {
                       onWikiLink={openWikiLink}
                       headerActions={
                         <>
+                          <div
+                            className="page-share-actions"
+                            role="group"
+                            aria-label="페이지 복사 및 공유"
+                          >
+                            <button
+                              type="button"
+                              className="page-share-action"
+                              onClick={() => void copyActiveLink()}
+                              disabled={!active || !currentWiki}
+                              title="페이지 링크 복사"
+                              aria-label="페이지 링크 복사"
+                            >
+                              <Link2 /> <span>링크</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="page-share-action"
+                              onClick={() => void copyActiveMarkdown()}
+                              disabled={!active}
+                              title="페이지 Markdown 복사"
+                              aria-label="페이지 Markdown 복사"
+                            >
+                              <Copy /> <span>본문</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="page-share-action codex"
+                              onClick={() => void copyCodexRequest()}
+                              disabled={!active || !currentWiki}
+                              title="Codex 추가 조사 요청 복사"
+                              aria-label="Codex 추가 조사 요청 복사"
+                            >
+                              <Bot /> <span>Codex</span>
+                            </button>
+                          </div>
                           <button
                             type="button"
                             className="editor-icon-action"

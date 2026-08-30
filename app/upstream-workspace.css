@@ -1163,6 +1163,51 @@ textarea {
   box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
+.page-share-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+}
+
+.page-share-action {
+  display: inline-flex;
+  height: 27px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.page-share-action:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.page-share-action.codex {
+  color: color-mix(in oklch, var(--primary) 82%, var(--foreground));
+}
+
+.page-share-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.page-share-action svg {
+  width: 13px;
+  height: 13px;
+}
+
 .editor-icon-action.destructive:hover {
   color: var(--destructive);
   background: color-mix(in oklch, var(--destructive) 10%, transparent);
@@ -2420,6 +2465,14 @@ button.context-row {
   .editor-mode-switch button span {
     display: none;
   }
+  .page-share-action span {
+    display: none;
+  }
+  .page-share-action {
+    width: 27px;
+    justify-content: center;
+    padding: 0;
+  }
   .conflict-columns {
     grid-template-columns: 1fr;
   }
@@ -2447,7 +2500,11 @@ button.context-row {
     display: none;
   }
   .editor-titlebar {
+    gap: 8px;
     padding-left: 14px;
+  }
+  .page-share-actions {
+    margin-right: 0;
   }
   .editor-title-copy h1 {
     font-size: 15px;
