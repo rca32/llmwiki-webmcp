@@ -1023,9 +1023,9 @@ export default function Home() {
             <>
               <ResizablePanel
                 id="knowledge-tree"
-                defaultSize={20}
-                minSize={14}
-                maxSize={34}
+                defaultSize="20%"
+                minSize="14%"
+                maxSize="34%"
               >
                 <KnowledgeTree
                   pages={filtered}
@@ -1048,7 +1048,7 @@ export default function Home() {
             </>
           )}
 
-          <ResizablePanel id="wiki-content" defaultSize={58} minSize={38}>
+          <ResizablePanel id="wiki-content" minSize="38%">
             <section className="workspace-main">
               <header className="workspace-topbar">
                 <div className="workspace-breadcrumbs">
@@ -1296,9 +1296,9 @@ export default function Home() {
               <ResizableHandle className="workspace-resize-handle" />
               <ResizablePanel
                 id="page-context"
-                defaultSize={22}
-                minSize={18}
-                maxSize={36}
+                defaultSize="22%"
+                minSize="18%"
+                maxSize="36%"
               >
                 <aside className="context-panel">
                   <header className="context-panel-header">

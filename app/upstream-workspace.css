@@ -492,7 +492,6 @@ textarea {
 .tree-page-row > small {
   color: var(--muted-foreground);
   font-size: 9px;
-  opacity: 0.75;
 }
 
 .tree-page-row.active {

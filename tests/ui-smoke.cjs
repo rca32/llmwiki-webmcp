@@ -122,6 +122,9 @@ let activeBrowser;
       iconSidebarWidth: sidebar
         ? Number.parseFloat(getComputedStyle(sidebar).width)
         : 0,
+      knowledgeTreeWidth:
+        document.querySelector(".knowledge-tree-shell")?.getBoundingClientRect()
+          .width ?? 0,
       resizableHandles: document.querySelectorAll(
         '[data-slot="resizable-handle"]',
       ).length,
@@ -134,6 +137,7 @@ let activeBrowser;
     !upstreamWorkspace.fontFamily.includes("Geist") ||
     upstreamWorkspace.backgroundImage !== "none" ||
     upstreamWorkspace.iconSidebarWidth !== 48 ||
+    upstreamWorkspace.knowledgeTreeWidth < 180 ||
     upstreamWorkspace.resizableHandles < 1 ||
     upstreamWorkspace.legacyDashboardCards !== 0
   )
@@ -1120,6 +1124,13 @@ let activeBrowser;
 
   await page.getByRole("button", { name: "그래프" }).click();
   await page.locator(".graph-view").waitFor();
+  const graphKnowledgeTreeWidth = await page
+    .locator(".knowledge-tree-shell")
+    .evaluate((element) => element.getBoundingClientRect().width);
+  if (graphKnowledgeTreeWidth < 180)
+    throw new Error(
+      `The knowledge tree collapsed in graph view (${graphKnowledgeTreeWidth}px).`,
+    );
   const graphNodeCount = await page.locator(".graph-svg-node").count();
   if (graphNodeCount < 1)
     throw new Error("The graph view did not render any nodes.");
