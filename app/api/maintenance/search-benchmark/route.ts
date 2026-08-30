@@ -12,14 +12,15 @@ import {
   requiredInteger,
   requiredString,
 } from "../../../../lib/validation";
+import { searchBenchmarkEnabled } from "../../../../lib/search-benchmark-policy";
 
 export async function POST(request: Request) {
   const id = requestId("maintenance.search_benchmark");
   try {
-    if (process.env.NODE_ENV === "production")
+    if (!searchBenchmarkEnabled())
       throw new AppError(
         "not_found",
-        "The search benchmark is available only in an isolated development runtime.",
+        "The search benchmark is not enabled for this Site.",
         404,
       );
     const session = await requireWikiSession("can_full_backup"),

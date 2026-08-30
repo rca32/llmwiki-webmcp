@@ -64,6 +64,7 @@ type Operations = {
   latest_backup: Record<string, unknown> | null;
   latest_acknowledged_full_backup: Record<string, unknown> | null;
   pending_repairs: number;
+  search_benchmark_enabled: boolean;
   webmcp_metrics: Array<{
     tool_name: string;
     outcome: "success" | "denied" | "conflict" | "validation" | "error";
@@ -588,6 +589,87 @@ export function OperationsPanel({
     }
   }
 
+  async function runSearchBenchmark() {
+    if (!operations?.search_benchmark_enabled || busy) return;
+    const runId = crypto.randomUUID();
+    let cleanupRequired = false;
+    setBusy(true);
+    setMessage(null);
+    try {
+      for (let offset = 0; offset < 10_000; offset += 1_000) {
+        cleanupRequired = true;
+        setProgress(
+          `성능 fixture 준비 중 ${offset + 1}-${offset + 1_000}/10,000`,
+        );
+        await api("/api/maintenance/search-benchmark", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "seed",
+            run_id: runId,
+            page_count: 10_000,
+            offset,
+            count: 1_000,
+          }),
+        });
+      }
+      setProgress("10,000페이지 search/read/tree 측정 중…");
+      const result = await api<{
+        search: { p95_ms: number; target_met: boolean };
+        page_read: { p95_ms: number; target_met: boolean };
+        tree_first_page: {
+          p95_ms: number;
+          returned_node_count: number;
+          node_cap_met: boolean;
+        };
+      }>("/api/maintenance/search-benchmark", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "measure",
+          run_id: runId,
+          page_count: 10_000,
+        }),
+      });
+      setMessage(
+        `10,000페이지 pilot 통과: search p95 ${result.search.p95_ms}ms · read p95 ${result.page_read.p95_ms}ms · tree p95 ${result.tree_first_page.p95_ms}ms (${result.tree_first_page.returned_node_count}개)`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "10,000페이지 성능 pilot을 완료하지 못했습니다.",
+      );
+    } finally {
+      if (cleanupRequired) {
+        setProgress("성능 fixture 삭제·검증 중…");
+        try {
+          const cleanup = await api<{ cleanup_verified: boolean }>(
+            "/api/maintenance/search-benchmark",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "cleanup", run_id: runId }),
+            },
+          );
+          if (!cleanup.cleanup_verified)
+            setMessage(
+              "성능 fixture 정리를 확인하지 못했습니다. Site 쓰기를 중단하고 점검하세요.",
+            );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? `성능 fixture 정리 실패: ${error.message}`
+              : "성능 fixture 정리에 실패했습니다.",
+          );
+        }
+      }
+      setProgress("");
+      setBusy(false);
+      await refresh();
+    }
+  }
+
   const acknowledgedAt =
       operations?.latest_acknowledged_full_backup?.acknowledged_at,
     acknowledgedDate = acknowledgedAt ? new Date(String(acknowledgedAt)) : null,
@@ -835,7 +917,21 @@ export function OperationsPanel({
               <button onClick={() => void runAtomicityProbe()} disabled={busy}>
                 D1 원자성 검사
               </button>
+              {operations?.search_benchmark_enabled && (
+                <button
+                  onClick={() => void runSearchBenchmark()}
+                  disabled={busy}
+                >
+                  10,000페이지 성능 pilot
+                </button>
+              )}
             </div>
+            {operations?.search_benchmark_enabled && (
+              <small className="warning-text">
+                격리된 복구 Site 전용이며, 측정 종료 시 fixture를 자동
+                삭제합니다.
+              </small>
+            )}
           </section>
         )}
         {capabilities.can_full_backup && (
