@@ -26,6 +26,19 @@ import {
 import { safeOperationalErrorTag } from "../lib/security-policy";
 import { assertActiveAttachmentCapacity } from "../lib/storage-quota";
 import { idempotencyDisposition } from "../lib/idempotency-policy";
+import {
+  DEFAULT_OPERATING_CONTRACT,
+  buildWikiLintReport,
+  canonicalIngestPlanHash,
+  classifyIngestPageAction,
+  isIngestPlanExpired,
+  parseOperatingContract,
+  type IngestClaimDraft,
+  type IngestPageDraft,
+  type IngestRequest,
+  type IngestSourceDraft,
+  type WikiOperatingContract,
+} from "../lib/llm-wiki-domain";
 
 const ROOT_PARENT = "__root__";
 const INLINE_REVISION_BYTES = 64 * 1024;
@@ -49,6 +62,12 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS page_links (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,source_page_id TEXT NOT NULL,target_page_id TEXT,target_text TEXT NOT NULL,link_kind TEXT NOT NULL,created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_page_links_source ON page_links(wiki_id,source_page_id)`,
   `CREATE INDEX IF NOT EXISTS idx_page_links_target ON page_links(wiki_id,target_page_id)`,
+  `CREATE TABLE IF NOT EXISTS wiki_operating_contracts (wiki_id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL,contract_json TEXT NOT NULL,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,last_operation_id TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ingest_plans (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,status TEXT NOT NULL,plan_json TEXT NOT NULL,plan_hash TEXT NOT NULL,action_state_json TEXT NOT NULL DEFAULT '{}',apply_operation_id TEXT,failure_code TEXT,created_at TEXT NOT NULL,expires_at TEXT NOT NULL,applied_at TEXT)`,
+  `CREATE INDEX IF NOT EXISTS idx_ingest_plans_owner ON ingest_plans(wiki_id,actor_email,status,created_at)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_claims (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,subject_page_id TEXT NOT NULL,predicate TEXT NOT NULL,object_page_id TEXT,object_value TEXT,source_page_id TEXT NOT NULL,evidence_fragment TEXT NOT NULL,confidence REAL NOT NULL,observed_at TEXT NOT NULL,valid_from TEXT,valid_to TEXT,supersedes_claim_id TEXT,created_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
+  `CREATE INDEX IF NOT EXISTS idx_knowledge_claims_subject ON knowledge_claims(wiki_id,subject_page_id,created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_knowledge_claims_source ON knowledge_claims(wiki_id,source_page_id,created_at)`,
   `CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,page_id TEXT,object_key TEXT NOT NULL UNIQUE,filename TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,uploaded_by TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_wiki_page ON attachments(wiki_id,page_id,status)`,
   `CREATE TABLE IF NOT EXISTS idempotency_keys (wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,operation_id TEXT NOT NULL,operation_name TEXT NOT NULL,request_hash TEXT NOT NULL,request_id TEXT NOT NULL,status TEXT NOT NULL,lease_expires_at TEXT NOT NULL,failure_retryable INTEGER,attempts INTEGER NOT NULL DEFAULT 1,result_json TEXT,created_at TEXT NOT NULL,completed_at TEXT,expires_at TEXT NOT NULL,PRIMARY KEY(wiki_id,actor_email,operation_name,operation_id))`,
@@ -3214,6 +3233,890 @@ async function assertAttachmentQuota(wikiId: string, incomingBytes: number) {
     );
 }
 
+type StoredOperatingContract = {
+  wiki_id: string;
+  version: number;
+  contract_json: string;
+  updated_by: string;
+  updated_at: string;
+  last_operation_id: string;
+};
+
+export async function getOperatingContract(wikiId: string) {
+  const row = await db()
+    .prepare(
+      `SELECT wiki_id,version,contract_json,updated_by,updated_at,last_operation_id FROM wiki_operating_contracts WHERE wiki_id=?`,
+    )
+    .bind(wikiId)
+    .first<StoredOperatingContract>();
+  if (!row)
+    return {
+      wiki_id: wikiId,
+      version: 0,
+      contract: DEFAULT_OPERATING_CONTRACT,
+      updated_by: null,
+      updated_at: null,
+      customized: false,
+    };
+  return {
+    wiki_id: row.wiki_id,
+    version: row.version,
+    contract: parseOperatingContract(JSON.parse(row.contract_json)),
+    updated_by: row.updated_by,
+    updated_at: row.updated_at,
+    customized: true,
+  };
+}
+
+export async function updateOperatingContract(input: {
+  wikiId: string;
+  email: string;
+  contract: WikiOperatingContract;
+  expectedVersion: number;
+  operationId: string;
+  requestId: string;
+  origin: "human" | "webmcp";
+}) {
+  const operationName = "wiki_update_operating_contract",
+    contract = parseOperatingContract(input.contract),
+    payload = {
+      contract,
+      expected_version: input.expectedVersion,
+    },
+    reservation = await reserveIdempotency({
+      ...input,
+      operationName,
+      payload,
+    });
+  if (reservation.cached) return reservation.cached;
+  const d = db(),
+    timestamp = now(),
+    contractJson = stableJson(contract),
+    nextVersion = input.expectedVersion + 1,
+    write =
+      input.expectedVersion === 0
+        ? d
+            .prepare(
+              `INSERT OR IGNORE INTO wiki_operating_contracts(wiki_id,version,contract_json,updated_by,updated_at,last_operation_id) VALUES(?,1,?,?,?,?)`,
+            )
+            .bind(
+              input.wikiId,
+              contractJson,
+              input.email,
+              timestamp,
+              input.operationId,
+            )
+        : d
+            .prepare(
+              `UPDATE wiki_operating_contracts SET version=version+1,contract_json=?,updated_by=?,updated_at=?,last_operation_id=? WHERE wiki_id=? AND version=?`,
+            )
+            .bind(
+              contractJson,
+              input.email,
+              timestamp,
+              input.operationId,
+              input.wikiId,
+              input.expectedVersion,
+            ),
+    result = {
+      wiki_id: input.wikiId,
+      version: nextVersion,
+      contract,
+      updated_by: input.email,
+      updated_at: timestamp,
+      customized: true,
+    };
+  try {
+    const batch = await d.batch([
+      write,
+      d
+        .prepare(
+          `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) SELECT ?,?,?,?,'wiki.contract.update','wiki',?,'success',?,?,? FROM wiki_operating_contracts c WHERE c.wiki_id=? AND c.last_operation_id=?`,
+        )
+        .bind(
+          uuid(),
+          input.wikiId,
+          input.email,
+          input.origin,
+          input.wikiId,
+          input.requestId,
+          JSON.stringify({
+            from_version: input.expectedVersion,
+            to_version: nextVersion,
+          }),
+          timestamp,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `UPDATE idempotency_keys SET status='completed',result_json=?,completed_at=? WHERE wiki_id=? AND actor_email=? AND operation_name=? AND operation_id=?`,
+        )
+        .bind(
+          JSON.stringify(result),
+          timestamp,
+          input.wikiId,
+          input.email,
+          operationName,
+          input.operationId,
+        ),
+    ]);
+    if ((batch[0].meta.changes ?? 0) !== 1) {
+      const current = await getOperatingContract(input.wikiId);
+      const error = new AppError(
+        "version_conflict",
+        "The vault operating contract changed after it was read.",
+        409,
+        {
+          expected_version: input.expectedVersion,
+          current_version: current.version,
+          next_action: "Read the current operating contract and retry.",
+        },
+      );
+      await failIdempotency({ ...input, operationName, error });
+      throw error;
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    const appError = new AppError(
+      "internal_error",
+      "The vault operating contract could not be updated.",
+      500,
+      {},
+      true,
+    );
+    await failIdempotency({ ...input, operationName, error: appError });
+    throw appError;
+  }
+}
+
+type PlannedPageAction = {
+  action_id: string;
+  operation_id: string;
+  role: "source" | "knowledge";
+  kind: "create" | "update" | "reuse";
+  page: IngestSourceDraft | IngestPageDraft;
+  target_page_id: string | null;
+  expected_version: number | null;
+};
+type PlannedClaimAction = {
+  action_id: string;
+  claim_id: string;
+  claim: IngestClaimDraft;
+};
+type StoredIngestPlan = {
+  source_action: PlannedPageAction;
+  page_actions: PlannedPageAction[];
+  claim_actions: PlannedClaimAction[];
+  warnings: Array<{ code: string; message: string }>;
+};
+type IngestActionState = {
+  completed: Record<
+    string,
+    {
+      kind: "page" | "claim";
+      page_id?: string;
+      claim_id?: string;
+      version?: number;
+    }
+  >;
+  page_ids_by_title: Record<string, string>;
+};
+
+async function validateIngestParent(wikiId: string, parentId: string | null) {
+  if (!parentId) return;
+  const parent = await getPage(wikiId, parentId);
+  if (parent.page_type !== "folder")
+    throw new AppError(
+      "validation_error",
+      "Ingest pages can only be placed under a folder node.",
+      400,
+      { parent_id: parentId },
+    );
+}
+
+async function siblingCandidate(
+  wikiId: string,
+  parentId: string | null,
+  title: string,
+) {
+  return db()
+    .prepare(
+      `SELECT id,title,page_type,version,source_url FROM pages WHERE wiki_id=? AND parent_key=? AND slug=? AND deleted_at IS NULL`,
+    )
+    .bind(wikiId, parentId ?? ROOT_PARENT, slugify(title))
+    .first<{
+      id: string;
+      title: string;
+      page_type: PageType;
+      version: number;
+      source_url: string | null;
+    }>();
+}
+
+function titleKey(title: string) {
+  return title.trim().toLocaleLowerCase();
+}
+
+export async function createIngestPlan(input: {
+  wikiId: string;
+  email: string;
+  request: IngestRequest;
+  requestId: string;
+  origin: "human" | "webmcp";
+}) {
+  const contractEnvelope = await getOperatingContract(input.wikiId),
+    contract = contractEnvelope.contract,
+    proposed = input.request;
+  await Promise.all([
+    validateIngestParent(input.wikiId, proposed.source.parent_id),
+    ...proposed.pages.map((page) =>
+      validateIngestParent(input.wikiId, page.parent_id),
+    ),
+  ]);
+  for (const page of proposed.pages)
+    if (!contract.allowed_page_types.includes(page.page_type))
+      throw new AppError(
+        "validation_error",
+        "A proposed page type is not allowed by the vault operating contract.",
+        400,
+        { title: page.title, page_type: page.page_type },
+      );
+
+  const sourceMatches = await db()
+      .prepare(
+        `SELECT id,title,page_type,version,source_url FROM pages WHERE wiki_id=? AND page_type='source' AND source_url=? AND deleted_at IS NULL ORDER BY created_at LIMIT 2`,
+      )
+      .bind(input.wikiId, proposed.source.source_url)
+      .all<{
+        id: string;
+        title: string;
+        page_type: PageType;
+        version: number;
+        source_url: string | null;
+      }>(),
+    sourceSibling = await siblingCandidate(
+      input.wikiId,
+      proposed.source.parent_id,
+      proposed.source.title,
+    );
+  if (sourceMatches.results.length > 1)
+    throw new AppError(
+      "validation_error",
+      "More than one source page uses this source URL.",
+      409,
+      {
+        source_url: proposed.source.source_url,
+        next_action: "Resolve duplicate source pages before ingesting.",
+      },
+    );
+  if (
+    sourceMatches.results.length === 0 &&
+    sourceSibling &&
+    sourceSibling.source_url !== proposed.source.source_url
+  )
+    throw new AppError(
+      "validation_error",
+      "A sibling page already uses the proposed source title for different content.",
+      409,
+      {
+        page_id: sourceSibling.id,
+        next_action: "Choose a unique source title or reuse the existing URL.",
+      },
+    );
+  const existingSource = sourceMatches.results[0] ?? null,
+    sourceAction: PlannedPageAction = {
+      action_id: uuid(),
+      operation_id: uuid(),
+      role: "source",
+      kind: existingSource ? "reuse" : "create",
+      page: proposed.source,
+      target_page_id: existingSource?.id ?? null,
+      expected_version: existingSource?.version ?? null,
+    },
+    pageActions: PlannedPageAction[] = [];
+  for (const page of proposed.pages) {
+    const existing = await siblingCandidate(
+      input.wikiId,
+      page.parent_id,
+      page.title,
+    );
+    if (existing?.page_type === "source" || existing?.page_type === "folder")
+      throw new AppError(
+        "validation_error",
+        "A protected sibling page already uses the proposed knowledge title.",
+        409,
+        { page_id: existing.id, title: page.title },
+      );
+    if (existing && existing.page_type !== page.page_type)
+      throw new AppError(
+        "validation_error",
+        "An existing canonical page has a different page type.",
+        409,
+        {
+          page_id: existing.id,
+          existing_page_type: existing.page_type,
+          proposed_page_type: page.page_type,
+          next_action: "Keep the existing type or rename the proposed page.",
+        },
+      );
+    const classification = classifyIngestPageAction(existing ?? null);
+    pageActions.push({
+      action_id: uuid(),
+      operation_id: uuid(),
+      role: "knowledge",
+      kind: classification.kind,
+      page,
+      target_page_id: classification.target_page_id,
+      expected_version: classification.expected_version,
+    });
+  }
+  const plannedTitles = new Set([
+    titleKey(proposed.source.title),
+    ...proposed.pages.map((page) => titleKey(page.title)),
+  ]);
+  for (const claim of proposed.claims) {
+    if (
+      claim.subject.title &&
+      !plannedTitles.has(titleKey(claim.subject.title))
+    )
+      await resolvePageReference(input.wikiId, claim.subject);
+    if (claim.object.title && !plannedTitles.has(titleKey(claim.object.title)))
+      await resolvePageReference(input.wikiId, claim.object);
+    if (claim.subject.page_id)
+      await getPage(input.wikiId, claim.subject.page_id);
+    if (claim.object.page_id) await getPage(input.wikiId, claim.object.page_id);
+    if (claim.source_page_id) {
+      const source = await getPage(input.wikiId, claim.source_page_id);
+      if (source.page_type !== "source")
+        throw new AppError(
+          "validation_error",
+          "A claim source_page_id must reference a source page.",
+          400,
+          { source_page_id: claim.source_page_id },
+        );
+    }
+    if (claim.supersedes_claim_id)
+      await getClaim(input.wikiId, claim.supersedes_claim_id);
+  }
+  const warnings: StoredIngestPlan["warnings"] = [];
+  if (proposed.source.retrieval_status !== "success")
+    warnings.push({
+      code: "incomplete_retrieval",
+      message: `Source retrieval status is ${proposed.source.retrieval_status}.`,
+    });
+  if (proposed.source.confidence < contract.minimum_source_confidence)
+    warnings.push({
+      code: "low_source_confidence",
+      message: `Source confidence is below the vault threshold ${contract.minimum_source_confidence}.`,
+    });
+  const plan: StoredIngestPlan = {
+      source_action: sourceAction,
+      page_actions: pageActions,
+      claim_actions: proposed.claims.map((claim) => ({
+        action_id: uuid(),
+        claim_id: uuid(),
+        claim,
+      })),
+      warnings,
+    },
+    planJson = stableJson(plan),
+    planHash = await canonicalIngestPlanHash(plan),
+    planId = uuid(),
+    createdAt = now(),
+    expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await db().batch([
+    db()
+      .prepare(
+        `INSERT INTO ingest_plans(id,wiki_id,actor_email,status,plan_json,plan_hash,action_state_json,created_at,expires_at) VALUES(?,?,?,'planned',?,?,'{"completed":{},"page_ids_by_title":{}}',?,?)`,
+      )
+      .bind(
+        planId,
+        input.wikiId,
+        input.email,
+        planJson,
+        planHash,
+        createdAt,
+        expiresAt,
+      ),
+    db()
+      .prepare(
+        `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,?,'ingest.plan','ingest_plan',?,'success',?,?,?)`,
+      )
+      .bind(
+        uuid(),
+        input.wikiId,
+        input.email,
+        input.origin,
+        planId,
+        input.requestId,
+        JSON.stringify({
+          page_action_count: pageActions.length + 1,
+          claim_action_count: proposed.claims.length,
+          warning_count: warnings.length,
+        }),
+        createdAt,
+      ),
+  ]);
+  return {
+    plan_id: planId,
+    plan_hash: planHash,
+    status: "planned",
+    expires_at: expiresAt,
+    source_action: {
+      kind: sourceAction.kind,
+      title: proposed.source.title,
+      target_page_id: sourceAction.target_page_id,
+      expected_version: sourceAction.expected_version,
+    },
+    page_actions: pageActions.map((action) => ({
+      kind: action.kind,
+      title: action.page.title,
+      page_type: (action.page as IngestPageDraft).page_type,
+      target_page_id: action.target_page_id,
+      expected_version: action.expected_version,
+    })),
+    claim_count: proposed.claims.length,
+    warnings,
+    mutation_count:
+      pageActions.length + (existingSource ? 0 : 1) + proposed.claims.length,
+  };
+}
+
+async function resolvePageReference(
+  wikiId: string,
+  reference: { page_id?: string; title?: string; value?: string },
+  state?: IngestActionState,
+) {
+  if (reference.page_id) return getPage(wikiId, reference.page_id);
+  if (!reference.title)
+    throw new AppError(
+      "validation_error",
+      "A page reference is missing page_id or title.",
+      400,
+    );
+  const plannedId = state?.page_ids_by_title[titleKey(reference.title)];
+  if (plannedId) return getPage(wikiId, plannedId);
+  const matches = await db()
+    .prepare(
+      `SELECT ${PAGE_COLUMNS} FROM pages WHERE wiki_id=? AND lower(title)=lower(?) AND deleted_at IS NULL ORDER BY created_at LIMIT 2`,
+    )
+    .bind(wikiId, reference.title)
+    .all<PageRow>();
+  if (matches.results.length !== 1)
+    throw new AppError(
+      "validation_error",
+      "A title claim reference must resolve to exactly one active page.",
+      409,
+      { title: reference.title, match_count: matches.results.length },
+    );
+  return mapPage(matches.results[0]);
+}
+
+async function getClaim(wikiId: string, claimId: string) {
+  const claim = await db()
+    .prepare(
+      `SELECT id,wiki_id,subject_page_id,predicate,object_page_id,object_value,source_page_id,evidence_fragment,confidence,observed_at,valid_from,valid_to,supersedes_claim_id,created_by,created_at,updated_at FROM knowledge_claims WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
+    )
+    .bind(claimId, wikiId)
+    .first<Record<string, unknown>>();
+  if (!claim)
+    throw new AppError("not_found", "The requested claim was not found.", 404, {
+      claim_id: claimId,
+    });
+  return claim;
+}
+
+async function saveIngestState(planId: string, state: IngestActionState) {
+  await db()
+    .prepare(`UPDATE ingest_plans SET action_state_json=? WHERE id=?`)
+    .bind(stableJson(state), planId)
+    .run();
+}
+
+export async function applyIngestPlan(input: {
+  wikiId: string;
+  email: string;
+  planId: string;
+  planHash: string;
+  approved: boolean;
+  operationId: string;
+  requestId: string;
+  origin: "human" | "webmcp";
+}) {
+  if (!input.approved)
+    throw new AppError(
+      "validation_error",
+      "approved must be true before an ingest plan can be applied.",
+      400,
+      { field: "approved" },
+    );
+  const row = await db()
+    .prepare(
+      `SELECT id,wiki_id,actor_email,status,plan_json,plan_hash,action_state_json,apply_operation_id,failure_code,expires_at,applied_at FROM ingest_plans WHERE id=? AND wiki_id=? AND actor_email=?`,
+    )
+    .bind(input.planId, input.wikiId, input.email)
+    .first<{
+      id: string;
+      wiki_id: string;
+      actor_email: string;
+      status: string;
+      plan_json: string;
+      plan_hash: string;
+      action_state_json: string;
+      apply_operation_id: string | null;
+      failure_code: string | null;
+      expires_at: string;
+      applied_at: string | null;
+    }>();
+  if (!row)
+    throw new AppError("not_found", "The ingest plan was not found.", 404, {
+      plan_id: input.planId,
+    });
+  if (row.plan_hash !== input.planHash)
+    throw new AppError(
+      "validation_error",
+      "The ingest plan hash does not match the persisted plan.",
+      409,
+      { plan_id: input.planId },
+    );
+  if (row.status !== "applied" && isIngestPlanExpired(row.expires_at))
+    throw new AppError(
+      "validation_error",
+      "The ingest plan has expired.",
+      409,
+      { plan_id: input.planId, next_action: "Create and review a new plan." },
+    );
+  const state = JSON.parse(row.action_state_json) as IngestActionState;
+  if (row.status === "applied")
+    return {
+      plan_id: row.id,
+      plan_hash: row.plan_hash,
+      status: "applied",
+      applied_at: row.applied_at,
+      completed_actions: Object.values(state.completed),
+      replayed: true,
+    };
+  if (row.apply_operation_id && row.apply_operation_id !== input.operationId)
+    throw new AppError(
+      "idempotency_pending",
+      "This plan already has an apply operation. Retry with the original operation_id.",
+      409,
+      { plan_id: input.planId },
+      true,
+    );
+  const operationName = "wiki_apply_ingest",
+    reservation = await reserveIdempotency({
+      ...input,
+      operationName,
+      payload: {
+        plan_id: input.planId,
+        plan_hash: input.planHash,
+        approved: true,
+      },
+    });
+  if (reservation.cached) return reservation.cached;
+  await db()
+    .prepare(
+      `UPDATE ingest_plans SET status='applying',apply_operation_id=?,failure_code=NULL WHERE id=? AND wiki_id=? AND actor_email=?`,
+    )
+    .bind(input.operationId, input.planId, input.wikiId, input.email)
+    .run();
+  const plan = JSON.parse(row.plan_json) as StoredIngestPlan,
+    pageActions = [plan.source_action, ...plan.page_actions];
+  try {
+    for (const action of pageActions) {
+      if (state.completed[action.action_id]) continue;
+      let pageId: string, version: number;
+      if (action.kind === "reuse") {
+        const page = await getPage(input.wikiId, action.target_page_id!);
+        pageId = page.id;
+        version = page.version;
+      } else if (action.kind === "create") {
+        const page = action.page;
+        const result = await createPage({
+          wikiId: input.wikiId,
+          email: input.email,
+          title: page.title,
+          pageType:
+            action.role === "source"
+              ? "source"
+              : (page as IngestPageDraft).page_type,
+          markdown: page.markdown,
+          parentId: page.parent_id,
+          operationId: action.operation_id,
+          requestId: input.requestId,
+          origin: input.origin,
+          ...(action.role === "source"
+            ? {
+                sourceUrl: (page as IngestSourceDraft).source_url,
+                retrievalStatus: (page as IngestSourceDraft).retrieval_status,
+                retrievedAt: (page as IngestSourceDraft).retrieved_at,
+                extractionMethod: (page as IngestSourceDraft).extraction_method,
+                confidence: (page as IngestSourceDraft).confidence,
+              }
+            : {}),
+        });
+        pageId = result.page_id;
+        version = result.version;
+      } else {
+        const result = await updatePage({
+          wikiId: input.wikiId,
+          email: input.email,
+          pageId: action.target_page_id!,
+          expectedVersion: action.expected_version!,
+          markdown: action.page.markdown,
+          changeSummary: "Applied reviewed LLM Wiki ingest plan",
+          operationId: action.operation_id,
+          requestId: input.requestId,
+          origin: input.origin,
+        });
+        pageId = result.page_id;
+        version = result.version;
+      }
+      state.completed[action.action_id] = {
+        kind: "page",
+        page_id: pageId,
+        version,
+      };
+      state.page_ids_by_title[titleKey(action.page.title)] = pageId;
+      await saveIngestState(input.planId, state);
+    }
+    for (const action of plan.claim_actions) {
+      if (state.completed[action.action_id]) continue;
+      const claim = action.claim,
+        subject = await resolvePageReference(
+          input.wikiId,
+          claim.subject,
+          state,
+        ),
+        objectPage = claim.object.value
+          ? null
+          : await resolvePageReference(input.wikiId, claim.object, state),
+        source = claim.source_page_id
+          ? await getPage(input.wikiId, claim.source_page_id)
+          : await getPage(
+              input.wikiId,
+              state.page_ids_by_title[titleKey(plan.source_action.page.title)],
+            );
+      if (source.page_type !== "source")
+        throw new AppError(
+          "validation_error",
+          "A claim source must be an active source page.",
+          409,
+          { source_page_id: source.id },
+        );
+      if (claim.supersedes_claim_id)
+        await getClaim(input.wikiId, claim.supersedes_claim_id);
+      const timestamp = now();
+      await db().batch([
+        db()
+          .prepare(
+            `INSERT OR IGNORE INTO knowledge_claims(id,wiki_id,subject_page_id,predicate,object_page_id,object_value,source_page_id,evidence_fragment,confidence,observed_at,valid_from,valid_to,supersedes_claim_id,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          )
+          .bind(
+            action.claim_id,
+            input.wikiId,
+            subject.id,
+            claim.predicate,
+            objectPage?.id ?? null,
+            claim.object.value ?? null,
+            source.id,
+            claim.evidence_fragment,
+            claim.confidence,
+            claim.observed_at,
+            claim.valid_from,
+            claim.valid_to,
+            claim.supersedes_claim_id,
+            input.email,
+            timestamp,
+            timestamp,
+          ),
+        db()
+          .prepare(
+            `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,?, 'claim.create','claim',?,'success',?,?,?)`,
+          )
+          .bind(
+            uuid(),
+            input.wikiId,
+            input.email,
+            input.origin,
+            action.claim_id,
+            input.requestId,
+            JSON.stringify({
+              subject_page_id: subject.id,
+              source_page_id: source.id,
+            }),
+            timestamp,
+          ),
+      ]);
+      state.completed[action.action_id] = {
+        kind: "claim",
+        claim_id: action.claim_id,
+      };
+      await saveIngestState(input.planId, state);
+    }
+    const appliedAt = now(),
+      result = {
+        plan_id: input.planId,
+        plan_hash: input.planHash,
+        status: "applied",
+        applied_at: appliedAt,
+        completed_actions: Object.values(state.completed),
+        page_ids_by_title: state.page_ids_by_title,
+        replayed: false,
+      };
+    await db().batch([
+      db()
+        .prepare(
+          `UPDATE ingest_plans SET status='applied',action_state_json=?,applied_at=?,failure_code=NULL WHERE id=? AND wiki_id=? AND actor_email=?`,
+        )
+        .bind(
+          stableJson(state),
+          appliedAt,
+          input.planId,
+          input.wikiId,
+          input.email,
+        ),
+      db()
+        .prepare(
+          `UPDATE idempotency_keys SET status='completed',result_json=?,completed_at=? WHERE wiki_id=? AND actor_email=? AND operation_name=? AND operation_id=?`,
+        )
+        .bind(
+          JSON.stringify(result),
+          appliedAt,
+          input.wikiId,
+          input.email,
+          operationName,
+          input.operationId,
+        ),
+      db()
+        .prepare(
+          `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,?, 'ingest.apply','ingest_plan',?,'success',?,?,?)`,
+        )
+        .bind(
+          uuid(),
+          input.wikiId,
+          input.email,
+          input.origin,
+          input.planId,
+          input.requestId,
+          JSON.stringify({
+            completed_actions: Object.keys(state.completed).length,
+          }),
+          appliedAt,
+        ),
+    ]);
+    return result;
+  } catch (error) {
+    const appError =
+      error instanceof AppError
+        ? error
+        : new AppError(
+            "internal_error",
+            "The ingest plan could not be fully applied.",
+            500,
+            { plan_id: input.planId },
+            true,
+          );
+    await db()
+      .prepare(
+        `UPDATE ingest_plans SET status='failed',failure_code=?,action_state_json=? WHERE id=?`,
+      )
+      .bind(appError.code, stableJson(state), input.planId)
+      .run();
+    await failIdempotency({ ...input, operationName, error: appError });
+    throw appError;
+  }
+}
+
+export async function listKnowledgeClaims(input: {
+  wikiId: string;
+  subjectPageId: string | null;
+  sourcePageId: string | null;
+  limit: number;
+  offset: number;
+}) {
+  const filters = ["wiki_id=?", "deleted_at IS NULL"],
+    binds: unknown[] = [input.wikiId];
+  if (input.subjectPageId) {
+    filters.push("subject_page_id=?");
+    binds.push(input.subjectPageId);
+  }
+  if (input.sourcePageId) {
+    filters.push("source_page_id=?");
+    binds.push(input.sourcePageId);
+  }
+  const where = filters.join(" AND "),
+    [claims, count] = await Promise.all([
+      db()
+        .prepare(
+          `SELECT id,wiki_id,subject_page_id,predicate,object_page_id,object_value,source_page_id,evidence_fragment,confidence,observed_at,valid_from,valid_to,supersedes_claim_id,created_by,created_at,updated_at FROM knowledge_claims WHERE ${where} ORDER BY created_at DESC,id LIMIT ? OFFSET ?`,
+        )
+        .bind(...binds, input.limit, input.offset)
+        .all(),
+      db()
+        .prepare(
+          `SELECT COUNT(*) AS total FROM knowledge_claims WHERE ${where}`,
+        )
+        .bind(...binds)
+        .first<{ total: number }>(),
+    ]);
+  return { claims: claims.results, total: Number(count?.total ?? 0) };
+}
+
+export async function lintWiki(input: { wikiId: string; limit: number }) {
+  const [pages, links, claims, contract] = await Promise.all([
+    db()
+      .prepare(
+        `SELECT id,parent_id,title,slug,page_type,source_url,retrieval_status,retrieved_at,extraction_method,confidence FROM pages WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_key,sort_order,title LIMIT 5000`,
+      )
+      .bind(input.wikiId)
+      .all<{
+        id: string;
+        parent_id: string | null;
+        title: string;
+        slug: string;
+        page_type: PageType;
+        source_url: string | null;
+        retrieval_status: RetrievalStatus | null;
+        retrieved_at: string | null;
+        extraction_method: string | null;
+        confidence: number | null;
+      }>(),
+    db()
+      .prepare(
+        `SELECT l.source_page_id,CASE WHEN EXISTS(SELECT 1 FROM pages p WHERE p.id=l.target_page_id AND p.wiki_id=l.wiki_id AND p.deleted_at IS NULL) THEN l.target_page_id ELSE NULL END AS target_page_id,l.target_text FROM page_links l WHERE l.wiki_id=? LIMIT 20000`,
+      )
+      .bind(input.wikiId)
+      .all<{
+        source_page_id: string;
+        target_page_id: string | null;
+        target_text: string;
+      }>(),
+    db()
+      .prepare(
+        `SELECT id,subject_page_id,source_page_id,valid_to FROM knowledge_claims WHERE wiki_id=? AND deleted_at IS NULL LIMIT 20000`,
+      )
+      .bind(input.wikiId)
+      .all<{
+        id: string;
+        subject_page_id: string;
+        source_page_id: string;
+        valid_to: string | null;
+      }>(),
+    getOperatingContract(input.wikiId),
+  ]);
+  return buildWikiLintReport({
+    pages: pages.results,
+    links: links.results,
+    claims: claims.results,
+    contract: contract.contract,
+    limit: input.limit,
+  });
+}
+
 type AttachmentRow = {
   id: string;
   wiki_id: string;
@@ -3783,6 +4686,23 @@ export async function prepareExport(input: {
       )
       .bind(input.wikiId)
       .all(),
+    operatingContract = await d
+      .prepare(
+        `SELECT version,contract_json,updated_by,updated_at FROM wiki_operating_contracts WHERE wiki_id=?`,
+      )
+      .bind(input.wikiId)
+      .first<{
+        version: number;
+        contract_json: string;
+        updated_by: string;
+        updated_at: string;
+      }>(),
+    claims = await d
+      .prepare(
+        `SELECT id,subject_page_id,predicate,object_page_id,object_value,source_page_id,evidence_fragment,confidence,observed_at,valid_from,valid_to,supersedes_claim_id,created_by,created_at,updated_at FROM knowledge_claims c WHERE c.wiki_id=? AND c.deleted_at IS NULL AND EXISTS(SELECT 1 FROM pages p WHERE p.id=c.subject_page_id AND p.wiki_id=c.wiki_id AND p.deleted_at IS NULL) AND EXISTS(SELECT 1 FROM pages p WHERE p.id=c.source_page_id AND p.wiki_id=c.wiki_id AND p.deleted_at IS NULL) AND (c.object_page_id IS NULL OR EXISTS(SELECT 1 FROM pages p WHERE p.id=c.object_page_id AND p.wiki_id=c.wiki_id AND p.deleted_at IS NULL)) ORDER BY c.created_at,c.id`,
+      )
+      .bind(input.wikiId)
+      .all(),
     attachments = await d
       .prepare(
         `SELECT id,page_id,object_key,filename,mime_type,size_bytes,sha256,created_at FROM attachments WHERE wiki_id=? AND status='ready' ORDER BY created_at`,
@@ -3820,8 +4740,19 @@ export async function prepareExport(input: {
     exported_at: timestamp,
     profile: input.profile,
     wiki,
+    operating_contract: operatingContract
+      ? {
+          version: operatingContract.version,
+          contract: parseOperatingContract(
+            JSON.parse(operatingContract.contract_json),
+          ),
+          updated_by: operatingContract.updated_by,
+          updated_at: operatingContract.updated_at,
+        }
+      : null,
     pages: pages.results,
     links: links.results,
+    claims: claims.results,
     attachments: attachments.results.map(({ object_key, ...item }) => {
       void object_key;
       return item;
@@ -4512,14 +5443,17 @@ export async function commitImport(input: {
   const session = await importSession(input.email, input.sessionId);
   if (session.status === "committed") {
     const wiki = await db()
-      .prepare(`SELECT title FROM wikis WHERE id=? AND status='active'`)
+      .prepare(
+        `SELECT w.title,(SELECT COUNT(*) FROM knowledge_claims c WHERE c.wiki_id=w.id AND c.deleted_at IS NULL) AS claim_count FROM wikis w WHERE w.id=? AND w.status='active'`,
+      )
       .bind(session.staging_wiki_id)
-      .first<{ title: string }>();
+      .first<{ title: string; claim_count: number }>();
     return {
       wiki_id: session.staging_wiki_id,
       title: wiki?.title ?? "Imported Wiki",
       page_count: session.manifest.page_count,
       link_count: 0,
+      claim_count: Number(wiki?.claim_count ?? 0),
       attachment_count: session.manifest.attachment_count,
       revision_count: session.manifest.revision_count,
       status: "committed",
@@ -4579,6 +5513,15 @@ export async function commitImport(input: {
     rawLinks = Array.isArray(metadata.links)
       ? (metadata.links as Record<string, unknown>[])
       : [],
+    rawClaims = Array.isArray(metadata.claims)
+      ? (metadata.claims as Record<string, unknown>[])
+      : [],
+    rawOperatingContract =
+      metadata.operating_contract &&
+      typeof metadata.operating_contract === "object" &&
+      !Array.isArray(metadata.operating_contract)
+        ? (metadata.operating_contract as Record<string, unknown>)
+        : null,
     rawAttachments = Array.isArray(metadata.attachments)
       ? (metadata.attachments as Record<string, unknown>[])
       : [],
@@ -4592,6 +5535,7 @@ export async function commitImport(input: {
     rawPages.length > 200 ||
     rawAttachments.length > 200 ||
     rawLinks.length > 2000 ||
+    rawClaims.length > 2000 ||
     rawRevisions.length > 1000
   )
     throw new AppError(
@@ -4602,6 +5546,7 @@ export async function commitImport(input: {
         pages: rawPages.length,
         attachments: rawAttachments.length,
         links: rawLinks.length,
+        claims: rawClaims.length,
         revisions: rawRevisions.length,
       },
     );
@@ -4635,15 +5580,19 @@ export async function commitImport(input: {
         (revision) =>
           `${importedUuid(revision.page_id, "revision.page_id")}:${importedInteger(revision.version, "revision.version", 1)}`,
       ),
+    ),
+    claimIds = new Set(
+      rawClaims.map((claim) => importedUuid(claim.id, "claim.id")),
     );
   if (
     attachmentIds.size !== rawAttachments.length ||
     revisionIds.size !== rawRevisions.length ||
-    revisionVersions.size !== rawRevisions.length
+    revisionVersions.size !== rawRevisions.length ||
+    claimIds.size !== rawClaims.length
   )
     throw new AppError(
       "validation_error",
-      "Imported attachment and revision identities must be unique.",
+      "Imported attachment, revision, and claim identities must be unique.",
       400,
     );
   const pages = rawPages.map((page) => {
@@ -4775,7 +5724,138 @@ export async function commitImport(input: {
         pages.find((candidate) => candidate.id === parentId)?.parentId ?? null;
     }
   }
-  const timestamp = now(),
+  const pageTypeById = new Map(pages.map((page) => [page.id, page.pageType])),
+    operatingContract = rawOperatingContract
+      ? {
+          version: importedInteger(
+            rawOperatingContract.version,
+            "operating_contract.version",
+            1,
+          ),
+          contract: parseOperatingContract(rawOperatingContract.contract),
+          updatedBy:
+            typeof rawOperatingContract.updated_by === "string"
+              ? importedString(
+                  rawOperatingContract.updated_by,
+                  "operating_contract.updated_by",
+                  320,
+                )
+              : input.email,
+          updatedAt:
+            typeof rawOperatingContract.updated_at === "string"
+              ? importedString(
+                  rawOperatingContract.updated_at,
+                  "operating_contract.updated_at",
+                  64,
+                )
+              : now(),
+        }
+      : null,
+    claimRows = rawClaims.map((claim) => {
+      const id = importedUuid(claim.id, "claim.id"),
+        subjectPageId = importedUuid(
+          claim.subject_page_id,
+          "claim.subject_page_id",
+        ),
+        sourcePageId = importedUuid(
+          claim.source_page_id,
+          "claim.source_page_id",
+        ),
+        objectPageId =
+          claim.object_page_id === null || claim.object_page_id === undefined
+            ? null
+            : importedUuid(claim.object_page_id, "claim.object_page_id"),
+        objectValue = importedOptionalString(
+          claim.object_value,
+          "claim.object_value",
+          200,
+        ),
+        confidence = importedOptionalConfidence(
+          claim.confidence,
+          "claim.confidence",
+        ),
+        validFrom = importedOptionalString(
+          claim.valid_from,
+          "claim.valid_from",
+          64,
+        ),
+        validTo = importedOptionalString(claim.valid_to, "claim.valid_to", 64),
+        supersedesClaimId =
+          claim.supersedes_claim_id === null ||
+          claim.supersedes_claim_id === undefined
+            ? null
+            : importedUuid(
+                claim.supersedes_claim_id,
+                "claim.supersedes_claim_id",
+              );
+      if (
+        !pageIds.has(subjectPageId) ||
+        !pageIds.has(sourcePageId) ||
+        (objectPageId && !pageIds.has(objectPageId)) ||
+        pageTypeById.get(sourcePageId) !== "source"
+      )
+        throw new AppError(
+          "validation_error",
+          "An imported claim references a missing page or non-source evidence page.",
+          400,
+          { claim_id: id },
+        );
+      if ((objectPageId === null) === (objectValue === null))
+        throw new AppError(
+          "validation_error",
+          "An imported claim must contain exactly one object representation.",
+          400,
+          { claim_id: id },
+        );
+      if (confidence === null)
+        throw new AppError(
+          "validation_error",
+          "An imported claim confidence is required.",
+          400,
+          { claim_id: id },
+        );
+      if (supersedesClaimId && !claimIds.has(supersedesClaimId))
+        throw new AppError(
+          "validation_error",
+          "An imported claim supersedes a missing claim.",
+          400,
+          { claim_id: id },
+        );
+      if (validFrom && validTo && validTo < validFrom)
+        throw new AppError(
+          "validation_error",
+          "An imported claim validity interval is inverted.",
+          400,
+          { claim_id: id },
+        );
+      return {
+        id,
+        subjectPageId,
+        predicate: importedString(claim.predicate, "claim.predicate", 120),
+        objectPageId,
+        objectValue,
+        sourcePageId,
+        evidenceFragment: importedString(
+          claim.evidence_fragment,
+          "claim.evidence_fragment",
+          2000,
+        ),
+        confidence,
+        observedAt: importedString(claim.observed_at, "claim.observed_at", 64),
+        validFrom,
+        validTo,
+        supersedesClaimId,
+        createdBy:
+          typeof claim.created_by === "string"
+            ? importedString(claim.created_by, "claim.created_by", 320)
+            : input.email,
+        createdAt:
+          typeof claim.created_at === "string" ? claim.created_at : now(),
+        updatedAt:
+          typeof claim.updated_at === "string" ? claim.updated_at : now(),
+      };
+    }),
+    timestamp = now(),
     d = db(),
     leaseExpiresAt = new Date(Date.now() + 300_000).toISOString();
   if (!ownsReservation) {
@@ -4893,6 +5973,7 @@ export async function commitImport(input: {
       title: "Imported Wiki",
       page_count: pages.length,
       link_count: rawLinks.length,
+      claim_count: rawClaims.length,
       attachment_count: rawAttachments.length,
       revision_count: rawRevisions.length || pages.length,
       status: "committing",
@@ -5157,6 +6238,46 @@ export async function commitImport(input: {
               page.updatedAt,
             ),
         ),
+        ...(operatingContract
+          ? [
+              d
+                .prepare(
+                  `INSERT INTO wiki_operating_contracts(wiki_id,version,contract_json,updated_by,updated_at,last_operation_id) VALUES(?,?,?,?,?,?)`,
+                )
+                .bind(
+                  session.staging_wiki_id,
+                  operatingContract.version,
+                  stableJson(operatingContract.contract),
+                  operatingContract.updatedBy,
+                  operatingContract.updatedAt,
+                  input.sessionId,
+                ),
+            ]
+          : []),
+        ...claimRows.map((claim) =>
+          d
+            .prepare(
+              `INSERT INTO knowledge_claims(id,wiki_id,subject_page_id,predicate,object_page_id,object_value,source_page_id,evidence_fragment,confidence,observed_at,valid_from,valid_to,supersedes_claim_id,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            )
+            .bind(
+              claim.id,
+              session.staging_wiki_id,
+              claim.subjectPageId,
+              claim.predicate,
+              claim.objectPageId,
+              claim.objectValue,
+              claim.sourcePageId,
+              claim.evidenceFragment,
+              claim.confidence,
+              claim.observedAt,
+              claim.validFrom,
+              claim.validTo,
+              claim.supersedesClaimId,
+              claim.createdBy,
+              claim.createdAt,
+              claim.updatedAt,
+            ),
+        ),
         ...revisionRows.map((row) =>
           d
             .prepare(
@@ -5262,6 +6383,7 @@ export async function commitImport(input: {
       title: wikiTitle,
       page_count: pages.length,
       link_count: rawLinks.length,
+      claim_count: claimRows.length,
       attachment_count: attachmentRows.length,
       revision_count: revisionRows.length,
       status: "committed",

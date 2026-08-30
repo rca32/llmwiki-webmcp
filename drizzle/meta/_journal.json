@@ -57,6 +57,13 @@
       "when": 1788084743691,
       "tag": "0007_cloudy_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788090483846,
+      "tag": "0008_silly_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

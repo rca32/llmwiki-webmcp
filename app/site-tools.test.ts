@@ -11,12 +11,18 @@ describe("WebMCP descriptor contract", () => {
     expect(names).toEqual([
       "wiki_get_context",
       "wiki_list_vaults",
+      "wiki_get_operating_contract",
       "wiki_switch_vault",
       "wiki_list_pages",
       "wiki_search",
       "wiki_get_page",
       "wiki_get_neighbors",
       "wiki_list_revisions",
+      "wiki_get_claims",
+      "wiki_lint",
+      "wiki_plan_ingest",
+      "wiki_update_operating_contract",
+      "wiki_apply_ingest",
       "wiki_create_folder",
       "wiki_create_page",
       "wiki_update_page",
@@ -51,7 +57,12 @@ describe("WebMCP descriptor contract", () => {
   });
   it("requires concurrency and idempotency for existing-page writes", () => {
     for (const tool of writeTools().filter(
-      (item) => !["wiki_create_page", "wiki_create_folder"].includes(item.name),
+      (item) =>
+        ![
+          "wiki_create_page",
+          "wiki_create_folder",
+          "wiki_apply_ingest",
+        ].includes(item.name),
     )) {
       const required = tool.inputSchema.required as string[];
       expect(required, tool.name).toContain("expected_version");
@@ -114,7 +125,7 @@ describe("WebMCP descriptor contract", () => {
     ).toEqual(readTools().map((tool) => tool.name));
     expect(
       toolsForCapabilities({ can_read: true, can_write: true }),
-    ).toHaveLength(15);
+    ).toHaveLength(21);
     expect(
       toolsForCapabilities({
         can_read: true,
@@ -310,6 +321,59 @@ describe("WebMCP descriptor contract", () => {
         operation_id: "33333333-3333-4333-8333-333333333333",
       }),
     ).rejects.toThrow(/section is required/);
+  });
+
+  it("keeps ingest planning read-only and apply explicitly approved", () => {
+    const plan = readTools().find((tool) => tool.name === "wiki_plan_ingest")!,
+      apply = writeTools().find((tool) => tool.name === "wiki_apply_ingest")!,
+      applyProperties = apply.inputSchema.properties as Record<
+        string,
+        JsonObject
+      >;
+    expect(plan.annotations.readOnlyHint).toBe(true);
+    expect(apply.annotations.readOnlyHint).toBe(false);
+    expect(applyProperties.approved.const).toBe(true);
+    expect(applyProperties.plan_hash.pattern).toBe("^[0-9a-f]{64}$");
+  });
+
+  it("maps a validated ingest plan and apply request to same-origin APIs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, data: {}, change_set: null }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("CustomEvent", class {});
+    await readTools()
+      .find((tool) => tool.name === "wiki_plan_ingest")!
+      .execute({
+        source: {
+          title: "Source",
+          markdown: "# Source",
+          source_url: "https://example.com/source",
+          retrieval_status: "success",
+          retrieved_at: "2026-08-30T00:00:00Z",
+          extraction_method: "direct-html",
+          confidence: 0.9,
+        },
+        pages: [],
+        claims: [],
+      });
+    await writeTools()
+      .find((tool) => tool.name === "wiki_apply_ingest")!
+      .execute({
+        plan_id: "11111111-1111-4111-8111-111111111111",
+        plan_hash: "a".repeat(64),
+        approved: true,
+        operation_id: "22222222-2222-4222-8222-222222222222",
+      });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/ingest/plans");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/ingest/plans/11111111-1111-4111-8111-111111111111/apply",
+    );
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)),
+    ).toMatchObject({ approved: true, plan_hash: "a".repeat(64) });
   });
 });
 

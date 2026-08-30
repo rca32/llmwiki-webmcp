@@ -116,6 +116,73 @@ export const pageLinks = sqliteTable(
     index("idx_page_links_target").on(t.wikiId, t.targetPageId),
   ],
 );
+export const wikiOperatingContracts = sqliteTable("wiki_operating_contracts", {
+  wikiId: text("wiki_id").primaryKey(),
+  version: integer("version").notNull(),
+  contractJson: text("contract_json").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  lastOperationId: text("last_operation_id").notNull(),
+});
+export const ingestPlans = sqliteTable(
+  "ingest_plans",
+  {
+    id: text("id").primaryKey(),
+    wikiId: text("wiki_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    status: text("status").notNull(),
+    planJson: text("plan_json").notNull(),
+    planHash: text("plan_hash").notNull(),
+    actionStateJson: text("action_state_json").notNull().default("{}"),
+    applyOperationId: text("apply_operation_id"),
+    failureCode: text("failure_code"),
+    createdAt: text("created_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    appliedAt: text("applied_at"),
+  },
+  (t) => [
+    index("idx_ingest_plans_owner").on(
+      t.wikiId,
+      t.actorEmail,
+      t.status,
+      t.createdAt,
+    ),
+  ],
+);
+export const knowledgeClaims = sqliteTable(
+  "knowledge_claims",
+  {
+    id: text("id").primaryKey(),
+    wikiId: text("wiki_id").notNull(),
+    subjectPageId: text("subject_page_id").notNull(),
+    predicate: text("predicate").notNull(),
+    objectPageId: text("object_page_id"),
+    objectValue: text("object_value"),
+    sourcePageId: text("source_page_id").notNull(),
+    evidenceFragment: text("evidence_fragment").notNull(),
+    confidence: real("confidence").notNull(),
+    observedAt: text("observed_at").notNull(),
+    validFrom: text("valid_from"),
+    validTo: text("valid_to"),
+    supersedesClaimId: text("supersedes_claim_id"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (t) => [
+    index("idx_knowledge_claims_subject").on(
+      t.wikiId,
+      t.subjectPageId,
+      t.createdAt,
+    ),
+    index("idx_knowledge_claims_source").on(
+      t.wikiId,
+      t.sourcePageId,
+      t.createdAt,
+    ),
+  ],
+);
 export const attachments = sqliteTable("attachments", {
   id: text("id").primaryKey(),
   wikiId: text("wiki_id").notNull(),

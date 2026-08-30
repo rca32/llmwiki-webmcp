@@ -396,6 +396,90 @@ async function main() {
       }),
     },
   );
+  const operatingContract = {
+    purpose: "Round-trip LLM Wiki domain data",
+    allowed_page_types: [
+      "folder",
+      "note",
+      "source",
+      "concept",
+      "entity",
+      "synthesis",
+      "comparison",
+      "query",
+    ],
+    naming_policy: "descriptive_titles",
+    linking_policy: "wikilinks_and_claims",
+    duplicate_strategy: "search_before_create",
+    required_source_metadata: [
+      "source_url",
+      "retrieval_status",
+      "retrieved_at",
+      "extraction_method",
+      "confidence",
+    ],
+    minimum_source_confidence: 0.6,
+    approval_policy: "plan_before_apply",
+    archive_policy: "soft_delete_only",
+  };
+  await request(sourceUrl, sourceOwner, "/api/wiki-contract", {
+    method: "PUT",
+    body: JSON.stringify({
+      contract: operatingContract,
+      expected_version: 0,
+      operation_id: randomUUID(),
+    }),
+  });
+  const ingestPlan = await request(
+    sourceUrl,
+    sourceOwner,
+    "/api/ingest/plans",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        source: {
+          title: "Round-trip grounded source",
+          markdown: "# Round-trip grounded source\n\nPortable evidence.",
+          source_url: "https://example.com/round-trip-grounded-source",
+          retrieval_status: "success",
+          retrieved_at: "2026-08-30T00:00:00.000Z",
+          extraction_method: "direct-html",
+          confidence: 0.95,
+        },
+        pages: [
+          {
+            title: "Round-trip grounded concept",
+            page_type: "concept",
+            markdown:
+              "# Round-trip grounded concept\n\n[[Round-trip grounded source]]",
+          },
+        ],
+        claims: [
+          {
+            subject: { title: "Round-trip grounded concept" },
+            predicate: "is grounded by",
+            object: { title: "Round-trip grounded source" },
+            evidence_fragment: "Portable evidence.",
+            confidence: 0.9,
+            observed_at: "2026-08-30T00:00:00.000Z",
+          },
+        ],
+      }),
+    },
+  );
+  await request(
+    sourceUrl,
+    sourceOwner,
+    `/api/ingest/plans/${ingestPlan.plan_id}/apply`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        plan_hash: ingestPlan.plan_hash,
+        approved: true,
+        operation_id: randomUUID(),
+      }),
+    },
+  );
   const attachmentFixtures = [];
   let remainingAttachmentBytes = requestedAttachmentBytes;
   for (let index = 0; remainingAttachmentBytes > 0; index++) {
@@ -690,6 +774,65 @@ async function main() {
     throw new Error(
       "Restored page IDs, hierarchy, content, or versions differ.",
     );
+  const sourceContract = await request(
+      sourceUrl,
+      sourceOwner,
+      "/api/wiki-contract",
+    ),
+    targetContract = await request(
+      targetUrl,
+      targetOwner,
+      "/api/wiki-contract",
+    );
+  if (
+    sourceContract.version !== targetContract.version ||
+    JSON.stringify(sourceContract.contract) !==
+      JSON.stringify(targetContract.contract)
+  )
+    throw new Error("Restored operating contract differs from the source.");
+  const sourceClaims = (
+      await request(sourceUrl, sourceOwner, "/api/claims?limit=100")
+    ).claims,
+    targetClaims = (
+      await request(targetUrl, targetOwner, "/api/claims?limit=100")
+    ).claims,
+    claimProjection = (claims) =>
+      claims
+        .map(
+          ({
+            id,
+            subject_page_id,
+            predicate,
+            object_page_id,
+            object_value,
+            source_page_id,
+            evidence_fragment,
+            confidence,
+            observed_at,
+            valid_from,
+            valid_to,
+            supersedes_claim_id,
+          }) => ({
+            id,
+            subject_page_id,
+            predicate,
+            object_page_id,
+            object_value,
+            source_page_id,
+            evidence_fragment,
+            confidence,
+            observed_at,
+            valid_from,
+            valid_to,
+            supersedes_claim_id,
+          }),
+        )
+        .sort((left, right) => left.id.localeCompare(right.id));
+  if (
+    JSON.stringify(claimProjection(sourceClaims)) !==
+    JSON.stringify(claimProjection(targetClaims))
+  )
+    throw new Error("Restored knowledge claims differ from the source.");
   const targetAttachments = (
     await request(targetUrl, targetOwner, "/api/attachments")
   ).attachments;
@@ -793,6 +936,23 @@ async function main() {
     ).revisions;
     if (uiRevisions.length < 2)
       throw new Error("The browser UI import omitted retained revisions.");
+    const uiContract = await request(
+        uiTargetUrl,
+        uiTargetOwner,
+        "/api/wiki-contract",
+      ),
+      uiClaims = (
+        await request(uiTargetUrl, uiTargetOwner, "/api/claims?limit=100")
+      ).claims;
+    if (
+      JSON.stringify(uiContract.contract) !==
+        JSON.stringify(sourceContract.contract) ||
+      JSON.stringify(claimProjection(uiClaims)) !==
+        JSON.stringify(claimProjection(sourceClaims))
+    )
+      throw new Error(
+        "The browser UI import changed the operating contract or claims.",
+      );
     uiEmptySiteImport = "verified";
   }
 
@@ -809,6 +969,8 @@ async function main() {
       pageIdsAndHierarchyPreserved: true,
       attachmentChecksumPreserved: true,
       retainedRevisionRestored: true,
+      operatingContractPreserved: true,
+      knowledgeClaimsPreserved: true,
       importingIdentityIsOwner: true,
       bootstrapOwnerMatchVerified: true,
       unauthorizedEmptySiteImportBlocked: true,

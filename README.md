@@ -67,7 +67,7 @@ npm run db:generate
 - Browser-verified portable/full ZIP backup with multipart checksum verification and ACK, plus empty-Site restore from the same package
 - Vault, folder, and page WebMCP tools using the same server APIs and active-vault context as the human UI
 
-The current WebMCP workspace mutations include `wiki_switch_vault`, `wiki_create_vault`, `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, and `wiki_restore_revision`. Soft delete remains UI/API-only until the late-MVP typed-confirmation tool is deliberately exposed.
+The current WebMCP knowledge workflow includes `wiki_get_operating_contract`, `wiki_plan_ingest`, `wiki_apply_ingest`, `wiki_get_claims`, and `wiki_lint`. Workspace mutations also include `wiki_switch_vault`, `wiki_create_vault`, `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, `wiki_restore_revision`, and `wiki_update_operating_contract`. Soft delete remains UI/API-only until the late-MVP typed-confirmation tool is deliberately exposed.
 
 See `../docs/WEBMCP_NATIVE_LLM_WIKI_DEVELOPMENT_PLAN.md` for the full phased roadmap.
 Implementation evidence and remaining release gates are tracked in `../docs/IMPLEMENTATION_STATUS.md`.

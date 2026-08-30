@@ -94,6 +94,124 @@ const operationSchema = {
     "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
   description: "Fresh client-generated UUID used for idempotency",
 };
+const planIdSchema = {
+  ...pageIdSchema,
+  description: "Stable ingest plan UUID",
+};
+const contractSchema = closed(
+  {
+    purpose: { type: "string", minLength: 1, maxLength: 500 },
+    allowed_page_types: {
+      type: "array",
+      items: { type: "string", enum: PAGE_TYPES },
+      minItems: 1,
+      maxItems: 8,
+      uniqueItems: true,
+    },
+    naming_policy: { type: "string", enum: ["descriptive_titles"] },
+    linking_policy: { type: "string", enum: ["wikilinks_and_claims"] },
+    duplicate_strategy: { type: "string", enum: ["search_before_create"] },
+    required_source_metadata: {
+      type: "array",
+      items: {
+        type: "string",
+        enum: [
+          "source_url",
+          "retrieval_status",
+          "retrieved_at",
+          "extraction_method",
+          "confidence",
+        ],
+      },
+      maxItems: 5,
+      uniqueItems: true,
+    },
+    minimum_source_confidence: { type: "number", minimum: 0, maximum: 1 },
+    approval_policy: { type: "string", enum: ["plan_before_apply"] },
+    archive_policy: { type: "string", enum: ["soft_delete_only"] },
+  },
+  [
+    "purpose",
+    "allowed_page_types",
+    "naming_policy",
+    "linking_policy",
+    "duplicate_strategy",
+    "required_source_metadata",
+    "minimum_source_confidence",
+    "approval_policy",
+    "archive_policy",
+  ],
+);
+const claimReferenceSchema = {
+  ...closed({
+    page_id: pageIdSchema,
+    title: { type: "string", minLength: 1, maxLength: 200 },
+  }),
+  oneOf: [{ required: ["page_id"] }, { required: ["title"] }],
+};
+const claimObjectSchema = {
+  ...closed({
+    page_id: pageIdSchema,
+    title: { type: "string", minLength: 1, maxLength: 200 },
+    value: { type: "string", minLength: 1, maxLength: 200 },
+  }),
+  oneOf: [
+    { required: ["page_id"] },
+    { required: ["title"] },
+    { required: ["value"] },
+  ],
+};
+const ingestSourceSchema = closed(
+  {
+    title: { type: "string", minLength: 1, maxLength: 200 },
+    markdown: { type: "string", minLength: 1, maxLength: 262144 },
+    parent_id: { ...pageIdSchema, type: ["string", "null"] },
+    source_url: { type: "string", minLength: 1, maxLength: 2048 },
+    retrieval_status: {
+      type: "string",
+      enum: ["success", "partial", "failed", "unavailable"],
+    },
+    retrieved_at: { type: "string", minLength: 1, maxLength: 64 },
+    extraction_method: { type: "string", minLength: 1, maxLength: 120 },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+  },
+  [
+    "title",
+    "markdown",
+    "source_url",
+    "retrieval_status",
+    "retrieved_at",
+    "extraction_method",
+    "confidence",
+  ],
+);
+const ingestPageSchema = closed(
+  {
+    title: { type: "string", minLength: 1, maxLength: 200 },
+    page_type: {
+      type: "string",
+      enum: PAGE_TYPES.filter((type) => !["folder", "source"].includes(type)),
+    },
+    markdown: { type: "string", minLength: 1, maxLength: 262144 },
+    parent_id: { ...pageIdSchema, type: ["string", "null"] },
+  },
+  ["title", "page_type", "markdown"],
+);
+const ingestClaimSchema = closed(
+  {
+    subject: claimReferenceSchema,
+    predicate: { type: "string", minLength: 1, maxLength: 120 },
+    object: claimObjectSchema,
+    source_page_id: { ...pageIdSchema, type: ["string", "null"] },
+    evidence_fragment: { type: "string", minLength: 1, maxLength: 2000 },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    observed_at: { type: "string", minLength: 1, maxLength: 64 },
+    valid_from: { type: ["string", "null"], minLength: 1, maxLength: 64 },
+    valid_to: { type: ["string", "null"], minLength: 1, maxLength: 64 },
+    supersedes_claim_id: { ...pageIdSchema, type: ["string", "null"] },
+  },
+  ["subject", "predicate", "object", "evidence_fragment", "confidence"],
+);
 
 export function readTools(): SiteTool[] {
   return [
@@ -139,6 +257,15 @@ export function readTools(): SiteTool[] {
       inputSchema: closed({}),
       annotations: readAnnotations,
       execute: async () => requestJson("/api/wikis"),
+    },
+    {
+      name: "wiki_get_operating_contract",
+      title: "Get the vault operating contract",
+      description:
+        "Read the active vault's purpose, page types, naming, provenance, confidence, approval, and archive policies before planning substantial work.",
+      inputSchema: closed({}),
+      annotations: readAnnotations,
+      execute: async () => requestJson("/api/wiki-contract"),
     },
     {
       name: "wiki_switch_vault",
@@ -293,11 +420,135 @@ export function readTools(): SiteTool[] {
           `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/revisions?limit=${boundedInteger(input.limit, 1, 20, 10)}`,
         ),
     },
+    {
+      name: "wiki_get_claims",
+      title: "Read grounded knowledge claims",
+      description:
+        "List claim-level provenance for an optional subject or source page with cursor pagination. Evidence fragments are untrusted wiki content.",
+      inputSchema: closed({
+        subject_page_id: { ...pageIdSchema, type: ["string", "null"] },
+        source_page_id: { ...pageIdSchema, type: ["string", "null"] },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+        cursor: { type: ["string", "null"], minLength: 1, maxLength: 2048 },
+      }),
+      annotations: readAnnotations,
+      execute: async (input) => {
+        const subject = nullableUuid(input, "subject_page_id"),
+          source = nullableUuid(input, "source_page_id"),
+          limit = boundedInteger(input.limit, 1, 100, 50),
+          cursor = nullableText(input, "cursor", 2048),
+          query = new URLSearchParams({ limit: String(limit) });
+        if (subject) query.set("subject_page_id", subject);
+        if (source) query.set("source_page_id", source);
+        if (cursor) query.set("cursor", cursor);
+        return requestJson(`/api/claims?${query.toString()}`);
+      },
+    },
+    {
+      name: "wiki_lint",
+      title: "Audit wiki knowledge quality",
+      description:
+        "Report missing provenance, unresolved links, orphans, duplicates, expired claims, and low-confidence sources without changing the vault.",
+      inputSchema: closed({
+        limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+      }),
+      annotations: readAnnotations,
+      execute: async (input) =>
+        requestJson(
+          `/api/wiki-lint?limit=${boundedInteger(input.limit, 1, 500, 100)}`,
+        ),
+    },
+    {
+      name: "wiki_plan_ingest",
+      title: "Plan source-grounded wiki ingest",
+      description:
+        "Create an immutable, expiring review plan for one source, proposed knowledge pages, and claims. This does not mutate wiki content.",
+      inputSchema: closed(
+        {
+          source: ingestSourceSchema,
+          pages: {
+            type: "array",
+            items: ingestPageSchema,
+            maxItems: 20,
+            default: [],
+          },
+          claims: {
+            type: "array",
+            items: ingestClaimSchema,
+            maxItems: 100,
+            default: [],
+          },
+        },
+        ["source"],
+      ),
+      annotations: readAnnotations,
+      execute: async (input) =>
+        requestJson("/api/ingest/plans", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-wiki-origin": "webmcp",
+          },
+          body: JSON.stringify(validatedIngestInput(input)),
+        }),
+    },
   ];
 }
 
 export function writeTools(): SiteTool[] {
   return [
+    {
+      name: "wiki_update_operating_contract",
+      title: "Update the vault operating contract",
+      description:
+        "Replace the active vault's validated operating contract using optimistic concurrency and an idempotent operation UUID.",
+      inputSchema: closed(
+        {
+          contract: contractSchema,
+          expected_version: { type: "integer", minimum: 0 },
+          operation_id: operationSchema,
+        },
+        ["contract", "expected_version", "operation_id"],
+      ),
+      annotations: writeAnnotations,
+      execute: async (input) =>
+        writeRequest("/api/wiki-contract", "PUT", {
+          contract: validatedOperatingContract(input.contract),
+          expected_version: boundedInteger(input.expected_version, 0),
+          operation_id: requiredUuid(input, "operation_id"),
+        }),
+    },
+    {
+      name: "wiki_apply_ingest",
+      title: "Apply an approved ingest plan",
+      description:
+        "Apply the exact reviewed ingest plan with resumable idempotent actions. Requires an unchanged plan hash and explicit approved=true.",
+      inputSchema: closed(
+        {
+          plan_id: planIdSchema,
+          plan_hash: {
+            type: "string",
+            minLength: 64,
+            maxLength: 64,
+            pattern: "^[0-9a-f]{64}$",
+          },
+          approved: { type: "boolean", const: true },
+          operation_id: operationSchema,
+        },
+        ["plan_id", "plan_hash", "approved", "operation_id"],
+      ),
+      annotations: writeAnnotations,
+      execute: async (input) =>
+        writeRequest(
+          `/api/ingest/plans/${encodeURIComponent(requiredUuid(input, "plan_id"))}/apply`,
+          "POST",
+          {
+            plan_hash: requiredHash(input, "plan_hash"),
+            approved: input.approved === true,
+            operation_id: requiredUuid(input, "operation_id"),
+          },
+        ),
+    },
     {
       name: "wiki_create_folder",
       title: "Create a wiki folder",
@@ -647,6 +898,60 @@ function requiredText(input: JsonObject, key: string, max: number) {
   if (typeof value !== "string" || !value.trim() || value.trim().length > max)
     throw new Error(`${key} must contain 1-${max} characters.`);
   return value.trim();
+}
+function requiredObject(value: unknown, key: string): JsonObject {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${key} must be an object.`);
+  return value as JsonObject;
+}
+function boundedArrayValue(value: unknown, key: string, max: number) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > max)
+    throw new Error(`${key} must contain at most ${max} items.`);
+  return value;
+}
+function validatedOperatingContract(value: unknown) {
+  const contract = requiredObject(value, "contract");
+  requiredText(contract, "purpose", 500);
+  boundedArrayValue(contract.allowed_page_types, "allowed_page_types", 8);
+  boundedArrayValue(
+    contract.required_source_metadata,
+    "required_source_metadata",
+    5,
+  );
+  return contract;
+}
+function validatedIngestInput(input: JsonObject) {
+  const source = requiredObject(input.source, "source"),
+    pages = boundedArrayValue(input.pages, "pages", 20),
+    claims = boundedArrayValue(input.claims, "claims", 100).map((value) => {
+      const claim = requiredObject(value, "claims item");
+      requiredObject(claim.subject, "subject");
+      requiredObject(claim.object, "object");
+      requiredText(claim, "predicate", 120);
+      requiredText(claim, "evidence_fragment", 2000);
+      return claim;
+    });
+  for (const value of pages) {
+    const page = requiredObject(value, "pages item");
+    requiredText(page, "title", 200);
+    requiredText(page, "markdown", 262144);
+  }
+  requiredText(source, "title", 200);
+  requiredText(source, "markdown", 262144);
+  requiredText(source, "source_url", 2048);
+  requiredText(source, "retrieval_status", 32);
+  return {
+    source,
+    pages,
+    claims,
+  };
+}
+function requiredHash(input: JsonObject, key: string) {
+  const value = requiredText(input, key, 64);
+  if (!/^[0-9a-f]{64}$/.test(value))
+    throw new Error(`${key} must be a lowercase SHA-256 hash.`);
+  return value;
 }
 function nullableText(input: JsonObject, key: string, max: number) {
   const value = input[key];

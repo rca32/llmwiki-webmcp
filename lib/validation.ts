@@ -116,18 +116,18 @@ export function pageType(value: unknown): PageType {
   return value as PageType;
 }
 export function operationId(value: unknown): string {
-  const result = requiredString(value, "operation_id", 36, 36);
+  return requiredUuid(value, "operation_id");
+}
+export function requiredUuid(value: unknown, field: string): string {
+  const result = requiredString(value, field, 36, 36);
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       result,
     )
   )
-    throw new AppError(
-      "validation_error",
-      "operation_id must be a UUID.",
-      400,
-      { field: "operation_id" },
-    );
+    throw new AppError("validation_error", `${field} must be a UUID.`, 400, {
+      field,
+    });
   return result.toLowerCase();
 }
 export function linkMode(value: unknown): LinkMode {
