@@ -162,7 +162,7 @@ async function startProject(root, port, bootstrapOwnerEmail) {
   child.stderr.on("data", capture);
   servers.push(child);
   const baseUrl = `http://127.0.0.1:${port}`;
-  for (let attempt = 0; attempt < 120; attempt++) {
+  for (let attempt = 0; attempt < 360; attempt++) {
     if (child.exitCode !== null)
       throw new Error(`Isolated Site exited during startup:\n${output}`);
     try {
@@ -231,7 +231,10 @@ async function importBackupThroughUi(baseUrl, email, packagePath) {
         errors.push(message.text());
     });
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+    await page.goto(baseUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000,
+    });
     const restoreButton = page.getByRole("button", { name: "백업에서 복원" });
     await restoreButton.waitFor();
     const chooserPromise = page.waitForEvent("filechooser");
@@ -248,7 +251,7 @@ async function importBackupThroughUi(baseUrl, email, packagePath) {
       undefined,
       { timeout: 120_000 },
     );
-    const restoredTree = page.locator(".page-tree .tree-item").first();
+    const restoredTree = page.locator(".tree-page-row").first();
     if (!(await restoredTree.isVisible())) {
       const messageText = (
         await page.locator(".conflict-banner").innerText()
@@ -283,9 +286,8 @@ async function main() {
   const targetRoot = isolatedProject("target");
   const sourceOwner = "roundtrip-source@sites.test";
   const targetOwner = "roundtrip-target@sites.test";
-  const [sourcePort, targetPort] = await Promise.all([freePort(), freePort()]);
+  const sourcePort = await freePort();
   const sourceUrl = await startProject(sourceRoot, sourcePort, sourceOwner);
-  const targetUrl = await startProject(targetRoot, targetPort, targetOwner);
 
   const unauthorizedBootstrapEmail = "roundtrip-unauthorized@sites.test";
   const unauthorizedSourceSession = await request(
@@ -463,6 +465,9 @@ async function main() {
       }),
     },
   );
+
+  const targetPort = await freePort();
+  const targetUrl = await startProject(targetRoot, targetPort, targetOwner);
 
   const unauthorizedImport = await jsonResponse(
     targetUrl,

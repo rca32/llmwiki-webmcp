@@ -1,9 +1,69 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ChevronRight,
+  Clock3,
+  FileText,
+  Link2,
+  Moon,
+  Move,
+  PanelRightClose,
+  PanelRightOpen,
+  Paperclip,
+  RotateCcw,
+  Sun,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { SiteTools } from "./site-tools";
-import { OperationsPanel } from "./operations-panel";
-import { MarkdownPreview } from "./markdown-preview";
+import {
+  IconSidebar,
+  type WorkspaceView,
+} from "@/components/layout/icon-sidebar";
+import { KnowledgeTree } from "@/components/layout/knowledge-tree";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+
+const OperationsPanel = lazy(() =>
+  import("./operations-panel").then((module) => ({
+    default: module.OperationsPanel,
+  })),
+);
+const WikiEditor = lazy(() =>
+  import("@/components/editor/wiki-editor").then((module) => ({
+    default: module.WikiEditor,
+  })),
+);
+const GraphView = lazy(() =>
+  import("@/components/graph/graph-view").then((module) => ({
+    default: module.GraphView,
+  })),
+);
+const SearchView = lazy(() =>
+  import("@/components/search/search-view").then((module) => ({
+    default: module.SearchView,
+  })),
+);
+
+function WorkspaceLoading() {
+  return (
+    <div className="workspace-loading" role="status" aria-live="polite">
+      작업공간 불러오는 중
+    </div>
+  );
+}
 
 type Page = {
   id: string;
@@ -80,6 +140,17 @@ type Envelope<T> =
       };
     };
 
+type SettledRequest<T> =
+  | { data: T; error?: never }
+  | { data?: never; error: unknown };
+
+function settleRequest<T>(request: Promise<T>): Promise<SettledRequest<T>> {
+  return request.then(
+    (data) => ({ data }),
+    (error: unknown) => ({ error }),
+  );
+}
+
 const welcomeMarkdown = `# WebMCP Native Wiki
 
 사람과 에이전트가 **같은 지식 공간**을 함께 편집합니다.
@@ -140,9 +211,10 @@ function mergeDraft(latest: string, draft: string) {
 
 export default function Home() {
   const [mode, setMode] = useState<"edit" | "preview">("edit");
-  const [view, setView] = useState<"document" | "graph" | "operations">(
-    "document",
-  );
+  const [view, setView] = useState<WorkspaceView>("document");
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
   const [pages, setPages] = useState<Page[]>([]);
   const [deletedPages, setDeletedPages] = useState<Page[]>([]);
   const [active, setActive] = useState<Page | null>(null);
@@ -186,6 +258,15 @@ export default function Home() {
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
   const dirty = markdown !== savedMarkdown;
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem("liminal-wiki:theme");
+    const shouldUseDark =
+      storedTheme === "dark" ||
+      (!storedTheme &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.classList.toggle("dark", shouldUseDark);
+    window.queueMicrotask(() => setDarkMode(shouldUseDark));
+  }, []);
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
@@ -276,6 +357,9 @@ export default function Home() {
     async (refreshActive = true) => {
       const requestNumber = ++workspaceRequestRef.current;
       try {
+        const activePagesPromise = settleRequest(
+          api<{ pages: Page[] }>("/api/pages?depth=64&limit=200"),
+        );
         const session = await api<{
           wiki: { id: string; title: string; role: string } | null;
           capabilities: Caps;
@@ -299,9 +383,9 @@ export default function Home() {
           );
           return;
         }
-        let list = (
-          await api<{ pages: Page[] }>("/api/pages?depth=64&limit=200")
-        ).pages;
+        const activePagesRequest = await activePagesPromise;
+        if ("error" in activePagesRequest) throw activePagesRequest.error;
+        let list = activePagesRequest.data.pages;
         if (requestNumber !== workspaceRequestRef.current) return;
         if (!list.length && session.capabilities.can_write) {
           defaultPageCreationRef.current ??= api("/api/pages", {
@@ -325,11 +409,24 @@ export default function Home() {
         }
         setPages(list);
         if (session.capabilities.can_soft_delete) {
-          const deleted = (
-            await api<{ pages: Page[] }>("/api/pages?deleted=only&limit=100")
-          ).pages;
-          if (requestNumber !== workspaceRequestRef.current) return;
-          setDeletedPages(deleted);
+          window.setTimeout(() => {
+            void api<{ pages: Page[] }>(
+              "/api/pages?deleted=only&limit=100",
+            ).then(
+              ({ pages: deleted }) => {
+                if (requestNumber === workspaceRequestRef.current)
+                  setDeletedPages(deleted);
+              },
+              (error: unknown) => {
+                if (requestNumber !== workspaceRequestRef.current) return;
+                setNotice(
+                  error instanceof Error
+                    ? error.message
+                    : "휴지통 목록을 불러오지 못했습니다.",
+                );
+              },
+            );
+          }, 250);
         }
         if (requestNumber !== workspaceRequestRef.current) return;
         const current = activeRef.current;
@@ -343,7 +440,7 @@ export default function Home() {
             current && list.some((page) => page.id === current.id)
               ? current.id
               : list[0]?.id;
-          if (target) await openPage(target, true);
+          if (target) void openPage(target, true);
         } else setStatus("목록 갱신됨");
       } catch (error) {
         if (requestNumber !== workspaceRequestRef.current) return;
@@ -381,7 +478,12 @@ export default function Home() {
       const key = event.key.toLowerCase();
       if (key === "k") {
         event.preventDefault();
-        document.querySelector<HTMLInputElement>(".search-box input")?.focus();
+        setView("search");
+        window.requestAnimationFrame(() =>
+          document
+            .querySelector<HTMLInputElement>(".search-view-input input")
+            ?.focus(),
+        );
       } else if (
         key === "e" &&
         event.shiftKey &&
@@ -890,549 +992,501 @@ export default function Home() {
     return (
       <main className="wiki-shell bootstrap-shell-root">
         <SiteTools key={`${writeMode}-${caps.can_write}`} />
-        <OperationsPanel
-          capabilities={caps}
-          siteVersion={siteVersion}
-          hasWiki={false}
-          writeMode={writeMode}
-          writeModeReason={writeModeReason}
-          onWorkspaceChanged={() => loadWorkspace(true)}
-        />
-      </main>
-    );
-
-  return (
-    <main className="wiki-shell">
-      <SiteTools key={`${writeMode}-${caps.can_write}`} />
-      <aside className="icon-rail" aria-label="주요 메뉴">
-        <div className="brand-mark" aria-label="Liminal Wiki">
-          LW
-        </div>
-        <nav>
-          <button
-            className={`rail-button ${view === "document" ? "active" : ""}`}
-            aria-label="문서"
-            onClick={() => setView("document")}
-          >
-            ▤
-          </button>
-          <button
-            className="rail-button"
-            aria-label="검색"
-            onClick={() =>
-              document
-                .querySelector<HTMLInputElement>(".search-box input")
-                ?.focus()
-            }
-          >
-            ⌕
-          </button>
-          <button
-            className={`rail-button ${view === "graph" ? "active" : ""}`}
-            aria-label="그래프"
-            onClick={() => void showGraph()}
-          >
-            ⌬
-          </button>
-        </nav>
-        <button
-          className={`rail-button rail-bottom ${view === "operations" ? "active" : ""}`}
-          aria-label="운영과 복구"
-          onClick={() => setView("operations")}
-        >
-          ⚙
-        </button>
-      </aside>
-      <aside className="knowledge-panel">
-        <div className="workspace-heading">
-          <div>
-            <p className="eyebrow">PERSONAL KNOWLEDGE</p>
-            <h1>Liminal Wiki</h1>
-          </div>
-          <button
-            className="square-button"
-            aria-label="새 페이지"
-            onClick={createNewPage}
-            disabled={!caps.can_write}
-          >
-            ＋
-          </button>
-        </div>
-        <label className="search-box">
-          <span>⌕</span>
-          <input
-            aria-label="지식 검색"
-            aria-keyshortcuts="Control+K Meta+K"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="지식 검색"
-          />
-          <kbd>⌘K</kbd>
-        </label>
-        <div className="panel-section-heading">
-          <span>페이지</span>
-          <span>{filtered.length}</span>
-        </div>
-        <nav className="page-tree" aria-label="페이지 트리">
-          {filtered.map((page, index) => (
-            <button
-              className={`tree-item ${active?.id === page.id ? "active" : ""}`}
-              style={{
-                paddingLeft:
-                  9 + Math.max(0, page.path.split("/").length - 2) * 14,
-              }}
-              key={page.id}
-              onClick={() => void openPage(page.id)}
-              onKeyDown={(event) => {
-                if (
-                  !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
-                )
-                  return;
-                event.preventDefault();
-                const items = Array.from(
-                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
-                    ":scope > .tree-item",
-                  ) ?? [],
-                );
-                const nextIndex =
-                  event.key === "Home"
-                    ? 0
-                    : event.key === "End"
-                      ? items.length - 1
-                      : event.key === "ArrowDown"
-                        ? Math.min(index + 1, items.length - 1)
-                        : Math.max(index - 1, 0);
-                items[nextIndex]?.focus();
-              }}
-            >
-              <span className="tree-glyph">
-                {page.page_type === "concept" ? "◇" : "·"}
-              </span>
-              <span>
-                <strong>{page.title}</strong>
-                <small>
-                  {page.page_type} · v{page.version}
-                </small>
-              </span>
-            </button>
-          ))}
-        </nav>
-        {deletedPages.length > 0 && (
-          <details className="trash-list">
-            <summary>
-              휴지통 <span>{deletedPages.length}</span>
-            </summary>
-            {deletedPages.map((page) => (
-              <button key={page.id} onClick={() => void restoreDeleted(page)}>
-                <span>{page.title}</span>
-                <small>v{page.version} · 복구</small>
-              </button>
-            ))}
-          </details>
-        )}
-        <div className="agent-card">
-          <div className="agent-pulse">
-            <span />
-          </div>
-          <div>
-            <strong>
-              Site tools {caps.can_write ? "읽기·쓰기" : "읽기"} 준비
-            </strong>
-            <p>열린 페이지의 세션 권한 사용</p>
-          </div>
-          <span className="agent-count">{caps.can_write ? "12" : "06"}</span>
-        </div>
-      </aside>
-      <section className="workspace">
-        <header className="topbar">
-          <div className="breadcrumbs">
-            <span>Liminal Wiki</span>
-            <b>/</b>
-            <strong>
-              {view === "operations"
-                ? "운영과 복구"
-                : (active?.title ?? "불러오는 중")}
-            </strong>
-          </div>
-          <div className="top-actions">
-            {writeMode === "read_only" && (
-              <span
-                className="readonly-badge"
-                title={writeModeReason ?? "운영자가 쓰기를 일시 중지했습니다."}
-              >
-                읽기 전용
-              </span>
-            )}
-            <span className={`sync-state ${dirty ? "dirty" : ""}`}>
-              <i />
-              {dirty ? "저장되지 않은 변경" : status}
-            </span>
-            <button
-              className="ghost-button"
-              onClick={() => setView("operations")}
-              disabled={!caps.can_export_portable}
-            >
-              백업
-            </button>
-            <button className="avatar" aria-label="사용자 프로필">
-              DH
-            </button>
-          </div>
-        </header>
-        {view === "operations" ? (
+        <Suspense fallback={<WorkspaceLoading />}>
           <OperationsPanel
             capabilities={caps}
             siteVersion={siteVersion}
-            hasWiki
+            hasWiki={false}
             writeMode={writeMode}
             writeModeReason={writeModeReason}
             onWorkspaceChanged={() => loadWorkspace(true)}
           />
-        ) : view === "graph" ? (
-          <div className="graph-stage">
-            <header>
-              <div>
-                <span>KNOWLEDGE GRAPH</span>
-                <h2>페이지 연결 지도</h2>
-                <p>
-                  {graph?.nodes.length ?? 0}개 노드 · {graph?.edges.length ?? 0}
-                  개 연결
-                </p>
-              </div>
-              <button onClick={() => void showGraph()}>새로 고침</button>
-            </header>
-            <div className="graph-grid">
-              {graph?.nodes.map((node) => (
-                <button
-                  key={node.id}
-                  className={`graph-node type-${node.page_type}`}
-                  onClick={() => void openPage(node.id)}
-                >
-                  <strong>{node.title}</strong>
-                  <small>
-                    {node.page_type} · v{node.version}
-                  </small>
-                  <span>
-                    {
-                      graph.edges.filter(
-                        (edge) =>
-                          edge.source === node.id || edge.target === node.id,
-                      ).length
-                    }{" "}
-                    links
-                  </span>
-                </button>
-              ))}
-            </div>
-            {graph?.truncated && (
-              <p className="graph-warning">
-                노드 한도에 도달해 일부 결과가 생략되었습니다.
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="document-stage">
-            <article className="editor-card">
-              <div className="document-meta">
-                <span className="document-kicker">
-                  {active?.page_type?.toUpperCase() ?? "WIKI PAGE"}
-                </span>
-                <div className="meta-actions">
-                  <button
-                    onClick={() => void moveActivePage()}
-                    disabled={!active || dirty || !caps.can_write}
-                  >
-                    이동
-                  </button>
-                  <button
-                    className="danger"
-                    onClick={() => void deleteActivePage()}
-                    disabled={!active || dirty || !caps.can_soft_delete}
-                  >
-                    삭제
-                  </button>
-                  <div
-                    className="mode-switch"
-                    role="group"
-                    aria-label="편집 모드"
-                  >
-                    <button
-                      className={mode === "edit" ? "active" : ""}
-                      onClick={() => setMode("edit")}
-                      aria-keyshortcuts="Control+Shift+E Meta+Shift+E"
-                    >
-                      편집
-                    </button>
-                    <button
-                      className={mode === "preview" ? "active" : ""}
-                      onClick={() => setMode("preview")}
-                    >
-                      미리보기
-                    </button>
-                  </div>
-                </div>
-              </div>
-              {notice && (
-                <div className="conflict-banner" role="alert">
-                  {notice}
-                  <button
-                    onClick={() => setNotice(null)}
-                    aria-label="알림 닫기"
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
-              {editConflict && (
-                <section
-                  className="conflict-resolver"
-                  aria-label="편집 충돌 해결"
-                >
-                  <header>
-                    <div>
-                      <span>VERSION CONFLICT</span>
-                      <h3>최신 변경과 내 초안을 함께 검토하세요</h3>
-                    </div>
-                    <small>
-                      읽은 버전 {editConflict.baseVersion} · 최신 버전{" "}
-                      {editConflict.latest.version}
-                    </small>
-                  </header>
-                  <div className="conflict-columns">
-                    <label>
-                      <span>최신 버전</span>
-                      <textarea readOnly value={editConflict.latest.markdown} />
-                    </label>
-                    <label>
-                      <span>내 초안</span>
-                      <textarea readOnly value={editConflict.draft} />
-                    </label>
-                    <label>
-                      <span>줄 단위 diff</span>
-                      <pre>{editConflict.diff}</pre>
-                    </label>
-                  </div>
-                  <div className="conflict-actions">
-                    <button onClick={beginConflictMerge}>
-                      병합 초안 만들기
-                    </button>
-                    <button onClick={() => void saveConflictAsNewPage()}>
-                      내 초안을 새 페이지로 저장
-                    </button>
-                  </div>
-                  <p>
-                    병합 초안의 충돌 표식을 직접 정리한 뒤 “변경 저장”을
-                    누르세요. 자동 저장은 그때까지 일시 중지됩니다.
-                  </p>
-                </section>
-              )}
-              {mode === "edit" ? (
-                <textarea
-                  className="markdown-editor"
-                  aria-label="Markdown 편집기"
-                  spellCheck={false}
-                  value={markdown}
-                  readOnly={!caps.can_write}
-                  onChange={(event) => {
-                    const nextMarkdown = event.target.value;
-                    markdownRef.current = nextMarkdown;
-                    dirtyRef.current = nextMarkdown !== savedMarkdown;
-                    setMarkdown(nextMarkdown);
+        </Suspense>
+      </main>
+    );
+
+  return (
+    <main className="wiki-app">
+      <SiteTools key={writeMode + "-" + String(caps.can_write)} />
+      <IconSidebar
+        activeView={view}
+        leftPanelOpen={leftPanelOpen}
+        onToggleLeftPanel={() => setLeftPanelOpen((value) => !value)}
+        onViewChange={(nextView) => {
+          if (nextView === "graph") void showGraph();
+          else setView(nextView);
+        }}
+      />
+      <div className="app-workspace">
+        <ResizablePanelGroup direction="horizontal">
+          {leftPanelOpen && (
+            <>
+              <ResizablePanel
+                id="knowledge-tree"
+                defaultSize={20}
+                minSize={14}
+                maxSize={34}
+              >
+                <KnowledgeTree
+                  pages={filtered}
+                  deletedPages={deletedPages}
+                  activePageId={active?.id ?? null}
+                  query={query}
+                  canWrite={caps.can_write}
+                  onQueryChange={setQuery}
+                  onOpenPage={(pageId) => void openPage(pageId)}
+                  onCreatePage={() => void createNewPage()}
+                  onRestorePage={(page) => {
+                    const original = deletedPages.find(
+                      (candidate) => candidate.id === page.id,
+                    );
+                    if (original) void restoreDeleted(original);
                   }}
                 />
-              ) : (
-                <MarkdownPreview value={markdown} onWikiLink={openWikiLink} />
-              )}
-              <footer className="editor-footer">
-                <div>
-                  <span>Markdown</span>
-                  <span>{markdown.length}자</span>
-                  <span>version {active?.version ?? "—"}</span>
-                </div>
-                <div className="editor-actions">
-                  {mode === "edit" && caps.can_write && (
+              </ResizablePanel>
+              <ResizableHandle className="workspace-resize-handle" />
+            </>
+          )}
+
+          <ResizablePanel id="wiki-content" defaultSize={58} minSize={38}>
+            <section className="workspace-main">
+              <header className="workspace-topbar">
+                <div className="workspace-breadcrumbs">
+                  {!leftPanelOpen && (
                     <button
-                      className="autosave-toggle"
-                      aria-pressed={autosavePaused}
-                      onClick={() =>
-                        updateAutosavePaused(!autosavePausedRef.current)
+                      type="button"
+                      className="topbar-icon-button"
+                      onClick={() => setLeftPanelOpen(true)}
+                      aria-label="사이드바 열기"
+                    >
+                      <ChevronRight />
+                    </button>
+                  )}
+                  <span>Liminal Wiki</span>
+                  <ChevronRight />
+                  <strong>
+                    {view === "operations"
+                      ? "운영과 복구"
+                      : view === "graph"
+                        ? "Knowledge graph"
+                        : view === "search"
+                          ? "Search"
+                          : (active?.title ?? "불러오는 중")}
+                  </strong>
+                </div>
+                <div className="workspace-actions">
+                  {writeMode === "read_only" && (
+                    <span
+                      className="readonly-badge"
+                      title={
+                        writeModeReason ?? "운영자가 쓰기를 일시 중지했습니다."
                       }
                     >
-                      {autosavePaused
-                        ? "자동 저장 재개"
-                        : "자동 저장 일시 중지"}
+                      읽기 전용
+                    </span>
+                  )}
+                  <span className={"sync-state " + (dirty ? "dirty" : "")}>
+                    <i />
+                    {dirty ? "저장되지 않은 변경" : status}
+                  </span>
+                  <button
+                    type="button"
+                    className="topbar-icon-button"
+                    onClick={() => {
+                      const next = !darkMode;
+                      setDarkMode(next);
+                      document.documentElement.classList.toggle("dark", next);
+                      window.localStorage.setItem(
+                        "liminal-wiki:theme",
+                        next ? "dark" : "light",
+                      );
+                    }}
+                    aria-label={darkMode ? "라이트 테마" : "다크 테마"}
+                    title={darkMode ? "라이트 테마" : "다크 테마"}
+                  >
+                    {darkMode ? <Sun /> : <Moon />}
+                  </button>
+                  {view === "document" && (
+                    <button
+                      type="button"
+                      className="topbar-icon-button"
+                      onClick={() => setRightPanelOpen((value) => !value)}
+                      aria-label={
+                        rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
+                      }
+                      title={
+                        rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
+                      }
+                    >
+                      {rightPanelOpen ? (
+                        <PanelRightClose />
+                      ) : (
+                        <PanelRightOpen />
+                      )}
                     </button>
                   )}
                   <button
-                    className="save-button"
-                    disabled={
-                      !dirty || !caps.can_write || Boolean(editConflict)
-                    }
-                    onClick={() => void save()}
+                    type="button"
+                    className="topbar-text-button"
+                    onClick={() => setView("operations")}
+                    disabled={!caps.can_export_portable}
                   >
-                    {dirty ? "변경 저장" : "저장 완료"}
+                    백업
+                  </button>
+                  <button
+                    type="button"
+                    className="workspace-avatar"
+                    aria-label="사용자 프로필"
+                  >
+                    DH
                   </button>
                 </div>
-              </footer>
-            </article>
-            <aside className="context-panel">
-              <section>
-                <div className="context-title">
-                  <span>연결된 지식</span>
-                  <b>{linkedPages.length}</b>
-                </div>
-                {linkedPages.length ? (
-                  linkedPages.map((item, index) => (
-                    <button
-                      className="linked-note"
-                      key={item.id!}
-                      onClick={() => void openPage(item.id!)}
-                    >
-                      <i
-                        className={
-                          index % 3 === 0
-                            ? "coral"
-                            : index % 3 === 1
-                              ? "lime"
-                              : "blue"
-                        }
-                      />
-                      <span>
-                        <strong>{item.title}</strong>
-                        <small>
-                          {item.direction === "out"
-                            ? "이 페이지에서 연결"
-                            : "이 페이지를 참조"}
-                        </small>
-                      </span>
-                      <b>↗</b>
-                    </button>
-                  ))
-                ) : (
-                  <p className="empty-context">
-                    아직 연결된 페이지가 없습니다.
-                  </p>
-                )}
-              </section>
-              <section className="attachment-section">
-                <div className="context-title">
-                  <span>첨부파일</span>
-                  <b>
-                    {
-                      attachments.filter((item) => item.status === "ready")
-                        .length
-                    }
-                  </b>
-                </div>
-                {caps.can_manage_attachments && (
-                  <label className="upload-button">
-                    파일 추가
-                    <input
-                      type="file"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) void uploadFile(file);
-                        event.currentTarget.value = "";
-                      }}
+              </header>
+
+              <div className="workspace-content">
+                <Suspense fallback={<WorkspaceLoading />}>
+                  {view === "operations" ? (
+                    <OperationsPanel
+                      capabilities={caps}
+                      siteVersion={siteVersion}
+                      hasWiki
+                      writeMode={writeMode}
+                      writeModeReason={writeModeReason}
+                      onWorkspaceChanged={() => loadWorkspace(true)}
                     />
-                  </label>
-                )}
-                <div className="attachment-list">
-                  {attachments.map((attachment) => (
-                    <div
-                      key={attachment.id}
-                      className={attachment.status !== "ready" ? "deleted" : ""}
+                  ) : view === "search" ? (
+                    <SearchView
+                      query={query}
+                      pages={filtered}
+                      onQueryChange={setQuery}
+                      onOpenPage={(pageId) => void openPage(pageId)}
+                    />
+                  ) : view === "graph" ? (
+                    <GraphView
+                      graph={graph}
+                      onRefresh={() => void showGraph()}
+                      onOpenPage={(pageId) => void openPage(pageId)}
+                    />
+                  ) : (
+                    <WikiEditor
+                      title={active?.title ?? ""}
+                      pageType={active?.page_type?.toUpperCase() ?? "WIKI PAGE"}
+                      version={active?.version ?? null}
+                      markdown={markdown}
+                      mode={mode}
+                      dirty={dirty}
+                      canWrite={caps.can_write}
+                      autosavePaused={autosavePaused}
+                      onModeChange={setMode}
+                      onMarkdownChange={(nextMarkdown) => {
+                        markdownRef.current = nextMarkdown;
+                        dirtyRef.current = nextMarkdown !== savedMarkdown;
+                        setMarkdown(nextMarkdown);
+                      }}
+                      onAutosaveToggle={() =>
+                        updateAutosavePaused(!autosavePausedRef.current)
+                      }
+                      onSave={() => void save()}
+                      onWikiLink={openWikiLink}
+                      headerActions={
+                        <>
+                          <button
+                            type="button"
+                            className="editor-icon-action"
+                            onClick={() => void moveActivePage()}
+                            disabled={!active || dirty || !caps.can_write}
+                            title="페이지 이동"
+                            aria-label="페이지 이동"
+                          >
+                            <Move />
+                          </button>
+                          <button
+                            type="button"
+                            className="editor-icon-action destructive"
+                            onClick={() => void deleteActivePage()}
+                            disabled={!active || dirty || !caps.can_soft_delete}
+                            title="페이지 삭제"
+                            aria-label="페이지 삭제"
+                          >
+                            <Trash2 />
+                          </button>
+                        </>
+                      }
+                      alerts={
+                        <>
+                          {notice && (
+                            <div className="inline-notice" role="alert">
+                              <span>{notice}</span>
+                              <button
+                                type="button"
+                                onClick={() => setNotice(null)}
+                                aria-label="알림 닫기"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          )}
+                          {editConflict && (
+                            <section
+                              className="conflict-resolver"
+                              aria-label="편집 충돌 해결"
+                            >
+                              <header>
+                                <div>
+                                  <span>VERSION CONFLICT</span>
+                                  <h3>최신 변경과 내 초안을 함께 검토하세요</h3>
+                                </div>
+                                <small>
+                                  읽은 버전 {editConflict.baseVersion} · 최신
+                                  버전 {editConflict.latest.version}
+                                </small>
+                              </header>
+                              <div className="conflict-columns">
+                                <label>
+                                  <span>최신 버전</span>
+                                  <textarea
+                                    readOnly
+                                    value={editConflict.latest.markdown}
+                                  />
+                                </label>
+                                <label>
+                                  <span>내 초안</span>
+                                  <textarea
+                                    readOnly
+                                    value={editConflict.draft}
+                                  />
+                                </label>
+                                <label>
+                                  <span>줄 단위 diff</span>
+                                  <pre>{editConflict.diff}</pre>
+                                </label>
+                              </div>
+                              <div className="conflict-actions">
+                                <button
+                                  type="button"
+                                  onClick={beginConflictMerge}
+                                >
+                                  병합 초안 만들기
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void saveConflictAsNewPage()}
+                                >
+                                  내 초안을 새 페이지로 저장
+                                </button>
+                              </div>
+                              <p>
+                                병합 초안의 충돌 표식을 정리한 뒤 변경을
+                                저장하세요. 자동 저장은 그때까지 일시
+                                중지됩니다.
+                              </p>
+                            </section>
+                          )}
+                        </>
+                      }
+                    />
+                  )}
+                </Suspense>
+              </div>
+            </section>
+          </ResizablePanel>
+
+          {view === "document" && rightPanelOpen && (
+            <>
+              <ResizableHandle className="workspace-resize-handle" />
+              <ResizablePanel
+                id="page-context"
+                defaultSize={22}
+                minSize={18}
+                maxSize={36}
+              >
+                <aside className="context-panel">
+                  <header className="context-panel-header">
+                    <div>
+                      <strong>Page details</strong>
+                      <span>{active?.page_type ?? "wiki page"}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRightPanelOpen(false)}
+                      aria-label="상세 패널 닫기"
                     >
+                      <PanelRightClose />
+                    </button>
+                  </header>
+
+                  <section className="context-section">
+                    <div className="context-section-title">
                       <span>
-                        <a
-                          href={
-                            attachment.status === "ready"
-                              ? `/api/attachments/${attachment.id}`
-                              : undefined
+                        <Link2 /> Linked mentions
+                      </span>
+                      <b>{linkedPages.length}</b>
+                    </div>
+                    <div className="context-list">
+                      {linkedPages.length ? (
+                        linkedPages.map((item) => (
+                          <button
+                            type="button"
+                            className="context-row"
+                            key={item.id ?? item.title}
+                            onClick={() =>
+                              item.id ? void openPage(item.id) : undefined
+                            }
+                          >
+                            <FileText />
+                            <span>
+                              <strong>{item.title}</strong>
+                              <small>
+                                {item.direction === "out"
+                                  ? "Outgoing link"
+                                  : "Backlink"}
+                              </small>
+                            </span>
+                            <ChevronRight />
+                          </button>
+                        ))
+                      ) : (
+                        <p className="context-empty">
+                          연결된 페이지가 없습니다.
+                        </p>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="context-section">
+                    <div className="context-section-title">
+                      <span>
+                        <Paperclip /> Attachments
+                      </span>
+                      <b>
+                        {
+                          attachments.filter((item) => item.status === "ready")
+                            .length
+                        }
+                      </b>
+                    </div>
+                    {caps.can_manage_attachments && (
+                      <label className="attachment-upload">
+                        <Upload /> 파일 추가
+                        <input
+                          type="file"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) void uploadFile(file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    )}
+                    <div className="context-list">
+                      {attachments.map((attachment) => (
+                        <div
+                          key={attachment.id}
+                          className={
+                            "attachment-row " +
+                            (attachment.status !== "ready" ? "deleted" : "")
                           }
                         >
-                          {attachment.filename}
-                        </a>
-                        <small>
-                          {Math.max(
-                            1,
-                            Math.round(attachment.size_bytes / 1024),
-                          )}{" "}
-                          KB · {attachment.status}
-                        </small>
-                      </span>
-                      {caps.can_manage_attachments &&
-                        (attachment.status === "ready" ? (
-                          <button
-                            onClick={() => void deleteAttachment(attachment)}
-                          >
-                            삭제
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => void restoreAttachment(attachment)}
-                          >
-                            복구
-                          </button>
-                        ))}
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="revision-section">
-                <div className="context-title">
-                  <span>최근 리비전</span>
-                  <span>{revisions.length}</span>
-                </div>
-                <ol className="timeline">
-                  {revisions.slice(0, 8).map((revision) => (
-                    <li key={revision.version}>
-                      <i />
-                      <div>
-                        <strong>
-                          {revision.change_summary ?? "페이지 변경"}
-                        </strong>
-                        <small>
-                          {revision.origin} ·{" "}
-                          {new Date(revision.created_at).toLocaleString(
-                            "ko-KR",
-                            {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            },
-                          )}
-                        </small>
-                        {revision.version !== active?.version &&
-                          caps.can_restore && (
-                            <button
-                              className="restore-revision"
-                              onClick={() =>
-                                void restoreRevision(revision.version)
+                          <Paperclip />
+                          <span>
+                            <a
+                              href={
+                                attachment.status === "ready"
+                                  ? "/api/attachments/" + attachment.id
+                                  : undefined
                               }
-                              disabled={dirty}
                             >
-                              이 버전 복구
-                            </button>
-                          )}
-                      </div>
-                      <span>v{revision.version}</span>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-              <section className="safety-note">
-                <span>VERSION GUARD</span>
-                <strong>덮어쓰기 전에 최신 버전을 확인합니다.</strong>
-                <p>
-                  사람과 에이전트의 동시 편집은 충돌 결과로 안전하게 멈춥니다.
-                </p>
-              </section>
-            </aside>
-          </div>
-        )}
-      </section>
+                              {attachment.filename}
+                            </a>
+                            <small>
+                              {Math.max(
+                                1,
+                                Math.round(attachment.size_bytes / 1024),
+                              )}{" "}
+                              KB · {attachment.status}
+                            </small>
+                          </span>
+                          {caps.can_manage_attachments &&
+                            (attachment.status === "ready" ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void deleteAttachment(attachment)
+                                }
+                                aria-label={attachment.filename + " 삭제"}
+                              >
+                                <Trash2 />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void restoreAttachment(attachment)
+                                }
+                                aria-label={attachment.filename + " 복구"}
+                              >
+                                <RotateCcw />
+                              </button>
+                            ))}
+                        </div>
+                      ))}
+                      {!attachments.length && (
+                        <p className="context-empty">첨부파일이 없습니다.</p>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="context-section revision-section">
+                    <div className="context-section-title">
+                      <span>
+                        <Clock3 /> Version history
+                      </span>
+                      <b>{revisions.length}</b>
+                    </div>
+                    <ol className="revision-list">
+                      {revisions.slice(0, 8).map((revision) => (
+                        <li key={revision.version}>
+                          <i />
+                          <div>
+                            <strong>
+                              {revision.change_summary ?? "페이지 변경"}
+                            </strong>
+                            <small>
+                              {revision.origin} ·{" "}
+                              {new Date(revision.created_at).toLocaleString(
+                                "ko-KR",
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )}
+                            </small>
+                            {revision.version !== active?.version &&
+                              caps.can_restore && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void restoreRevision(revision.version)
+                                  }
+                                  disabled={dirty}
+                                >
+                                  이 버전 복구
+                                </button>
+                              )}
+                          </div>
+                          <span>v{revision.version}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                </aside>
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
+      </div>
     </main>
   );
 }

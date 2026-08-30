@@ -31,7 +31,7 @@ let activeBrowser;
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
-  await page.locator(".page-tree .tree-item").first().waitFor();
+  await page.locator(".tree-page-row").first().waitFor();
   const staleFixtures = await context.request
     .get(`${baseUrl}/api/pages?depth=64&limit=200`)
     .then((response) => response.json());
@@ -77,7 +77,7 @@ let activeBrowser;
   });
   await childTreeButton.waitFor({ timeout: 10_000 });
   await page
-    .locator(".breadcrumbs strong")
+    .locator(".workspace-breadcrumbs strong")
     .filter({ hasText: childTitle })
     .waitFor({ timeout: 10_000 });
   const childId = await page.evaluate(
@@ -86,7 +86,7 @@ let activeBrowser;
   if (!childId) throw new Error("UI-created child page did not become active.");
 
   page.once("dialog", (dialog) => dialog.accept(parentTitle));
-  await page.getByRole("button", { name: "이동", exact: true }).click();
+  await page.getByRole("button", { name: "페이지 이동", exact: true }).click();
   await page
     .locator(".sync-state")
     .filter({ hasText: "페이지를 이동했습니다." })
@@ -146,7 +146,7 @@ let activeBrowser;
     throw new Error("UI revision restore did not restore the prior snapshot.");
 
   const attachmentName = `lifecycle-${stamp}.txt`;
-  await page.locator('.upload-button input[type="file"]').setInputFiles({
+  await page.locator('.attachment-upload input[type="file"]').setInputFiles({
     name: attachmentName,
     mimeType: "text/plain",
     buffer: Buffer.from(`attachment ${stamp}`, "utf8"),
@@ -158,11 +158,14 @@ let activeBrowser;
   await page.getByRole("link", { name: attachmentName }).waitFor();
 
   await page.getByRole("button", { name: "그래프" }).click();
-  const graphNode = page.locator(".graph-node", { hasText: childTitle });
+  const graphNode = page.locator(".graph-svg-node", { hasText: childTitle });
   await graphNode.waitFor({ timeout: 10_000 });
   await graphNode.click();
-  await page.locator(".editor-card").waitFor();
-  if ((await page.locator(".breadcrumbs strong").innerText()) !== childTitle)
+  await page.locator(".wiki-editor").waitFor();
+  if (
+    (await page.locator(".workspace-breadcrumbs strong").innerText()) !==
+    childTitle
+  )
     throw new Error("Graph node click did not open the selected page.");
 
   await page.getByRole("button", { name: "백업", exact: true }).click();

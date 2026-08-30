@@ -107,12 +107,49 @@ let activeBrowser;
   for (let sample = 0; sample < 4; sample++) {
     const navigationStarted = Date.now();
     await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
-    await page.locator(".page-tree .tree-item").first().waitFor();
+    await page.locator(".knowledge-tree-shell").waitFor();
     shellLoadSamplesMs.push(Date.now() - navigationStarted);
   }
   const sortedShellLoads = [...shellLoadSamplesMs].sort((a, b) => a - b),
     shellLoadP75Ms =
       sortedShellLoads[Math.ceil(sortedShellLoads.length * 0.75) - 1];
+  const upstreamWorkspace = await page.evaluate(() => {
+    const sidebar = document.querySelector(".icon-sidebar");
+    const bodyStyle = getComputedStyle(document.body);
+    return {
+      fontFamily: bodyStyle.fontFamily,
+      backgroundImage: bodyStyle.backgroundImage,
+      iconSidebarWidth: sidebar
+        ? Number.parseFloat(getComputedStyle(sidebar).width)
+        : 0,
+      resizableHandles: document.querySelectorAll(
+        '[data-slot="resizable-handle"]',
+      ).length,
+      legacyDashboardCards: document.querySelectorAll(
+        ".editor-card, .agent-card, .safety-note",
+      ).length,
+    };
+  });
+  if (
+    !upstreamWorkspace.fontFamily.includes("Geist") ||
+    upstreamWorkspace.backgroundImage !== "none" ||
+    upstreamWorkspace.iconSidebarWidth !== 48 ||
+    upstreamWorkspace.resizableHandles < 1 ||
+    upstreamWorkspace.legacyDashboardCards !== 0
+  )
+    throw new Error(
+      `The upstream workspace visual contract is not active: ${JSON.stringify(upstreamWorkspace)}`,
+    );
+  const themeBefore = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  await page.getByRole("button", { name: /테마$/ }).click();
+  const themeAfter = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  if (themeAfter === themeBefore)
+    throw new Error("The light/dark workspace theme did not toggle.");
+  await page.getByRole("button", { name: /테마$/ }).click();
   const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200`;
   const workspaceListEnvelope = await context.request
     .get(workspaceListUrl)
@@ -179,7 +216,8 @@ let activeBrowser;
   await page.unroute("**/api/pages?depth=64&limit=200", workspaceRaceHandler);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reducedMotionDuration = await page
-    .locator(".agent-pulse span")
+    .locator(".sidebar-icon-button")
+    .first()
     .evaluate((element) => getComputedStyle(element).animationDuration);
   if (
     !reducedMotionDuration.endsWith("s") ||
@@ -275,7 +313,7 @@ let activeBrowser;
     if (!resumeWrites.ok())
       throw new Error("Owner could not leave read-only mode after the probe.");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".page-tree .tree-item").first().waitFor();
+    await page.locator(".tree-page-row").first().waitFor();
   }
   const viewerSession = await viewerContext.request.get(
     `${baseUrl}/api/session/capabilities`,
@@ -923,7 +961,7 @@ let activeBrowser;
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: new RegExp(securityTitle) }).click();
   await page.keyboard.press("Control+K");
-  const searchInput = page.getByRole("textbox", { name: "지식 검색" });
+  const searchInput = page.getByRole("textbox", { name: "위키 검색" });
   const searchFocus = await searchInput.evaluate((element) => ({
     active: document.activeElement === element,
     outlineStyle: getComputedStyle(element).outlineStyle,
@@ -938,16 +976,21 @@ let activeBrowser;
       `Search shortcut did not expose a visible keyboard focus: ${JSON.stringify(searchFocus)}`,
     );
   await searchInput.fill("SECURITY_SENTINEL");
-  await page.getByRole("button", { name: new RegExp(securityTitle) }).waitFor();
+  await page
+    .locator(".search-results")
+    .getByRole("button", { name: new RegExp(securityTitle) })
+    .waitFor();
   await searchInput.fill("");
-  await page.locator(".page-tree .tree-item").nth(1).waitFor();
-  await searchInput.press("Tab");
+  await page.getByRole("button", { name: "문서" }).click();
+  const keyboardTreeRows = page.locator(".tree-page-row:not(.deleted)");
+  await keyboardTreeRows.nth(1).waitFor();
+  await keyboardTreeRows.first().focus();
   const focusedTreeTitle = await page.evaluate(
-    () => document.activeElement?.querySelector("strong")?.textContent ?? "",
+    () => document.activeElement?.querySelector("span")?.textContent ?? "",
   );
   await page.keyboard.press("ArrowDown");
   const nextTreeTitle = await page.evaluate(
-    () => document.activeElement?.querySelector("strong")?.textContent ?? "",
+    () => document.activeElement?.querySelector("span")?.textContent ?? "",
   );
   if (!focusedTreeTitle || !nextTreeTitle || focusedTreeTitle === nextTreeTitle)
     throw new Error("Arrow keys did not move focus within the page tree.");
@@ -1010,7 +1053,7 @@ let activeBrowser;
     .get(`${baseUrl}/api/pages/${activeConflictPageId}`)
     .then((response) => response.json());
   const conflictSaveButton = page
-    .locator(".editor-footer .save-button")
+    .locator(".editor-statusbar .primary-action")
     .filter({ hasText: "변경 저장" });
   await conflictSaveButton.waitFor();
   await page.evaluate(
@@ -1031,7 +1074,7 @@ let activeBrowser;
   });
   await conflictResolver.waitFor({ timeout: 10_000 }).catch(async () => {
     const status = await page.locator(".sync-state").innerText();
-    const notice = await page.locator(".notice").allInnerTexts();
+    const notice = await page.locator(".inline-notice").allInnerTexts();
     throw new Error(
       `Conflict response was not projected into the resolver (status=${status}, notice=${notice.join(" | ")}).`,
     );
@@ -1070,14 +1113,14 @@ let activeBrowser;
   );
   currentVersion = (await resolvedPage.json()).data.page.version;
   await page.waitForLoadState("networkidle");
-  const pageCount = await page.locator(".page-tree .tree-item").count();
+  const pageCount = await page.locator(".tree-page-row:not(.deleted)").count();
   if (pageCount < 1)
     throw new Error("The page tree did not render any active pages.");
   const documentAccessibility = await new AxeBuilder({ page }).analyze();
 
   await page.getByRole("button", { name: "그래프" }).click();
-  await page.locator(".graph-stage").waitFor();
-  const graphNodeCount = await page.locator(".graph-node").count();
+  await page.locator(".graph-view").waitFor();
+  const graphNodeCount = await page.locator(".graph-svg-node").count();
   if (graphNodeCount < 1)
     throw new Error("The graph view did not render any nodes.");
   const graphFocusRefresh = page.waitForResponse(
@@ -1086,7 +1129,7 @@ let activeBrowser;
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await graphFocusRefresh;
-  await page.locator(".graph-stage").waitFor();
+  await page.locator(".graph-view").waitFor();
   const graphAccessibility = await new AxeBuilder({ page }).analyze();
 
   await page.getByRole("button", { name: "운영과 복구" }).click();
@@ -1114,8 +1157,17 @@ let activeBrowser;
   const operationsAccessibility = await new AxeBuilder({ page }).analyze();
 
   await page.getByRole("button", { name: "문서" }).click();
-  await page.locator(".editor-card").waitFor();
+  await page.locator(".wiki-editor").waitFor();
   await page.screenshot({ path: "artifacts/ui-smoke.png", fullPage: true });
+
+  const cleanupLandingPage = page
+    .locator(".tree-page-row")
+    .filter({ hasNotText: securityTitle })
+    .first();
+  if (await cleanupLandingPage.count()) {
+    await cleanupLandingPage.click();
+    await page.waitForTimeout(250);
+  }
 
   const cleanup = await context.request.delete(
     `${baseUrl}/api/pages/${created.page_id}`,
@@ -1214,6 +1266,8 @@ let activeBrowser;
       keyboardNavigationVerified: true,
       reducedMotionVerified: true,
       workspaceRefreshRaceProtected: true,
+      upstreamWorkspaceVerified: true,
+      lightDarkThemeVerified: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",
     }),
