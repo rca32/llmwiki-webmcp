@@ -103,6 +103,40 @@ let activeBrowser;
       throw new Error("UI smoke could not create its local seed page.");
   }
 
+  const startupRacePage = await context.newPage();
+  let releaseStartupList;
+  const startupListReleased = new Promise((resolve) => {
+    releaseStartupList = resolve;
+  });
+  await startupRacePage.route(
+    "**/api/pages?depth=64&limit=200",
+    async (route) => {
+      await startupListReleased;
+      await route.continue();
+    },
+  );
+  const startupSessionLoaded = startupRacePage.waitForResponse(
+    (response) =>
+      response.url() === `${baseUrl}/api/session/capabilities` && response.ok(),
+  );
+  await startupRacePage.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await startupSessionLoaded;
+  await startupRacePage.getByRole("button", { name: "그래프" }).click();
+  await startupRacePage.locator(".graph-view").waitFor();
+  const startupListCompleted = startupRacePage.waitForResponse(
+    (response) =>
+      response.url() === `${baseUrl}/api/pages?depth=64&limit=200` &&
+      response.ok(),
+  );
+  releaseStartupList();
+  await startupListCompleted;
+  await startupRacePage.waitForTimeout(100);
+  if ((await startupRacePage.locator(".graph-view").count()) !== 1)
+    throw new Error(
+      "Initial workspace hydration replaced an explicit graph navigation.",
+    );
+  await startupRacePage.close();
+
   const shellLoadSamplesMs = [];
   for (let sample = 0; sample < 4; sample++) {
     const navigationStarted = Date.now();

@@ -273,6 +273,12 @@ export default function Home() {
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
   const dirty = markdown !== savedMarkdown;
+  const changeView = useCallback((nextView: WorkspaceView) => {
+    // Keep asynchronous workspace hydration from restoring the document view
+    // after the user has already navigated elsewhere in the same event turn.
+    viewRef.current = nextView;
+    setView(nextView);
+  }, []);
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("liminal-wiki:theme-v2");
     // The pinned llm_wiki workspace is light-first. Keep dark mode available,
@@ -340,7 +346,7 @@ export default function Home() {
           ? cached
           : null;
 
-      if (!preserveDraft) setView("document");
+      if (!preserveDraft) changeView("document");
       if (!protectsCurrentDraft) {
         setPendingPageId(pageId);
         const immediatePage = validCache?.page ?? snapshot;
@@ -447,7 +453,7 @@ export default function Home() {
       setStatus("병합 필요");
       setNotice(null);
     },
-    [updateAutosavePaused],
+    [changeView, updateAutosavePaused],
   );
 
   const loadWorkspace = useCallback(
@@ -581,7 +587,7 @@ export default function Home() {
       const key = event.key.toLowerCase();
       if (key === "k") {
         event.preventDefault();
-        setView("search");
+        changeView("search");
         window.requestAnimationFrame(() =>
           document
             .querySelector<HTMLInputElement>(".search-view-input input")
@@ -604,7 +610,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
-  }, [caps.can_write, view]);
+  }, [caps.can_write, changeView, view]);
   useEffect(() => {
     if (
       !active ||
@@ -980,7 +986,7 @@ export default function Home() {
   }
 
   async function showGraph() {
-    setView("graph");
+    changeView("graph");
     setGraphLoading(true);
     try {
       setGraph(await api<Graph>("/api/graph?limit=2000"));
@@ -1132,7 +1138,7 @@ export default function Home() {
         onToggleLeftPanel={() => setLeftPanelOpen((value) => !value)}
         onViewChange={(nextView) => {
           if (nextView === "graph") void showGraph();
-          else setView(nextView);
+          else changeView(nextView);
         }}
       />
       <div className="app-workspace">
@@ -1246,7 +1252,7 @@ export default function Home() {
                     <button
                       type="button"
                       className="topbar-text-button"
-                      onClick={() => setView("operations")}
+                      onClick={() => changeView("operations")}
                       disabled={!caps.can_export_portable}
                     >
                       백업
