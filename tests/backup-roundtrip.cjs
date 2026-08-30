@@ -12,7 +12,7 @@ const {
   symlinkSync,
   writeFileSync,
 } = require("node:fs");
-const { join, relative, resolve, sep } = require("node:path");
+const { dirname, join, relative, resolve, sep } = require("node:path");
 const { spawn } = require("node:child_process");
 const { createServer } = require("node:net");
 
@@ -32,6 +32,9 @@ const requestedAttachmentBytes = bytesArgument
   ? Number(bytesArgument.slice("--bytes=".length))
   : new TextEncoder().encode("round-trip attachment checksum sentinel")
       .byteLength;
+const backupOutput = process.env.WIKI_BACKUP_OUTPUT
+  ? resolve(process.env.WIKI_BACKUP_OUTPUT)
+  : null;
 let peakRssBytes = process.memoryUsage().rss;
 
 if (
@@ -740,6 +743,10 @@ async function main() {
       ),
       packagePath = join(runtimeRoot, "full-backup-ui-import.zip");
     writeBackupPackage(manifest, partPaths, packagePath);
+    if (backupOutput) {
+      mkdirSync(dirname(backupOutput), { recursive: true });
+      cpSync(packagePath, backupOutput);
+    }
     await importBackupThroughUi(uiTargetUrl, uiTargetOwner, packagePath);
     const uiSession = await request(
       uiTargetUrl,
@@ -809,6 +816,7 @@ async function main() {
       duplicateImportSiblingSlugRejected: true,
       malformedImportFrontmatterRejected: true,
       uiEmptySiteImport,
+      backupPackageOutput: backupOutput,
       diskBackedParts: true,
       peakCoordinatorRssMiB: Math.ceil(peakRssBytes / 1024 / 1024),
     }),
