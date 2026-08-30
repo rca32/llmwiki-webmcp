@@ -1,0 +1,27 @@
+# Local agent and validation artifacts
+.artifacts/
+.backups/
+.site-packages/
+.test-runtimes/
+
+# Dependencies and generated build/runtime state
+**/node_modules/
+**/dist/
+**/.next/
+**/.vinext/
+**/.wrangler/
+**/coverage/
+**/artifacts/
+*.tsbuildinfo
+*.log
+
+# Local configuration and secrets
+**/.env
+**/.env.*
+!**/.env.example
+**/.dev.vars
+**/.dev.vars.*
+
+# Operating-system files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787865450730,
+      "tag": "0000_clever_vengeance",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787868285416,
+      "tag": "0001_clammy_power_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787881733471,
+      "tag": "0002_shallow_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787954802534,
+      "tag": "0003_hesitant_ezekiel",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787958606854,
+      "tag": "0004_spooky_whirlwind",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787960065749,
+      "tag": "0005_warm_hellion",
+      "breakpoints": true
+    }
+  ]
+}

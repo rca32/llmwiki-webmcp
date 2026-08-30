@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-28",
+  "client_directory": "dist/client",
+  "growth_tolerance_percent": 10,
+  "baseline": {
+    "total_raw_bytes": 4000864,
+    "total_gzip_bytes": 1129662,
+    "largest_chunk_gzip_bytes": 148647,
+    "app_page_chunk_gzip_bytes": 148647
+  },
+  "limits": {
+    "total_raw_bytes": 4400951,
+    "total_gzip_bytes": 1242629,
+    "largest_chunk_gzip_bytes": 163512,
+    "app_page_chunk_gzip_bytes": 163512
+  }
+}

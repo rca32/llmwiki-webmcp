@@ -1,0 +1,22 @@
+[
+  {"query": "우리 ChatGPT Site에 등록한 검색 도구가 데스크톱 앱에서 안 보여. registerTool 코드와 실제 discovery를 같이 점검해줘.", "should_trigger": true},
+  {"query": "이 Next.js 페이지에서 로그인한 사용자의 장바구니를 읽는 WebMCP 도구를 만들고 Codex에서 실제 호출까지 검증해줘.", "should_trigger": true},
+  {"query": "Sites PoC에 document.modelContext로 wiki_search와 wiki_get_note를 노출하고 싶어. 안전한 스키마까지 만들어줘.", "should_trigger": true},
+  {"query": "webmcp fetchTools에는 health만 나오고 관리자용 delete가 안 나와. 역할별 노출이 맞는지 진단해줘.", "should_trigger": true},
+  {"query": "공개 페이지는 열리지만 /mcp가 404야. 이게 Sites의 page tool인지 remote MCP인지부터 판단해서 고쳐줘.", "should_trigger": true},
+  {"query": "React 앱의 WebMCP 도구가 HMR 후 두 번씩 등록돼. 컴포넌트 수명주기와 cleanup을 수정해줘.", "should_trigger": true},
+  {"query": "익명 사용자는 조회만, 편집자는 수정, 관리자는 soft delete까지 가능한 사이트 도구를 설계해줘.", "should_trigger": true},
+  {"query": "배포한 Sites 페이지에서 도구 이름만 확인하지 말고 실제 tools.call까지 실행해서 결과를 보고해줘.", "should_trigger": true},
+  {"query": "기존 HTML 폼을 ChatGPT가 구조화된 도구로 사용할 수 있도록 WebMCP 방식과 검증 절차를 제안해줘.", "should_trigger": true},
+  {"query": "WebMCP update 도구가 가끔 최신 내용을 덮어써. expected_version과 재시도 안전성을 추가해줘.", "should_trigger": true},
+  {"query": "Cloudflare Workers에 24시간 연결 가능한 Streamable HTTP MCP 서버를 만들고 OAuth도 붙여줘. 브라우저 페이지는 없어.", "should_trigger": false},
+  {"query": "ChatGPT Apps SDK로 차트 위젯이 포함된 원격 MCP 앱을 만들어 앱 디렉터리에 제출하고 싶어.", "should_trigger": false},
+  {"query": "우리 회사 랜딩 페이지를 ChatGPT Sites로 예쁘게 만들고 모바일 반응형까지 다듬어줘. 에이전트 도구는 필요 없어.", "should_trigger": false},
+  {"query": "이 쇼핑몰에서 버튼을 눌러 주문 내역을 내려받아줘. 사이트는 WebMCP 도구를 제공하지 않아.", "should_trigger": false},
+  {"query": "MCP와 function calling의 차이를 비개발자에게 설명하는 발표 자료를 만들어줘.", "should_trigger": false},
+  {"query": "Express의 /mcp route에서 JSON-RPC initialize가 실패해. 서버 transport 구현을 디버깅해줘.", "should_trigger": false},
+  {"query": "현재 사이트의 로그인 API가 401을 반환해. WebMCP는 사용하지 않고 일반 웹 로그인만 고치면 돼.", "should_trigger": false},
+  {"query": "Playwright로 사내 사이트의 폼을 매일 자동 제출하고 결과를 CSV로 저장하는 스크립트를 작성해줘.", "should_trigger": false},
+  {"query": "개인 위키 문서를 수집하고 번역해서 Markdown으로 저장하는 에이전트 스킬을 만들어줘.", "should_trigger": false},
+  {"query": "OpenAI Codex에서 사용자 스킬을 설치하는 표준 폴더 위치만 알려줘.", "should_trigger": false}
+]

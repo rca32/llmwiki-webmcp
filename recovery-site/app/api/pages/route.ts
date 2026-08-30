@@ -1,0 +1,87 @@
+import { success } from "../../../lib/contracts";
+import {
+  createPage,
+  listDeletedPages,
+  listPages,
+} from "../../../db/wiki-repository";
+import {
+  errorResponse,
+  jsonBody,
+  originFrom,
+  requestId,
+} from "../../../lib/http";
+import { requireWikiSession } from "../../../lib/server-session";
+import {
+  MAX_MARKDOWN,
+  operationId,
+  optionalNullableString,
+  pageType,
+  requireObject,
+  requiredInteger,
+  requiredString,
+} from "../../../lib/validation";
+
+export async function GET(request: Request) {
+  const id = requestId("page.list");
+  try {
+    const session = await requireWikiSession("can_read");
+    const url = new URL(request.url),
+      limit = requiredInteger(
+        Number(url.searchParams.get("limit") ?? 100),
+        "limit",
+        1,
+        200,
+      );
+    const deleted = url.searchParams.get("deleted") === "only";
+    if (deleted) {
+      const pages = await listDeletedPages(session.wikiId!, limit);
+      return Response.json(success({ pages }, id), {
+        headers: { "cache-control": "no-store" },
+      });
+    }
+    const parentValue = url.searchParams.get("parent_id"),
+      parentId = parentValue ? parentValue : null,
+      depth = requiredInteger(
+        Number(url.searchParams.get("depth") ?? 0),
+        "depth",
+        0,
+        64,
+      );
+    const pages = await listPages(session.wikiId!, parentId, limit, depth);
+    return Response.json(success({ pages }, id), {
+      headers: { "cache-control": "no-store" },
+    });
+  } catch (error) {
+    return errorResponse(error, id);
+  }
+}
+export async function POST(request: Request) {
+  const id = requestId("page.create");
+  try {
+    const session = await requireWikiSession("can_write");
+    const body = requireObject(await jsonBody(request));
+    const result = await createPage({
+      wikiId: session.wikiId!,
+      email: session.email,
+      title: requiredString(body.title, "title", 1, 200),
+      pageType: pageType(body.page_type),
+      markdown: requiredString(body.markdown, "markdown", 1, MAX_MARKDOWN),
+      parentId: optionalNullableString(body.parent_id, "parent_id"),
+      operationId: operationId(body.operation_id),
+      requestId: id,
+      origin: originFrom(request),
+    });
+    return Response.json(
+      success(result, id, {
+        pages_changed: [String(result.page_id)],
+        tree_changed: true,
+        links_changed: true,
+        search_changed: true,
+        graph_changed: true,
+      }),
+      { status: 201 },
+    );
+  } catch (error) {
+    return errorResponse(error, id);
+  }
+}

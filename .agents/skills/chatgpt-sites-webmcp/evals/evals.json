@@ -1,0 +1,41 @@
+{
+  "skill_name": "chatgpt-sites-webmcp",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "이 ChatGPT Sites 프로젝트에 문서 검색과 문서 조회 WebMCP 도구를 추가해줘. 현재 로그인 세션을 그대로 사용해야 하고, 배포 후 Codex 브라우저에서 도구 발견과 실제 검색 호출까지 확인해줘.",
+      "expected_output": "A minimal page-scoped WebMCP implementation with closed schemas, lifecycle cleanup, same-origin session behavior, static checks, deployment-aware discovery, and a real harmless tool call.",
+      "files": [],
+      "expectations": [
+        "The response treats the feature as page-scoped WebMCP rather than assuming a remote MCP endpoint.",
+        "The implementation registers focused tools with clear descriptions, bounded schemas, and executor validation.",
+        "The validation distinguishes lint or build success from fetchTools discovery and a real tools.call invocation.",
+        "The final report names which end-to-end checks passed and which were not run."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "공개 Sites 주소는 잘 열리는데 /mcp가 404이고 ChatGPT에서 도구가 안 보여. route.ts와 hosting.json을 계속 고쳐도 그대로야. 원인을 찾아서 올바른 방식으로 수정해줘.",
+      "expected_output": "A diagnosis that first separates remote MCP from page-scoped WebMCP, inspects the host capability and client registration lifecycle, makes only evidence-driven changes, and verifies discovery plus invocation.",
+      "files": [],
+      "expectations": [
+        "The response explicitly distinguishes a page-owned WebMCP integration from an independently connectable remote MCP server.",
+        "The diagnosis does not treat a working root page or a generic document.modelContext evaluation as end-to-end proof.",
+        "The recovery sequence checks host capability, registration execution, fetchTools output, and a real call in order.",
+        "The response avoids repeatedly changing /mcp or deployment metadata without evidence."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "우리 WebMCP 문서 수정·삭제 도구가 로그인하지 않은 방문자에게도 노출돼. 읽기 도구는 공개로 두고, 편집자는 수정만, 관리자는 삭제까지 보이도록 고쳐줘. 동시 수정과 실수 삭제도 막아야 해.",
+      "expected_output": "Conditional discovery plus server-side authorization, a role capability matrix, optimistic concurrency for updates, explicit recoverable delete safeguards, and authorized versus unauthorized discovery verification.",
+      "files": [],
+      "expectations": [
+        "Public read tools remain available while update and delete tools are conditionally registered by trusted session capabilities.",
+        "Server-side handlers repeat authorization checks instead of relying on hidden descriptors as the security boundary.",
+        "Updates require an expected version and deletes require explicit confirmation and a recoverable strategy.",
+        "Verification compares discovered tools for anonymous, editor, and administrator sessions without using irreplaceable data."
+      ]
+    }
+  ]
+}

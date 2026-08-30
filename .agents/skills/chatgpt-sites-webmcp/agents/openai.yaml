@@ -1,0 +1,7 @@
+interface:
+  display_name: "ChatGPT Sites WebMCP"
+  short_description: "Build and verify page-scoped WebMCP tools"
+  default_prompt: "Use $chatgpt-sites-webmcp to build or debug WebMCP tools on this site and verify real discovery and invocation."
+
+policy:
+  allow_implicit_invocation: true
