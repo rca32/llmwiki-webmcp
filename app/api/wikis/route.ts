@@ -5,10 +5,7 @@ import {
   originFrom,
   requestId,
 } from "../../../lib/http";
-import {
-  getWikiSession,
-  requireWikiSession,
-} from "../../../lib/server-session";
+import { getWikiSession } from "../../../lib/server-session";
 import {
   bootstrapWiki,
   createWiki,
@@ -38,7 +35,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const id = requestId("wiki.create");
   try {
-    const session = await requireWikiSession("can_read");
+    const session = await getWikiSession();
     const body = requireObject(await jsonBody(request));
     const title = requiredString(body.title, "title", 1, 120),
       template =
@@ -78,7 +75,7 @@ export async function POST(request: Request) {
         403,
       );
     const starterPage =
-      template === "starter" && !session.capabilities.can_bootstrap
+      template === "starter"
         ? await createPage({
             wikiId: String(wiki.id),
             email: session.email,
