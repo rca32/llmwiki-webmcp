@@ -36,23 +36,28 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 
+const loadOperationsPanel = () => import("./operations-panel");
+const loadWikiEditor = () => import("@/components/editor/wiki-editor");
+const loadGraphView = () => import("@/components/graph/graph-view");
+const loadSearchView = () => import("@/components/search/search-view");
+
 const OperationsPanel = lazy(() =>
-  import("./operations-panel").then((module) => ({
+  loadOperationsPanel().then((module) => ({
     default: module.OperationsPanel,
   })),
 );
 const WikiEditor = lazy(() =>
-  import("@/components/editor/wiki-editor").then((module) => ({
+  loadWikiEditor().then((module) => ({
     default: module.WikiEditor,
   })),
 );
 const GraphView = lazy(() =>
-  import("@/components/graph/graph-view").then((module) => ({
+  loadGraphView().then((module) => ({
     default: module.GraphView,
   })),
 );
 const SearchView = lazy(() =>
-  import("@/components/search/search-view").then((module) => ({
+  loadSearchView().then((module) => ({
     default: module.SearchView,
   })),
 );
@@ -97,6 +102,12 @@ type Attachment = {
   size_bytes: number;
   status: string;
   sha256: string;
+};
+type PageDetails = {
+  page: Page;
+  revisions: Revision[];
+  neighbors: Neighbor[];
+  attachments: Attachment[];
 };
 type Graph = {
   nodes: Array<{
@@ -224,6 +235,8 @@ export default function Home() {
   const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [graph, setGraph] = useState<Graph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [pendingPageId, setPendingPageId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [status, setStatus] = useState("연결 중…");
@@ -250,6 +263,8 @@ export default function Home() {
   const [autosavePaused, setAutosavePaused] = useState(false);
   const viewRef = useRef(view);
   const activeRef = useRef<Page | null>(null);
+  const pagesRef = useRef<Page[]>([]);
+  const pageDetailsCacheRef = useRef(new Map<string, PageDetails>());
   const desiredPageIdRef = useRef<string | null>(null);
   const openPageRequestRef = useRef(0);
   const workspaceRequestRef = useRef(0);
@@ -271,6 +286,22 @@ export default function Home() {
     viewRef.current = view;
   }, [view]);
   useEffect(() => {
+    pagesRef.current = pages;
+  }, [pages]);
+  useEffect(() => {
+    const preloadSecondaryViews = () => {
+      void Promise.all([
+        loadOperationsPanel(),
+        loadGraphView(),
+        loadSearchView(),
+      ]);
+    };
+    const idle = window.requestIdleCallback(preloadSecondaryViews, {
+      timeout: 2_000,
+    });
+    return () => window.cancelIdleCallback(idle);
+  }, []);
+  useEffect(() => {
     dirtyRef.current = dirty;
     activeRef.current = active;
     markdownRef.current = markdown;
@@ -279,6 +310,15 @@ export default function Home() {
   const updateAutosavePaused = useCallback((paused: boolean) => {
     autosavePausedRef.current = paused;
     setAutosavePaused(paused);
+  }, []);
+  const replacePageSnapshot = useCallback((nextPage: Page) => {
+    setPages((current) => {
+      const next = current.map((page) =>
+        page.id === nextPage.id ? nextPage : page,
+      );
+      pagesRef.current = next;
+      return next;
+    });
   }, []);
 
   const openPage = useCallback(
@@ -291,46 +331,104 @@ export default function Home() {
         return;
       if (!preserveDraft) desiredPageIdRef.current = pageId;
       const requestNumber = ++openPageRequestRef.current;
-      const [
-        { page },
-        { revisions: history },
-        { neighbors: linked },
-        { attachments: files },
-      ] = await Promise.all([
-        api<{ page: Page }>(`/api/pages/${pageId}`),
-        api<{ revisions: Revision[] }>(
-          `/api/pages/${pageId}/revisions?limit=10`,
-        ),
-        api<{ neighbors: Neighbor[] }>(
-          `/api/pages/${pageId}/neighbors?limit=20`,
-        ),
-        api<{ attachments: Attachment[] }>(
-          `/api/attachments?page_id=${encodeURIComponent(pageId)}&include_deleted=true`,
-        ),
-      ]);
-      if (
-        requestNumber !== openPageRequestRef.current ||
-        (desiredPageIdRef.current && desiredPageIdRef.current !== pageId)
-      )
-        return;
-      setView("document");
       const protectedDraft = dirtyRef.current || autosavePausedRef.current;
-      if (protectedDraft && (preserveDraft || activeRef.current?.id === pageId))
-        return;
-      desiredPageIdRef.current = page.id;
-      activeRef.current = page;
-      setActive(page);
-      setMarkdown(page.markdown);
-      setSavedMarkdown(page.markdown);
-      setRevisions(history);
-      setNeighbors(linked);
-      setAttachments(files);
-      setStatus("동기화됨");
-      setNotice(null);
-      setEditConflict(null);
-      updateAutosavePaused(false);
+      const protectsCurrentDraft =
+        protectedDraft && (preserveDraft || activeRef.current?.id === pageId);
+      const snapshot = pagesRef.current.find((page) => page.id === pageId);
+      const cached = pageDetailsCacheRef.current.get(pageId);
+      const validCache =
+        cached && (!snapshot || cached.page.version === snapshot.version)
+          ? cached
+          : null;
+
+      if (!preserveDraft) setView("document");
+      if (!protectsCurrentDraft) {
+        setPendingPageId(pageId);
+        const immediatePage = validCache?.page ?? snapshot;
+        if (immediatePage) {
+          desiredPageIdRef.current = immediatePage.id;
+          activeRef.current = immediatePage;
+          setActive(immediatePage);
+          setMarkdown(immediatePage.markdown);
+          setSavedMarkdown(immediatePage.markdown);
+          setRevisions(validCache?.revisions ?? []);
+          setNeighbors(validCache?.neighbors ?? []);
+          setAttachments(validCache?.attachments ?? []);
+          setStatus(validCache ? "최신 정보 확인 중…" : "세부 정보 동기화 중…");
+          setNotice(null);
+          setEditConflict(null);
+          updateAutosavePaused(false);
+        }
+      }
+
+      try {
+        const [
+          { page },
+          { revisions: history },
+          { neighbors: linked },
+          { attachments: files },
+        ] = await Promise.all([
+          api<{ page: Page }>(`/api/pages/${pageId}`),
+          api<{ revisions: Revision[] }>(
+            `/api/pages/${pageId}/revisions?limit=10`,
+          ),
+          api<{ neighbors: Neighbor[] }>(
+            `/api/pages/${pageId}/neighbors?limit=20`,
+          ),
+          api<{ attachments: Attachment[] }>(
+            `/api/attachments?page_id=${encodeURIComponent(pageId)}&include_deleted=true`,
+          ),
+        ]);
+        if (
+          requestNumber !== openPageRequestRef.current ||
+          (desiredPageIdRef.current && desiredPageIdRef.current !== pageId)
+        )
+          return;
+        const details = {
+          page,
+          revisions: history,
+          neighbors: linked,
+          attachments: files,
+        };
+        pageDetailsCacheRef.current.set(pageId, details);
+        const protectedDuringRequest =
+          (dirtyRef.current || autosavePausedRef.current) &&
+          activeRef.current?.id === pageId;
+        if (protectsCurrentDraft || protectedDuringRequest) {
+          setRevisions(history);
+          setNeighbors(linked);
+          setAttachments(files);
+          return;
+        }
+        desiredPageIdRef.current = page.id;
+        activeRef.current = page;
+        setActive(page);
+        replacePageSnapshot(page);
+        setMarkdown(page.markdown);
+        setSavedMarkdown(page.markdown);
+        setRevisions(history);
+        setNeighbors(linked);
+        setAttachments(files);
+        setStatus("동기화됨");
+        setNotice(null);
+        setEditConflict(null);
+        updateAutosavePaused(false);
+      } catch (error) {
+        if (requestNumber !== openPageRequestRef.current) return;
+        setStatus(
+          snapshot || validCache ? "본문 표시됨 · 동기화 지연" : "연결 실패",
+        );
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "페이지의 최신 정보를 불러오지 못했습니다.",
+        );
+      } finally {
+        if (requestNumber === openPageRequestRef.current)
+          setPendingPageId(null);
+      }
     },
-    [updateAutosavePaused],
+    [replacePageSnapshot, updateAutosavePaused],
   );
 
   const captureEditConflict = useCallback(
@@ -406,6 +504,12 @@ export default function Home() {
           list = (await api<{ pages: Page[] }>("/api/pages?depth=64&limit=200"))
             .pages;
           if (requestNumber !== workspaceRequestRef.current) return;
+        }
+        pagesRef.current = list;
+        for (const [pageId, cached] of pageDetailsCacheRef.current) {
+          const listed = list.find((page) => page.id === pageId);
+          if (!listed || listed.version !== cached.page.version)
+            pageDetailsCacheRef.current.delete(pageId);
         }
         setPages(list);
         if (session.capabilities.can_soft_delete) {
@@ -529,11 +633,15 @@ export default function Home() {
         })
           .then(async (result) => {
             if (activeRef.current?.id !== pageId) return;
-            setActive((current) =>
-              current?.id === pageId
-                ? { ...current, version: result.version, markdown: draft }
-                : current,
-            );
+            const updatedPage = {
+              ...activeRef.current,
+              version: result.version,
+              markdown: draft,
+            };
+            activeRef.current = updatedPage;
+            setActive(updatedPage);
+            replacePageSnapshot(updatedPage);
+            pageDetailsCacheRef.current.delete(pageId);
             setSavedMarkdown(draft);
             setStatus(
               markdownRef.current === draft ? "자동 저장됨" : "추가 변경 있음",
@@ -574,6 +682,7 @@ export default function Home() {
     captureEditConflict,
     editConflict,
     markdown,
+    replacePageSnapshot,
     savedMarkdown,
   ]);
   useEffect(() => {
@@ -642,7 +751,11 @@ export default function Home() {
           }),
         },
       );
-      setActive({ ...active, markdown, version: result.version });
+      const updatedPage = { ...active, markdown, version: result.version };
+      activeRef.current = updatedPage;
+      setActive(updatedPage);
+      replacePageSnapshot(updatedPage);
+      pageDetailsCacheRef.current.delete(active.id);
       setSavedMarkdown(markdown);
       updateAutosavePaused(false);
       setStatus("방금 저장됨");
@@ -674,7 +787,10 @@ export default function Home() {
 
   function beginConflictMerge() {
     if (!editConflict) return;
+    activeRef.current = editConflict.latest;
     setActive(editConflict.latest);
+    replacePageSnapshot(editConflict.latest);
+    pageDetailsCacheRef.current.delete(editConflict.latest.id);
     setSavedMarkdown(editConflict.latest.markdown);
     setMarkdown(mergeDraft(editConflict.latest.markdown, editConflict.draft));
     setEditConflict(null);
@@ -865,15 +981,18 @@ export default function Home() {
   }
 
   async function showGraph() {
+    setView("graph");
+    setGraphLoading(true);
     try {
       setGraph(await api<Graph>("/api/graph?limit=2000"));
-      setView("graph");
     } catch (error) {
       setNotice(
         error instanceof Error
           ? error.message
           : "그래프를 불러오지 못했습니다.",
       );
+    } finally {
+      setGraphLoading(false);
     }
   }
 
@@ -1030,7 +1149,8 @@ export default function Home() {
                 <KnowledgeTree
                   pages={filtered}
                   deletedPages={deletedPages}
-                  activePageId={active?.id ?? null}
+                  activePageId={pendingPageId ?? active?.id ?? null}
+                  pendingPageId={pendingPageId}
                   query={query}
                   canWrite={caps.can_write}
                   onQueryChange={setQuery}
@@ -1093,7 +1213,8 @@ export default function Home() {
                     type="button"
                     className="topbar-icon-button"
                     onClick={() => {
-                      const next = !darkMode;
+                      const next =
+                        !document.documentElement.classList.contains("dark");
                       setDarkMode(next);
                       document.documentElement.classList.toggle("dark", next);
                       window.localStorage.setItem(
@@ -1164,6 +1285,7 @@ export default function Home() {
                   ) : view === "graph" ? (
                     <GraphView
                       graph={graph}
+                      loading={graphLoading}
                       onRefresh={() => void showGraph()}
                       onOpenPage={(pageId) => void openPage(pageId)}
                     />

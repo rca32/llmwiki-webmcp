@@ -148,6 +148,10 @@ let activeBrowser;
     document.documentElement.classList.contains("dark"),
   );
   await page.getByRole("button", { name: /테마$/ }).click();
+  await page.waitForFunction(
+    (before) => document.documentElement.classList.contains("dark") !== before,
+    themeBefore,
+  );
   const themeAfter = await page.evaluate(() =>
     document.documentElement.classList.contains("dark"),
   );
@@ -1120,6 +1124,45 @@ let activeBrowser;
   const pageCount = await page.locator(".tree-page-row:not(.deleted)").count();
   if (pageCount < 1)
     throw new Error("The page tree did not render any active pages.");
+
+  const delayedPageDetail = async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    await route.continue();
+  };
+  await page.route("**/api/pages/*", delayedPageDetail);
+  await page.route("**/api/attachments?*", delayedPageDetail);
+  const responsiveTargetCandidate = page
+    .locator(".tree-page-row:not(.deleted):not(.active)")
+    .first();
+  await responsiveTargetCandidate.waitFor();
+  const responsiveTargetId =
+    await responsiveTargetCandidate.getAttribute("data-page-id");
+  const responsiveTargetTitle = await responsiveTargetCandidate
+    .locator("span")
+    .innerText();
+  if (!responsiveTargetId || !responsiveTargetTitle)
+    throw new Error("Could not identify a page-open responsiveness target.");
+  const responsiveTarget = page.locator(
+    `.tree-page-row[data-page-id="${responsiveTargetId}"]`,
+  );
+  await responsiveTarget.click();
+  await page.waitForTimeout(75);
+  if (
+    !(await responsiveTarget.evaluate((element) =>
+      element.classList.contains("active"),
+    )) ||
+    (await page.locator(".editor-title-copy h1").innerText()) !==
+      responsiveTargetTitle
+  )
+    throw new Error(
+      "Page selection did not update immediately while detail requests were pending.",
+    );
+  await page
+    .locator(".sync-state")
+    .filter({ hasText: "동기화됨" })
+    .waitFor({ timeout: 10_000 });
+  await page.unroute("**/api/pages/*", delayedPageDetail);
+  await page.unroute("**/api/attachments?*", delayedPageDetail);
   const documentAccessibility = await new AxeBuilder({ page }).analyze();
 
   await page.getByRole("button", { name: "그래프" }).click();
@@ -1131,6 +1174,7 @@ let activeBrowser;
     throw new Error(
       `The knowledge tree collapsed in graph view (${graphKnowledgeTreeWidth}px).`,
     );
+  await page.locator(".graph-svg-node").first().waitFor();
   const graphNodeCount = await page.locator(".graph-svg-node").count();
   if (graphNodeCount < 1)
     throw new Error("The graph view did not render any nodes.");
@@ -1277,6 +1321,7 @@ let activeBrowser;
       keyboardNavigationVerified: true,
       reducedMotionVerified: true,
       workspaceRefreshRaceProtected: true,
+      optimisticPageOpenVerified: true,
       upstreamWorkspaceVerified: true,
       lightDarkThemeVerified: true,
       seriousAccessibilityViolations: 0,

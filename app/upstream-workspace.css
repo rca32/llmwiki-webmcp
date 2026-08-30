@@ -193,7 +193,13 @@ textarea {
   cursor: pointer;
   transition:
     color 120ms ease,
-    background-color 120ms ease;
+    background-color 120ms ease,
+    transform 70ms ease;
+  touch-action: manipulation;
+}
+
+.sidebar-icon-button:active {
+  transform: scale(0.92);
 }
 
 .sidebar-icon-button svg {
@@ -473,6 +479,15 @@ textarea {
   padding: 0 7px;
   color: var(--muted-foreground);
   font-size: 12px;
+  transition:
+    color 80ms ease,
+    background-color 80ms ease,
+    transform 70ms ease;
+  touch-action: manipulation;
+}
+
+.tree-page-row:active {
+  transform: translateX(1px);
 }
 
 .tree-page-row > svg {
@@ -497,6 +512,10 @@ textarea {
 .tree-page-row.active {
   color: var(--accent-foreground);
   background: var(--accent);
+}
+
+.tree-page-row.loading > small {
+  animation: tree-sync-pulse 700ms ease-in-out infinite alternate;
 }
 
 .tree-page-row.deleted {
@@ -1522,6 +1541,22 @@ button.context-row {
   transition:
     fill 120ms ease,
     stroke-width 120ms ease;
+}
+
+.graph-toolbar nav button.loading svg {
+  animation: graph-refresh-spin 650ms linear infinite;
+}
+
+@keyframes tree-sync-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+
+@keyframes graph-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .graph-svg-node .graph-node-hit {

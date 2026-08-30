@@ -62,6 +62,7 @@ export function KnowledgeTree({
   pages,
   deletedPages,
   activePageId,
+  pendingPageId,
   query,
   canWrite,
   onQueryChange,
@@ -72,6 +73,7 @@ export function KnowledgeTree({
   pages: KnowledgeTreePage[];
   deletedPages: KnowledgeTreePage[];
   activePageId: string | null;
+  pendingPageId: string | null;
   query: string;
   canWrite: boolean;
   onQueryChange: (query: string) => void;
@@ -172,9 +174,11 @@ export function KnowledgeTree({
                       <button
                         type="button"
                         key={page.id}
-                        className={`tree-page-row ${activePageId === page.id ? "active" : ""}`}
+                        className={`tree-page-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""}`}
                         onClick={() => onOpenPage(page.id)}
                         title={page.path}
+                        data-page-id={page.id}
+                        aria-busy={pendingPageId === page.id}
                         onKeyDown={(event) => {
                           if (
                             !["ArrowDown", "ArrowUp", "Home", "End"].includes(

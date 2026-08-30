@@ -16,10 +16,12 @@ export type WikiGraph = {
 
 export function GraphView({
   graph,
+  loading,
   onRefresh,
   onOpenPage,
 }: {
   graph: WikiGraph | null;
+  loading: boolean;
   onRefresh: () => void;
   onOpenPage: (pageId: string) => void;
 }) {
@@ -75,7 +77,13 @@ export function GraphView({
           >
             <Maximize />
           </button>
-          <button type="button" onClick={onRefresh} aria-label="새로 고침">
+          <button
+            type="button"
+            className={loading ? "loading" : undefined}
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label={loading ? "새로 고침 중" : "새로 고침"}
+          >
             <RefreshCw />
           </button>
         </nav>
@@ -141,7 +149,11 @@ export function GraphView({
         ) : (
           <div className="empty-view">
             <Network />
-            <strong>그래프를 불러오는 중입니다.</strong>
+            <strong>
+              {loading
+                ? "그래프를 불러오는 중입니다."
+                : "연결된 페이지가 없습니다."}
+            </strong>
           </div>
         )}
       </div>
