@@ -61,17 +61,47 @@ let activeBrowser;
   if (staleFixtures.data.pages.some((item) => /^Lifecycle /.test(item.title)))
     await page.reload({ waitUntil: "domcontentloaded" });
   const stamp = Date.now();
+  const originalSession = await context.request
+    .get(`${baseUrl}/api/session/capabilities`)
+    .then((response) => response.json());
+  const originalWikiId = originalSession.data.wiki.id;
+  const vaultTitle = `Lifecycle Vault ${stamp}`;
+  await page.getByRole("button", { name: "새 Vault" }).click();
+  await page.locator(".workspace-dialog-field input").fill(vaultTitle);
+  const vaultCreateResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/wikis") &&
+      response.status() === 201,
+  );
+  await page.getByRole("button", { name: "Vault 만들기" }).click();
+  const createdVault = (await (await vaultCreateResponse).json()).data.wiki;
+  await page.locator(".vault-header select").waitFor();
+  await page.locator(".vault-header select").selectOption(originalWikiId);
+  await page.waitForFunction(async (wikiId) => {
+    const response = await fetch("/api/session/capabilities");
+    const payload = await response.json();
+    return payload.data?.wiki?.id === wikiId;
+  }, originalWikiId);
+  if (!createdVault?.id)
+    throw new Error("UI vault creation did not return a stable vault ID.");
+
   const parentTitle = `Lifecycle Parent ${stamp}`;
   const childTitle = `Lifecycle Child ${stamp}`;
 
-  page.once("dialog", (dialog) => dialog.accept(parentTitle));
-  await page.getByRole("button", { name: "새 페이지" }).click();
+  await page.getByRole("button", { name: "새 항목" }).click();
+  await page.getByRole("menuitem", { name: "새 폴더" }).click();
+  await page.locator(".workspace-dialog-field input").fill(parentTitle);
+  await page.getByRole("button", { name: "만들기" }).click();
   await page
-    .getByRole("button", { name: new RegExp(parentTitle) })
+    .locator(".workspace-breadcrumbs strong")
+    .filter({ hasText: parentTitle })
     .waitFor({ timeout: 10_000 });
 
-  page.once("dialog", (dialog) => dialog.accept(childTitle));
-  await page.getByRole("button", { name: "새 페이지" }).click();
+  await page.getByRole("button", { name: "새 항목" }).click();
+  await page.getByRole("menuitem", { name: "새 페이지" }).click();
+  await page.locator(".workspace-dialog-field input").fill(childTitle);
+  await page.getByRole("button", { name: "만들기" }).click();
   const childTreeButton = page.getByRole("button", {
     name: new RegExp(childTitle),
   });
@@ -85,8 +115,42 @@ let activeBrowser;
   );
   if (!childId) throw new Error("UI-created child page did not become active.");
 
-  page.once("dialog", (dialog) => dialog.accept(parentTitle));
   await page.getByRole("button", { name: "페이지 이동", exact: true }).click();
+  await page.locator('.move-tree input[type="radio"]').first().check();
+  const rootMoveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/api/pages/${childId}/move`) &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "이 위치로 이동" }).click();
+  await rootMoveResponse;
+  await page
+    .locator(".sync-state")
+    .filter({ hasText: "페이지를 이동했습니다." })
+    .waitFor({ timeout: 10_000 });
+  const rootMovedPage = await context.request
+    .get(`${baseUrl}/api/pages/${childId}`)
+    .then((response) => response.json());
+  if (rootMovedPage.data.page.parent_id !== null)
+    throw new Error(
+      "Tree move picker did not move the page to the vault root.",
+    );
+
+  await page.getByRole("button", { name: "페이지 이동", exact: true }).click();
+  await page
+    .locator(".move-tree label")
+    .filter({ hasText: parentTitle })
+    .locator('input[type="radio"]')
+    .check();
+  const folderMoveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/api/pages/${childId}/move`) &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "이 위치로 이동" }).click();
+  await folderMoveResponse;
   await page
     .locator(".sync-state")
     .filter({ hasText: "페이지를 이동했습니다." })
@@ -242,6 +306,7 @@ let activeBrowser;
   if (errors.length) throw new Error(`Browser errors:\n${errors.join("\n")}`);
   console.log(
     JSON.stringify({
+      uiVaultSwitch: true,
       uiPageCreate: true,
       uiPageMove: true,
       uiAutosave: true,

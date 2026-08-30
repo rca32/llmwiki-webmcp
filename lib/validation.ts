@@ -1,5 +1,6 @@
 import { AppError, type LinkMode, type PageType } from "./contracts";
 export const PAGE_TYPES: PageType[] = [
+  "folder",
   "note",
   "source",
   "concept",

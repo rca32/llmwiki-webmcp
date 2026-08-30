@@ -77,6 +77,7 @@ type Page = {
   page_type: string;
   markdown: string;
   version: number;
+  sort_order: number;
   path: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -130,6 +131,7 @@ type EditConflict = {
 };
 type Caps = {
   can_bootstrap: boolean;
+  can_create_wiki: boolean;
   can_read: boolean;
   can_write: boolean;
   can_restore: boolean;
@@ -139,6 +141,11 @@ type Caps = {
   can_manage_members: boolean;
   can_full_backup: boolean;
   can_import: boolean;
+};
+type WikiSummary = {
+  id: string;
+  title: string;
+  role: string;
 };
 type Envelope<T> =
   | { ok: true; data: T; change_set: unknown }
@@ -220,6 +227,65 @@ function mergeDraft(latest: string, draft: string) {
   ].join("\n");
 }
 
+function WorkspaceDialog({
+  title,
+  description,
+  children,
+  confirmLabel,
+  confirmDisabled,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  confirmLabel: string;
+  confirmDisabled?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="workspace-dialog-backdrop"
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        className="workspace-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="workspace-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <span>WORKSPACE</span>
+            <h2 id="workspace-dialog-title">{title}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="닫기">
+            ×
+          </button>
+        </header>
+        <p>{description}</p>
+        {children}
+        <footer>
+          <button type="button" onClick={onClose}>
+            취소
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+          >
+            {confirmLabel}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export default function Home() {
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [view, setView] = useState<WorkspaceView>("document");
@@ -242,6 +308,7 @@ export default function Home() {
   const [status, setStatus] = useState("연결 중…");
   const [caps, setCaps] = useState<Caps>({
     can_bootstrap: false,
+    can_create_wiki: false,
     can_read: false,
     can_write: false,
     can_restore: false,
@@ -252,6 +319,17 @@ export default function Home() {
     can_full_backup: false,
     can_import: false,
   });
+  const [currentWiki, setCurrentWiki] = useState<WikiSummary | null>(null);
+  const [wikis, setWikis] = useState<WikiSummary[]>([]);
+  const [createTarget, setCreateTarget] = useState<{
+    parentId: string | null;
+    kind: "page" | "folder";
+  } | null>(null);
+  const [newItemTitle, setNewItemTitle] = useState("");
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveParentId, setMoveParentId] = useState<string | null>(null);
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const [newVaultTitle, setNewVaultTitle] = useState("");
   const [siteVersion, setSiteVersion] = useState(1);
   const [writeMode, setWriteMode] = useState<"read_write" | "read_only">(
     "read_write",
@@ -433,7 +511,15 @@ export default function Home() {
           setPendingPageId(null);
       }
     },
-    [replacePageSnapshot, updateAutosavePaused],
+    [changeView, replacePageSnapshot, updateAutosavePaused],
+  );
+
+  const openBreadcrumbPage = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      const pageId = event.currentTarget.dataset.pageId;
+      if (pageId) void openPage(pageId);
+    },
+    [openPage],
   );
 
   const captureEditConflict = useCallback(
@@ -453,7 +539,7 @@ export default function Home() {
       setStatus("병합 필요");
       setNotice(null);
     },
-    [changeView, updateAutosavePaused],
+    [updateAutosavePaused],
   );
 
   const loadWorkspace = useCallback(
@@ -471,12 +557,14 @@ export default function Home() {
           write_mode_reason: string | null;
         }>("/api/session/capabilities");
         if (requestNumber !== workspaceRequestRef.current) return;
+        setCurrentWiki(session.wiki);
         setCaps(session.capabilities);
         setSiteVersion(session.site_version);
         setWriteMode(session.write_mode);
         setWriteModeReason(session.write_mode_reason);
         setSessionLoaded(true);
         if (!session.capabilities.can_read) {
+          setWikis([]);
           setPages([]);
           setDeletedPages([]);
           setStatus(
@@ -486,6 +574,9 @@ export default function Home() {
           );
           return;
         }
+        const accessible = await api<{ wikis: WikiSummary[] }>("/api/wikis");
+        if (requestNumber !== workspaceRequestRef.current) return;
+        setWikis(accessible.wikis);
         const activePagesRequest = await activePagesPromise;
         if ("error" in activePagesRequest) throw activePagesRequest.error;
         let list = activePagesRequest.data.pages;
@@ -831,24 +922,38 @@ export default function Home() {
     }
   }
 
-  async function createNewPage() {
+  function startCreateItem(parentId: string | null, kind: "page" | "folder") {
     if (!caps.can_write) return;
-    const title = window.prompt("새 페이지 제목");
-    if (!title?.trim()) return;
+    setNewItemTitle("");
+    setCreateTarget({ parentId, kind });
+  }
+
+  async function createNewPage() {
+    if (!caps.can_write || !createTarget || !newItemTitle.trim()) return;
+    const title = newItemTitle.trim();
+    const kind = createTarget.kind;
     try {
       const created = await api<{ page_id: string }>("/api/pages", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          title: title.trim(),
-          page_type: "note",
-          markdown: `# ${title.trim()}\n\n`,
-          parent_id: null,
+          title,
+          page_type: kind === "folder" ? "folder" : "note",
+          markdown:
+            kind === "folder"
+              ? `# ${title}\n\n이 폴더의 인덱스 페이지입니다. 하위 페이지의 맥락과 탐색 기준을 기록하세요.\n`
+              : `# ${title}\n\n`,
+          parent_id: createTarget.parentId,
           operation_id: crypto.randomUUID(),
         }),
       });
+      setCreateTarget(null);
+      setNewItemTitle("");
       await loadWorkspace(false);
       await openPage(created.page_id);
+      setStatus(
+        kind === "folder" ? "폴더를 만들었습니다." : "페이지를 만들었습니다.",
+      );
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "페이지를 만들지 못했습니다.",
@@ -885,36 +990,34 @@ export default function Home() {
     }
   }
 
-  async function moveActivePage() {
-    if (!active || !caps.can_write || dirty) return;
-    const destination = window.prompt(
-      "새 부모 페이지 제목을 입력하세요. 루트로 이동하려면 / 를 입력하세요.",
-      "/",
-    );
-    if (destination === null) return;
-    const parentId =
-      destination.trim() === "/"
-        ? null
-        : pages.find(
-            (page) =>
-              page.title.toLowerCase() === destination.trim().toLowerCase(),
-          )?.id;
-    if (destination.trim() !== "/" && !parentId) {
-      setNotice("해당 제목의 활성 페이지를 찾지 못했습니다.");
+  async function movePageTo(pageId: string, parentId: string | null) {
+    const page = pagesRef.current.find((candidate) => candidate.id === pageId);
+    if (!page || !caps.can_write) return;
+    if (page.parent_id === parentId) {
+      setMoveDialogOpen(false);
+      setStatus("이미 선택한 위치에 있습니다.");
       return;
     }
+    if (activeRef.current?.id === pageId && dirtyRef.current) {
+      setNotice("저장되지 않은 변경을 먼저 저장한 뒤 이동하세요.");
+      return;
+    }
+    setStatus("페이지 이동 중…");
     try {
-      await api(`/api/pages/${active.id}/move`, {
+      await api(`/api/pages/${page.id}/move`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          expected_version: active.version,
+          expected_version: page.version,
           parent_id: parentId,
           sort_order: 0,
           operation_id: crypto.randomUUID(),
         }),
       });
-      await loadWorkspace(true);
+      setMoveDialogOpen(false);
+      pageDetailsCacheRef.current.delete(page.id);
+      await loadWorkspace(false);
+      if (activeRef.current?.id === page.id) await openPage(page.id, true);
       setStatus("페이지를 이동했습니다.");
     } catch (error) {
       setNotice(
@@ -922,6 +1025,75 @@ export default function Home() {
           ? error.message
           : "페이지를 이동하지 못했습니다.",
       );
+    }
+  }
+
+  async function switchVault(wikiId: string) {
+    if (!wikiId || wikiId === currentWiki?.id) return;
+    if (
+      dirty &&
+      !window.confirm("저장되지 않은 변경이 있습니다. Vault를 전환할까요?")
+    )
+      return;
+    try {
+      setStatus("Vault 전환 중…");
+      openPageRequestRef.current++;
+      desiredPageIdRef.current = null;
+      activeRef.current = null;
+      setActive(null);
+      setMarkdown("");
+      setSavedMarkdown("");
+      setDeletedPages([]);
+      pageDetailsCacheRef.current.clear();
+      await api("/api/session/active-wiki", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wiki_id: wikiId }),
+      });
+      await loadWorkspace(true);
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Vault를 전환하지 못했습니다.",
+      );
+      await loadWorkspace(true);
+    }
+  }
+
+  async function createVault() {
+    if (!caps.can_create_wiki || !newVaultTitle.trim()) return;
+    if (
+      dirty &&
+      !window.confirm("저장되지 않은 변경이 있습니다. 새 Vault를 만들까요?")
+    )
+      return;
+    try {
+      setStatus("Vault 만드는 중…");
+      openPageRequestRef.current++;
+      desiredPageIdRef.current = null;
+      activeRef.current = null;
+      setActive(null);
+      setMarkdown("");
+      setSavedMarkdown("");
+      setPages([]);
+      setDeletedPages([]);
+      pageDetailsCacheRef.current.clear();
+      await api("/api/wikis", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: newVaultTitle.trim(),
+          operation_id: crypto.randomUUID(),
+        }),
+      });
+      setVaultDialogOpen(false);
+      setNewVaultTitle("");
+      await loadWorkspace(true);
+      setStatus("새 Vault를 만들었습니다.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Vault를 만들지 못했습니다.",
+      );
+      await loadWorkspace(true);
     }
   }
 
@@ -1112,10 +1284,47 @@ export default function Home() {
     [neighbors, active],
   );
 
+  const currentFolderId =
+    active?.page_type === "folder" ? active.id : (active?.parent_id ?? null);
+  const breadcrumbPages = useMemo(() => {
+    if (!active) return [];
+    const byId = new Map(pages.map((page) => [page.id, page]));
+    const trail: Page[] = [active];
+    let parentId = active.parent_id;
+    for (let depth = 0; parentId && depth < 64; depth++) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      trail.unshift(parent);
+      parentId = parent.parent_id;
+    }
+    return trail;
+  }, [active, pages]);
+  const invalidMoveFolderIds = useMemo(() => {
+    const invalid = new Set<string>();
+    if (!active) return invalid;
+    invalid.add(active.id);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const page of pages)
+        if (
+          page.parent_id &&
+          invalid.has(page.parent_id) &&
+          !invalid.has(page.id)
+        ) {
+          invalid.add(page.id);
+          changed = true;
+        }
+    }
+    return invalid;
+  }, [active, pages]);
+
   if (sessionLoaded && !caps.can_read)
     return (
       <main className="wiki-shell bootstrap-shell-root">
-        <SiteTools key={`${writeMode}-${caps.can_write}`} />
+        <SiteTools
+          key={`${currentWiki?.id ?? "none"}-${writeMode}-${caps.can_write}`}
+        />
         <Suspense fallback={<WorkspaceLoading />}>
           <OperationsPanel
             capabilities={caps}
@@ -1131,7 +1340,9 @@ export default function Home() {
 
   return (
     <main className="wiki-app">
-      <SiteTools key={writeMode + "-" + String(caps.can_write)} />
+      <SiteTools
+        key={`${currentWiki?.id ?? "none"}-${writeMode}-${caps.can_write}`}
+      />
       <IconSidebar
         activeView={view}
         leftPanelOpen={leftPanelOpen}
@@ -1154,11 +1365,24 @@ export default function Home() {
                 <KnowledgeTree
                   pages={filtered}
                   deletedPages={deletedPages}
+                  vaults={wikis}
+                  activeVaultId={currentWiki?.id ?? null}
+                  activeVaultTitle={currentWiki?.title ?? "Liminal Wiki"}
                   activePageId={pendingPageId ?? active?.id ?? null}
                   pendingPageId={pendingPageId}
+                  currentFolderId={currentFolderId}
                   canWrite={caps.can_write}
+                  canCreateVault={caps.can_create_wiki}
                   onOpenPage={(pageId) => void openPage(pageId)}
-                  onCreatePage={() => void createNewPage()}
+                  onCreatePage={startCreateItem}
+                  onMovePage={(pageId, parentId) =>
+                    void movePageTo(pageId, parentId)
+                  }
+                  onSwitchVault={(wikiId) => void switchVault(wikiId)}
+                  onCreateVault={() => {
+                    setNewVaultTitle("");
+                    setVaultDialogOpen(true);
+                  }}
                   onRestorePage={(page) => {
                     const original = deletedPages.find(
                       (candidate) => candidate.id === page.id,
@@ -1186,15 +1410,43 @@ export default function Home() {
                         <ChevronRight />
                       </button>
                     )}
-                    <span>Liminal Wiki</span>
-                    <ChevronRight />
-                    <strong>
-                      {view === "operations"
-                        ? "운영과 복구"
-                        : view === "search"
-                          ? "Search"
-                          : (active?.title ?? "불러오는 중")}
-                    </strong>
+                    <button
+                      type="button"
+                      className="breadcrumb-link"
+                      onClick={() => changeView("document")}
+                    >
+                      {currentWiki?.title ?? "Liminal Wiki"}
+                    </button>
+                    {view === "document" ? (
+                      breadcrumbPages.map((page, index) => (
+                        <span className="breadcrumb-segment" key={page.id}>
+                          <ChevronRight />
+                          {index === breadcrumbPages.length - 1 ? (
+                            <strong>{page.title}</strong>
+                          ) : (
+                            <button
+                              type="button"
+                              className="breadcrumb-link"
+                              data-page-id={page.id}
+                              onClick={openBreadcrumbPage}
+                            >
+                              {page.title}
+                            </button>
+                          )}
+                        </span>
+                      ))
+                    ) : (
+                      <>
+                        <ChevronRight />
+                        <strong>
+                          {view === "operations"
+                            ? "운영과 복구"
+                            : view === "search"
+                              ? "Search"
+                              : "Knowledge graph"}
+                        </strong>
+                      </>
+                    )}
                   </div>
                   <div className="workspace-actions">
                     {writeMode === "read_only" && (
@@ -1319,7 +1571,10 @@ export default function Home() {
                           <button
                             type="button"
                             className="editor-icon-action"
-                            onClick={() => void moveActivePage()}
+                            onClick={() => {
+                              setMoveParentId(active?.parent_id ?? null);
+                              setMoveDialogOpen(true);
+                            }}
                             disabled={!active || dirty || !caps.can_write}
                             title="페이지 이동"
                             aria-label="페이지 이동"
@@ -1613,6 +1868,103 @@ export default function Home() {
           )}
         </ResizablePanelGroup>
       </div>
+      {createTarget && (
+        <WorkspaceDialog
+          title={createTarget.kind === "folder" ? "새 폴더" : "새 페이지"}
+          description={
+            createTarget.parentId
+              ? "현재 폴더 아래에 만듭니다."
+              : "Vault 루트에 만듭니다."
+          }
+          confirmLabel="만들기"
+          confirmDisabled={!newItemTitle.trim()}
+          onConfirm={() => void createNewPage()}
+          onClose={() => setCreateTarget(null)}
+        >
+          <label className="workspace-dialog-field">
+            <span>제목</span>
+            <input
+              autoFocus
+              value={newItemTitle}
+              onChange={(event) => setNewItemTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && newItemTitle.trim())
+                  void createNewPage();
+              }}
+              placeholder={
+                createTarget.kind === "folder" ? "예: Research" : "예: 새 노트"
+              }
+            />
+          </label>
+        </WorkspaceDialog>
+      )}
+      {moveDialogOpen && active && (
+        <WorkspaceDialog
+          title={`“${active.title}” 이동`}
+          description="새 위치를 선택하세요. 폴더의 하위 항목도 함께 이동되며, 모든 변경은 버전 기록에 남습니다."
+          confirmLabel="이 위치로 이동"
+          onConfirm={() => void movePageTo(active.id, moveParentId)}
+          onClose={() => setMoveDialogOpen(false)}
+        >
+          <div className="move-tree" role="tree" aria-label="이동할 폴더 선택">
+            <label className={moveParentId === null ? "selected" : ""}>
+              <input
+                type="radio"
+                name="move-parent"
+                checked={moveParentId === null}
+                onChange={() => setMoveParentId(null)}
+              />
+              <span>▣</span>
+              <strong>{currentWiki?.title ?? "Vault"}</strong>
+              <small>root</small>
+            </label>
+            {pages
+              .filter((page) => page.page_type === "folder")
+              .map((folder) => (
+                <label
+                  key={folder.id}
+                  className={moveParentId === folder.id ? "selected" : ""}
+                  aria-disabled={invalidMoveFolderIds.has(folder.id)}
+                >
+                  <input
+                    type="radio"
+                    name="move-parent"
+                    checked={moveParentId === folder.id}
+                    disabled={invalidMoveFolderIds.has(folder.id)}
+                    onChange={() => setMoveParentId(folder.id)}
+                  />
+                  <span>▾</span>
+                  <strong>{folder.title}</strong>
+                  <small>{folder.path}</small>
+                </label>
+              ))}
+          </div>
+        </WorkspaceDialog>
+      )}
+      {vaultDialogOpen && (
+        <WorkspaceDialog
+          title="새 Vault"
+          description="독립된 페이지 트리와 검색·그래프를 가진 새 지식 공간을 만듭니다."
+          confirmLabel="Vault 만들기"
+          confirmDisabled={!newVaultTitle.trim()}
+          onConfirm={() => void createVault()}
+          onClose={() => setVaultDialogOpen(false)}
+        >
+          <label className="workspace-dialog-field">
+            <span>Vault 이름</span>
+            <input
+              autoFocus
+              value={newVaultTitle}
+              onChange={(event) => setNewVaultTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && newVaultTitle.trim())
+                  void createVault();
+              }}
+              placeholder="예: Product Research"
+            />
+          </label>
+        </WorkspaceDialog>
+      )}
     </main>
   );
 }

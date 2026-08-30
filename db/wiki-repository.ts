@@ -37,6 +37,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS wikis (id TEXT PRIMARY KEY NOT NULL,slug TEXT NOT NULL UNIQUE,title TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS wiki_members (wiki_id TEXT NOT NULL,user_email TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(wiki_id,user_email),FOREIGN KEY(wiki_id) REFERENCES wikis(id))`,
   `CREATE INDEX IF NOT EXISTS idx_wiki_members_email ON wiki_members(user_email)`,
+  `CREATE TABLE IF NOT EXISTS wiki_user_preferences (user_email TEXT PRIMARY KEY NOT NULL,active_wiki_id TEXT NOT NULL,updated_at TEXT NOT NULL,FOREIGN KEY(active_wiki_id) REFERENCES wikis(id))`,
   `CREATE TABLE IF NOT EXISTS pages (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_id TEXT,parent_key TEXT NOT NULL,slug TEXT NOT NULL,title TEXT NOT NULL,page_type TEXT NOT NULL,markdown TEXT NOT NULL,frontmatter_json TEXT NOT NULL DEFAULT '{}',version INTEGER NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,last_operation_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT,FOREIGN KEY(wiki_id) REFERENCES wikis(id))`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_pages_sibling_slug ON pages(wiki_id,parent_key,slug)`,
   `CREATE INDEX IF NOT EXISTS idx_pages_wiki_parent ON pages(wiki_id,parent_id,sort_order)`,
@@ -108,23 +109,55 @@ export async function getMembership(email: string): Promise<{
   writeModeReason: string | null;
   reservedBy: string | null;
 }> {
-  const row = await db()
+  const state = await db()
     .prepare(
-      `SELECT s.active_wiki_id AS wiki_id,s.bootstrap_status,s.reserved_by,s.version AS site_version,w.title AS wiki_title,m.role,COALESCE(rs.write_mode,'read_write') AS write_mode,rs.reason AS write_mode_reason FROM site_state s LEFT JOIN site_runtime_settings rs ON rs.id=1 LEFT JOIN wikis w ON w.id=s.active_wiki_id AND w.status='active' LEFT JOIN wiki_members m ON m.wiki_id=s.active_wiki_id AND m.user_email=? WHERE s.id=1`,
+      `SELECT s.active_wiki_id,s.bootstrap_status,s.reserved_by,s.version AS site_version,COALESCE(rs.write_mode,'read_write') AS write_mode,rs.reason AS write_mode_reason FROM site_state s LEFT JOIN site_runtime_settings rs ON rs.id=1 WHERE s.id=1`,
     )
-    .bind(email)
     .first<Record<string, unknown>>();
+  const memberships = await db()
+    .prepare(
+      `SELECT w.id AS wiki_id,w.title AS wiki_title,m.role,p.active_wiki_id AS preferred_wiki_id FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id AND w.status='active' AND w.deleted_at IS NULL LEFT JOIN wiki_user_preferences p ON p.user_email=m.user_email WHERE m.user_email=? ORDER BY CASE WHEN p.active_wiki_id=w.id THEN 0 WHEN w.id=? THEN 1 ELSE 2 END,w.updated_at DESC`,
+    )
+    .bind(email, state?.active_wiki_id ?? null)
+    .all<Record<string, unknown>>();
+  const row = memberships.results[0];
   return {
     wikiId: typeof row?.wiki_id === "string" ? row.wiki_id : null,
     wikiTitle: typeof row?.wiki_title === "string" ? row.wiki_title : null,
     role: (row?.role as Role | undefined) ?? null,
-    bootstrapStatus: String(row?.bootstrap_status ?? "empty"),
-    siteVersion: Number(row?.site_version ?? 1),
-    writeMode: row?.write_mode === "read_only" ? "read_only" : "read_write",
+    bootstrapStatus: String(state?.bootstrap_status ?? "empty"),
+    siteVersion: Number(state?.site_version ?? 1),
+    writeMode: state?.write_mode === "read_only" ? "read_only" : "read_write",
     writeModeReason:
-      typeof row?.write_mode_reason === "string" ? row.write_mode_reason : null,
-    reservedBy: typeof row?.reserved_by === "string" ? row.reserved_by : null,
+      typeof state?.write_mode_reason === "string"
+        ? state.write_mode_reason
+        : null,
+    reservedBy:
+      typeof state?.reserved_by === "string" ? state.reserved_by : null,
   };
+}
+
+export async function setActiveWiki(input: { email: string; wikiId: string }) {
+  const membership = await db()
+    .prepare(
+      `SELECT w.id,w.slug,w.title,w.status,m.role FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id WHERE m.user_email=? AND w.id=? AND w.status='active' AND w.deleted_at IS NULL`,
+    )
+    .bind(input.email, input.wikiId)
+    .first<Record<string, unknown>>();
+  if (!membership)
+    throw new AppError(
+      "not_found",
+      "The requested vault is not available to this account.",
+      404,
+      { wiki_id: input.wikiId },
+    );
+  await db()
+    .prepare(
+      `INSERT INTO wiki_user_preferences(user_email,active_wiki_id,updated_at) VALUES(?,?,?) ON CONFLICT(user_email) DO UPDATE SET active_wiki_id=excluded.active_wiki_id,updated_at=excluded.updated_at`,
+    )
+    .bind(input.email, input.wikiId, now())
+    .run();
+  return membership;
 }
 
 export async function setSiteWriteMode(input: {
@@ -662,6 +695,60 @@ export async function bootstrapWiki(input: {
       .run();
     throw error;
   }
+}
+
+export async function createWiki(input: {
+  email: string;
+  title: string;
+  operationId: string;
+  requestId: string;
+}) {
+  const d = db(),
+    timestamp = now(),
+    wikiId = input.operationId,
+    slug = `vault-${wikiId.slice(0, 8)}`;
+  const existing = await d
+    .prepare(
+      `SELECT w.id,w.slug,w.title,m.role FROM wikis w LEFT JOIN wiki_members m ON m.wiki_id=w.id AND m.user_email=? WHERE w.id=?`,
+    )
+    .bind(input.email, wikiId)
+    .first<Record<string, unknown>>();
+  if (existing) {
+    if (existing.role === "owner" && existing.title === input.title)
+      return existing;
+    throw new AppError(
+      "validation_error",
+      "operation_id was already used with different vault input.",
+      409,
+      { operation_id: input.operationId },
+    );
+  }
+  await d.batch([
+    d
+      .prepare(
+        `INSERT INTO wikis(id,slug,title,status,created_at,updated_at) VALUES(?,?,?,'active',?,?)`,
+      )
+      .bind(wikiId, slug, input.title, timestamp, timestamp),
+    d
+      .prepare(
+        `INSERT INTO wiki_members(wiki_id,user_email,role,created_at) VALUES(?,?,'owner',?)`,
+      )
+      .bind(wikiId, input.email, timestamp),
+    d
+      .prepare(`INSERT INTO wiki_usage(wiki_id,updated_at) VALUES(?,?)`)
+      .bind(wikiId, timestamp),
+    d
+      .prepare(
+        `INSERT INTO wiki_user_preferences(user_email,active_wiki_id,updated_at) VALUES(?,?,?) ON CONFLICT(user_email) DO UPDATE SET active_wiki_id=excluded.active_wiki_id,updated_at=excluded.updated_at`,
+      )
+      .bind(input.email, wikiId, timestamp),
+    d
+      .prepare(
+        `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','wiki.create','wiki',?,'success',?,'{}',?)`,
+      )
+      .bind(uuid(), wikiId, input.email, wikiId, input.requestId, timestamp),
+  ]);
+  return { id: wikiId, slug, title: input.title, role: "owner" as const };
 }
 
 type PageRow = {
@@ -1477,7 +1564,16 @@ export async function createPage(input: {
     bytes(input.markdown),
     bytes(input.markdown),
   );
-  if (input.parentId) await getPage(input.wikiId, input.parentId);
+  if (input.parentId) {
+    const parent = await getPage(input.wikiId, input.parentId);
+    if (parent.page_type !== "folder")
+      throw new AppError(
+        "validation_error",
+        "Pages and folders can only be created under a folder node.",
+        400,
+        { parent_id: input.parentId },
+      );
+  }
   const snap = await snapshot(
     input.wikiId,
     pageId,
@@ -1995,6 +2091,7 @@ export async function measureSearchBenchmark(
   const d = db(),
     marker = searchBenchmarkMarker(runId),
     pageTypes: PageType[] = [
+      "folder",
       "note",
       "source",
       "concept",
@@ -2155,17 +2252,25 @@ async function assertValidParent(
         400,
         { page_id: pageId, parent_id: newParentId },
       );
-    const parent: { parent_id: string | null } | null = await db()
-      .prepare(
-        `SELECT parent_id FROM pages WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
-      )
-      .bind(cursor, wikiId)
-      .first<{ parent_id: string | null }>();
+    const parent: { parent_id: string | null; page_type: string } | null =
+      await db()
+        .prepare(
+          `SELECT parent_id,page_type FROM pages WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
+        )
+        .bind(cursor, wikiId)
+        .first<{ parent_id: string | null; page_type: string }>();
     if (!parent)
       throw new AppError(
         "not_found",
         "The requested parent page was not found.",
         404,
+        { parent_id: newParentId },
+      );
+    if (depth === 0 && parent.page_type !== "folder")
+      throw new AppError(
+        "validation_error",
+        "Pages and folders can only be moved under a folder node.",
+        400,
         { parent_id: newParentId },
       );
     cursor = parent.parent_id;
@@ -4390,6 +4495,7 @@ export async function commitImport(input: {
       },
     );
   const allowedTypes = new Set<PageType>([
+      "folder",
       "note",
       "source",
       "concept",

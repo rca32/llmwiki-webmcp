@@ -31,6 +31,13 @@ export const wikiMembers = sqliteTable(
     index("idx_wiki_members_email").on(t.userEmail),
   ],
 );
+export const wikiUserPreferences = sqliteTable("wiki_user_preferences", {
+  userEmail: text("user_email").primaryKey(),
+  activeWikiId: text("active_wiki_id")
+    .notNull()
+    .references(() => wikis.id),
+  updatedAt: text("updated_at").notNull(),
+});
 export const pages = sqliteTable(
   "pages",
   {

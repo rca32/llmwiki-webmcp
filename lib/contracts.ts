@@ -1,6 +1,7 @@
 export type Role = "owner" | "editor" | "viewer";
 export type WriteMode = "read_write" | "read_only";
 export type PageType =
+  | "folder"
   | "note"
   | "source"
   | "concept"
@@ -21,6 +22,7 @@ export type ErrorCode =
   | "internal_error";
 export type Capabilities = {
   can_bootstrap: boolean;
+  can_create_wiki: boolean;
   can_read: boolean;
   can_export_portable: boolean;
   can_write: boolean;
@@ -84,6 +86,7 @@ export class AppError extends Error {
 }
 export const READ_CAPABILITIES: Capabilities = {
   can_bootstrap: false,
+  can_create_wiki: false,
   can_read: true,
   can_export_portable: true,
   can_write: false,
@@ -117,6 +120,7 @@ export function capabilitiesFor(
     role === "owner"
       ? {
           ...editor,
+          can_create_wiki: true,
           can_manage_members: true,
           can_full_backup: true,
           can_import: true,
@@ -126,6 +130,7 @@ export function capabilitiesFor(
     ? {
         ...capabilities,
         can_bootstrap: false,
+        can_create_wiki: false,
         can_write: false,
         can_restore: false,
         can_manage_attachments: false,

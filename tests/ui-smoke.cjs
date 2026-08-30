@@ -345,7 +345,7 @@ let activeBrowser;
       throw new Error("Read-only mode did not block direct API execution.");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByText("읽기 전용", { exact: true }).waitFor();
-    if (!(await page.getByRole("button", { name: "새 페이지" }).isDisabled()))
+    if (!(await page.getByRole("button", { name: "새 항목" }).isDisabled()))
       throw new Error("Read-only UI left the create control enabled.");
   } finally {
     const resumeWrites = await context.request.put(
@@ -777,11 +777,16 @@ let activeBrowser;
   const raceWinner = race.find((response) => response.status() === 200);
   let currentVersion = (await raceWinner.json()).data.version;
   const linkStamp = Date.now();
-  const createLinkFixture = async (title, markdown, parentId = null) => {
+  const createLinkFixture = async (
+    title,
+    markdown,
+    parentId = null,
+    pageType = "note",
+  ) => {
     const response = await context.request.post(`${baseUrl}/api/pages`, {
       data: {
         title,
-        page_type: "note",
+        page_type: pageType,
         markdown,
         parent_id: parentId,
         operation_id: crypto.randomUUID(),
@@ -889,10 +894,14 @@ let activeBrowser;
     ambiguityParentOne = await createLinkFixture(
       `Ambiguity Parent One ${linkStamp}`,
       `# Ambiguity Parent One ${linkStamp}`,
+      null,
+      "folder",
     ),
     ambiguityParentTwo = await createLinkFixture(
       `Ambiguity Parent Two ${linkStamp}`,
       `# Ambiguity Parent Two ${linkStamp}`,
+      null,
+      "folder",
     ),
     ambiguityTargetOne = await createLinkFixture(
       ambiguityTitle,

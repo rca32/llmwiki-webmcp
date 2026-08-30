@@ -60,13 +60,14 @@ npm run db:generate
 - R2 revision tiering plus upload/download/checksum, 30-day attachment soft-delete/restore, quota accounting, orphan reconciliation, and retention maintenance
 - Portable and full multipart backups with per-part SHA-256, explicit ACK, and full-backup revision coverage
 - Resumable import sessions that validate every declared part before an empty-Site-only atomic commit
+- Multi-vault workspace with per-user vault switching, physical folder/page hierarchy, semantic Knowledge groups, breadcrumb navigation, and drag/drop or picker-based moves
 - Responsive tree, server-backed full-text search, GFM/math/Mermaid preview, graph, attachments, trash, revision restore, and conflict UI
 - Owner operations center for member roles and ownership transfer, audit history, usage/repair status, and storage maintenance
 - Owner-controlled operational read-only mode that removes write Site tools, disables human write controls, rejects direct mutation APIs, and records the transition in the audit trail
 - Browser-verified portable/full ZIP backup with multipart checksum verification and ACK, plus empty-Site restore from the same package
-- Six read-only and six capability-gated write WebMCP tools using the same server APIs as the human UI
+- Vault, folder, and page WebMCP tools using the same server APIs and active-vault context as the human UI
 
-The current WebMCP mutation set is `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, and `wiki_restore_revision`. Soft delete remains UI/API-only until the late-MVP typed-confirmation tool is deliberately exposed.
+The current WebMCP workspace mutations include `wiki_switch_vault`, `wiki_create_vault`, `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, and `wiki_restore_revision`. Soft delete remains UI/API-only until the late-MVP typed-confirmation tool is deliberately exposed.
 
 See `../docs/WEBMCP_NATIVE_LLM_WIKI_DEVELOPMENT_PLAN.md` for the full phased roadmap.
 Implementation evidence and remaining release gates are tracked in `../docs/IMPLEMENTATION_STATUS.md`.

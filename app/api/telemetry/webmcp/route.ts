@@ -10,11 +10,15 @@ import { recordWebMcpInvocation } from "../../../../db/wiki-repository";
 
 const TOOL_NAMES = new Set([
   "wiki_get_context",
+  "wiki_list_vaults",
+  "wiki_switch_vault",
   "wiki_list_pages",
   "wiki_search",
   "wiki_get_page",
   "wiki_get_neighbors",
   "wiki_list_revisions",
+  "wiki_create_folder",
+  "wiki_create_vault",
   "wiki_create_page",
   "wiki_update_page",
   "wiki_append_page",

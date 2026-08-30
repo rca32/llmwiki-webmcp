@@ -8,11 +8,14 @@ describe("WebMCP descriptor contract", () => {
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual([
       "wiki_get_context",
+      "wiki_list_vaults",
+      "wiki_switch_vault",
       "wiki_list_pages",
       "wiki_search",
       "wiki_get_page",
       "wiki_get_neighbors",
       "wiki_list_revisions",
+      "wiki_create_folder",
       "wiki_create_page",
       "wiki_update_page",
       "wiki_append_page",
@@ -38,13 +41,15 @@ describe("WebMCP descriptor contract", () => {
   });
   it("marks reads and mutations accurately", () => {
     for (const tool of readTools())
-      expect(tool.annotations.readOnlyHint, tool.name).toBe(true);
+      expect(tool.annotations.readOnlyHint, tool.name).toBe(
+        tool.name !== "wiki_switch_vault",
+      );
     for (const tool of writeTools())
       expect(tool.annotations.readOnlyHint, tool.name).toBe(false);
   });
   it("requires concurrency and idempotency for existing-page writes", () => {
     for (const tool of writeTools().filter(
-      (item) => item.name !== "wiki_create_page",
+      (item) => !["wiki_create_page", "wiki_create_folder"].includes(item.name),
     )) {
       const required = tool.inputSchema.required as string[];
       expect(required, tool.name).toContain("expected_version");
@@ -74,7 +79,7 @@ describe("WebMCP descriptor contract", () => {
     expect(fetchMock.mock.calls[1][0]).toContain("/neighbors?depth=2&limit=9");
   });
 
-  it("exposes reads to viewers and mutations only to writers", () => {
+  it("exposes vault navigation to viewers and content writes only to writers", () => {
     expect(
       toolsForCapabilities({ can_read: true, can_write: false }).map(
         (tool) => tool.name,
@@ -82,7 +87,14 @@ describe("WebMCP descriptor contract", () => {
     ).toEqual(readTools().map((tool) => tool.name));
     expect(
       toolsForCapabilities({ can_read: true, can_write: true }),
-    ).toHaveLength(12);
+    ).toHaveLength(15);
+    expect(
+      toolsForCapabilities({
+        can_read: true,
+        can_write: true,
+        can_create_wiki: true,
+      }).map((tool) => tool.name),
+    ).toContain("wiki_create_vault");
     expect(
       toolsForCapabilities({ can_read: false, can_write: false }),
     ).toHaveLength(0);

@@ -47,6 +47,7 @@ declare global {
 }
 
 const PAGE_TYPES = [
+  "folder",
   "note",
   "source",
   "concept",
@@ -115,6 +116,27 @@ export function readTools(): SiteTool[] {
       },
     },
     {
+      name: "wiki_list_vaults",
+      title: "List accessible wiki vaults",
+      description:
+        "List the vaults available to the signed-in user, including stable IDs and the user's role in each vault.",
+      inputSchema: closed({}),
+      annotations: readAnnotations,
+      execute: async () => requestJson("/api/wikis"),
+    },
+    {
+      name: "wiki_switch_vault",
+      title: "Switch the active wiki vault",
+      description:
+        "Switch this signed-in user's active vault. Subsequent UI and wiki tool calls use that vault after the workspace refreshes.",
+      inputSchema: closed({ wiki_id: pageIdSchema }, ["wiki_id"]),
+      annotations: writeAnnotations,
+      execute: async (input) =>
+        writeRequest("/api/session/active-wiki", "POST", {
+          wiki_id: requiredUuid(input, "wiki_id"),
+        }),
+    },
+    {
       name: "wiki_list_pages",
       title: "List wiki pages",
       description:
@@ -145,7 +167,7 @@ export function readTools(): SiteTool[] {
           page_types: {
             type: "array",
             items: { type: "string", enum: PAGE_TYPES },
-            maxItems: 7,
+            maxItems: 8,
             uniqueItems: true,
           },
           limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
@@ -254,6 +276,31 @@ export function readTools(): SiteTool[] {
 
 export function writeTools(): SiteTool[] {
   return [
+    {
+      name: "wiki_create_folder",
+      title: "Create a wiki folder",
+      description:
+        "Create an indexable folder node under the vault root or another folder. The folder is also a Markdown index page and can contain child folders and pages.",
+      inputSchema: closed(
+        {
+          parent_id: { ...pageIdSchema, type: ["string", "null"] },
+          title: { type: "string", minLength: 1, maxLength: 200 },
+          operation_id: operationSchema,
+        },
+        ["title", "operation_id"],
+      ),
+      annotations: writeAnnotations,
+      execute: async (input) => {
+        const title = requiredText(input, "title", 200);
+        return writeRequest("/api/pages", "POST", {
+          parent_id: nullableUuid(input, "parent_id"),
+          title,
+          page_type: "folder",
+          markdown: `# ${title}\n\nThis folder index describes its child pages and navigation context.\n`,
+          operation_id: requiredUuid(input, "operation_id"),
+        });
+      },
+    },
     {
       name: "wiki_create_page",
       title: "Create a wiki page",
@@ -446,10 +493,31 @@ export function writeTools(): SiteTool[] {
 export function toolsForCapabilities(capabilities: {
   can_read?: boolean;
   can_write?: boolean;
+  can_create_wiki?: boolean;
 }) {
   const tools: SiteTool[] = [];
   if (capabilities.can_read) tools.push(...readTools());
   if (capabilities.can_write) tools.push(...writeTools());
+  if (capabilities.can_create_wiki)
+    tools.push({
+      name: "wiki_create_vault",
+      title: "Create a wiki vault",
+      description:
+        "Create and activate a new independent vault owned by the signed-in user. A repeated operation_id returns the same vault.",
+      inputSchema: closed(
+        {
+          title: { type: "string", minLength: 1, maxLength: 120 },
+          operation_id: operationSchema,
+        },
+        ["title", "operation_id"],
+      ),
+      annotations: writeAnnotations,
+      execute: async (input) =>
+        writeRequest("/api/wikis", "POST", {
+          title: requiredText(input, "title", 120),
+          operation_id: requiredUuid(input, "operation_id"),
+        }),
+    });
   return tools.map(observeTool);
 }
 
@@ -460,7 +528,11 @@ export function SiteTools() {
     const controller = new AbortController();
     void (async () => {
       const session = await requestJson<{
-        capabilities?: { can_read?: boolean; can_write?: boolean };
+        capabilities?: {
+          can_read?: boolean;
+          can_write?: boolean;
+          can_create_wiki?: boolean;
+        };
       }>("/api/session/capabilities");
       const tools = toolsForCapabilities(
         session.ok ? (session.data.capabilities ?? {}) : {},
