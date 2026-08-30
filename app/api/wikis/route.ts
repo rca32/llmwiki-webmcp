@@ -1,5 +1,10 @@
 import { AppError, success } from "../../../lib/contracts";
-import { errorResponse, jsonBody, requestId } from "../../../lib/http";
+import {
+  errorResponse,
+  jsonBody,
+  originFrom,
+  requestId,
+} from "../../../lib/http";
 import {
   getWikiSession,
   requireWikiSession,
@@ -7,6 +12,7 @@ import {
 import {
   bootstrapWiki,
   createWiki,
+  createPage,
   listAccessibleWikis,
 } from "../../../db/wiki-repository";
 import {
@@ -34,7 +40,18 @@ export async function POST(request: Request) {
   try {
     const session = await requireWikiSession("can_read");
     const body = requireObject(await jsonBody(request));
-    const title = requiredString(body.title, "title", 1, 120);
+    const title = requiredString(body.title, "title", 1, 120),
+      template =
+        body.template === undefined
+          ? "empty"
+          : requiredString(body.template, "template", 1, 20);
+    if (template !== "empty" && template !== "starter")
+      throw new AppError(
+        "validation_error",
+        "template must be empty or starter.",
+        400,
+        { field: "template", allowed: ["empty", "starter"] },
+      );
     const wiki = session.capabilities.can_bootstrap
       ? await bootstrapWiki({
           email: session.email,
@@ -60,7 +77,35 @@ export async function POST(request: Request) {
         "This session cannot create another vault.",
         403,
       );
-    return Response.json(success({ wiki }, id), { status: 201 });
+    const starterPage =
+      template === "starter" && !session.capabilities.can_bootstrap
+        ? await createPage({
+            wikiId: String(wiki.id),
+            email: session.email,
+            title: "WebMCP Native Wiki",
+            pageType: "concept",
+            markdown:
+              "# WebMCP Native Wiki\n\n사람과 에이전트가 같은 지식 공간을 함께 편집합니다.\n",
+            parentId: null,
+            operationId: operationId(body.operation_id),
+            requestId: id,
+            origin: originFrom(request),
+          })
+        : null;
+    return Response.json(
+      success(
+        {
+          wiki,
+          template,
+          current_page_id: starterPage?.page_id ?? null,
+          starter_page: starterPage,
+          refresh_required: false,
+          stale_after_response: false,
+        },
+        id,
+      ),
+      { status: 201, headers: { "cache-control": "no-store" } },
+    );
   } catch (error) {
     return errorResponse(error, id);
   }

@@ -4,6 +4,7 @@ import {
   type ChangeSet,
   type LinkMode,
   type PageType,
+  type RetrievalStatus,
   type Role,
   type WriteMode,
   type WikiPage,
@@ -38,7 +39,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS wiki_members (wiki_id TEXT NOT NULL,user_email TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(wiki_id,user_email),FOREIGN KEY(wiki_id) REFERENCES wikis(id))`,
   `CREATE INDEX IF NOT EXISTS idx_wiki_members_email ON wiki_members(user_email)`,
   `CREATE TABLE IF NOT EXISTS wiki_user_preferences (user_email TEXT PRIMARY KEY NOT NULL,active_wiki_id TEXT NOT NULL,updated_at TEXT NOT NULL,FOREIGN KEY(active_wiki_id) REFERENCES wikis(id))`,
-  `CREATE TABLE IF NOT EXISTS pages (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_id TEXT,parent_key TEXT NOT NULL,slug TEXT NOT NULL,title TEXT NOT NULL,page_type TEXT NOT NULL,markdown TEXT NOT NULL,frontmatter_json TEXT NOT NULL DEFAULT '{}',version INTEGER NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,last_operation_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT,FOREIGN KEY(wiki_id) REFERENCES wikis(id))`,
+  `CREATE TABLE IF NOT EXISTS pages (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_id TEXT,parent_key TEXT NOT NULL,slug TEXT NOT NULL,title TEXT NOT NULL,page_type TEXT NOT NULL,markdown TEXT NOT NULL,source_url TEXT,retrieval_status TEXT,retrieved_at TEXT,extraction_method TEXT,confidence REAL,frontmatter_json TEXT NOT NULL DEFAULT '{}',version INTEGER NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,last_operation_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT,FOREIGN KEY(wiki_id) REFERENCES wikis(id))`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_pages_sibling_slug ON pages(wiki_id,parent_key,slug)`,
   `CREATE INDEX IF NOT EXISTS idx_pages_wiki_parent ON pages(wiki_id,parent_id,sort_order)`,
   `CREATE INDEX IF NOT EXISTS idx_pages_wiki_updated ON pages(wiki_id,updated_at)`,
@@ -83,6 +84,19 @@ export function ensureWikiSchema(): Promise<void> {
   schemaReady ??= (async () => {
     const d = db();
     await d.batch(schemaStatements.map((sql) => d.prepare(sql)));
+    const pageColumns = await d
+        .prepare("PRAGMA table_info(pages)")
+        .all<{ name: string }>(),
+      existing = new Set(pageColumns.results.map((column) => column.name)),
+      additions = [
+        ["source_url", "TEXT"],
+        ["retrieval_status", "TEXT"],
+        ["retrieved_at", "TEXT"],
+        ["extraction_method", "TEXT"],
+        ["confidence", "REAL"],
+      ].filter(([name]) => !existing.has(name));
+    for (const [name, type] of additions)
+      await d.prepare(`ALTER TABLE pages ADD COLUMN ${name} ${type}`).run();
     await d
       .prepare(
         `INSERT OR IGNORE INTO site_state(id,bootstrap_status,version,updated_at) VALUES(1,'empty',1,?)`,
@@ -759,6 +773,11 @@ type PageRow = {
   title: string;
   page_type: PageType;
   markdown: string;
+  source_url: string | null;
+  retrieval_status: RetrievalStatus | null;
+  retrieved_at: string | null;
+  extraction_method: string | null;
+  confidence: number | null;
   version: number;
   sort_order: number;
   created_by: string;
@@ -768,7 +787,7 @@ type PageRow = {
   deleted_at?: string | null;
 };
 const PAGE_COLUMNS =
-  "id,wiki_id,parent_id,slug,title,page_type,markdown,version,sort_order,created_by,updated_by,created_at,updated_at,deleted_at";
+  "id,wiki_id,parent_id,slug,title,page_type,markdown,source_url,retrieval_status,retrieved_at,extraction_method,confidence,version,sort_order,created_by,updated_by,created_at,updated_at,deleted_at";
 async function pagePath(row: PageRow): Promise<string> {
   const segments = [row.slug];
   let parent = row.parent_id;
@@ -794,19 +813,20 @@ export async function listPages(
   parentId: string | null = null,
   limit = 100,
   depth = 0,
+  offset = 0,
 ) {
   if (depth === 0) {
     const result = await db()
       .prepare(
-        `SELECT ${PAGE_COLUMNS} FROM pages WHERE wiki_id=? AND deleted_at IS NULL AND ((? IS NULL AND parent_id IS NULL) OR parent_id=?) ORDER BY sort_order,title LIMIT ?`,
+        `SELECT ${PAGE_COLUMNS} FROM pages WHERE wiki_id=? AND deleted_at IS NULL AND ((? IS NULL AND parent_id IS NULL) OR parent_id=?) ORDER BY sort_order,title,id LIMIT ? OFFSET ?`,
       )
-      .bind(wikiId, parentId, parentId, limit)
+      .bind(wikiId, parentId, parentId, limit, offset)
       .all<PageRow>();
     return Promise.all(result.results.map(mapPage));
   }
   const all = await db()
       .prepare(
-        `SELECT ${PAGE_COLUMNS} FROM pages WHERE wiki_id=? AND deleted_at IS NULL ORDER BY sort_order,title LIMIT 2000`,
+        `SELECT ${PAGE_COLUMNS} FROM pages WHERE wiki_id=? AND deleted_at IS NULL ORDER BY sort_order,title,id LIMIT 2000`,
       )
       .bind(wikiId)
       .all<PageRow>(),
@@ -814,7 +834,7 @@ export async function listPages(
     queue = all.results
       .filter((page) => page.parent_id === parentId)
       .map((page) => ({ page, level: 0 }));
-  while (queue.length && selected.length < limit) {
+  while (queue.length && selected.length < Math.min(2000, offset + limit)) {
     const current = queue.shift()!;
     selected.push(current.page);
     if (current.level < depth)
@@ -823,7 +843,23 @@ export async function listPages(
       ))
         queue.push({ page: child, level: current.level + 1 });
   }
-  return Promise.all(selected.map(mapPage));
+  return Promise.all(selected.slice(offset, offset + limit).map(mapPage));
+}
+export async function countPagesForList(
+  wikiId: string,
+  parentId: string | null,
+  depth = 0,
+) {
+  if (depth === 0) {
+    const row = await db()
+      .prepare(
+        `SELECT COUNT(*) AS total FROM pages WHERE wiki_id=? AND deleted_at IS NULL AND ((? IS NULL AND parent_id IS NULL) OR parent_id=?)`,
+      )
+      .bind(wikiId, parentId, parentId)
+      .first<{ total: number }>();
+    return Number(row?.total ?? 0);
+  }
+  return (await listPages(wikiId, parentId, 2000, depth, 0)).length;
 }
 export async function listDeletedPages(wikiId: string, limit = 100) {
   const result = await db()
@@ -837,7 +873,7 @@ export async function listDeletedPages(wikiId: string, limit = 100) {
 export async function getPage(wikiId: string, pageId: string) {
   const row = await db()
     .prepare(
-      `SELECT id,wiki_id,parent_id,slug,title,page_type,markdown,version,sort_order,created_by,updated_by,created_at,updated_at FROM pages WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
+      `SELECT ${PAGE_COLUMNS} FROM pages WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
     )
     .bind(pageId, wikiId)
     .first<PageRow>();
@@ -1533,6 +1569,11 @@ export async function createPage(input: {
   operationId: string;
   requestId: string;
   origin: "human" | "webmcp";
+  sourceUrl?: string | null;
+  retrievalStatus?: RetrievalStatus | null;
+  retrievedAt?: string | null;
+  extractionMethod?: string | null;
+  confidence?: number | null;
 }): Promise<{ page_id: string; version: number; path: string; title: string }> {
   const operationName = "wiki_create_page",
     payload = {
@@ -1540,6 +1581,11 @@ export async function createPage(input: {
       page_type: input.pageType,
       markdown: input.markdown,
       parent_id: input.parentId,
+      source_url: input.sourceUrl ?? null,
+      retrieval_status: input.retrievalStatus ?? null,
+      retrieved_at: input.retrievedAt ?? null,
+      extraction_method: input.extractionMethod ?? null,
+      confidence: input.confidence ?? null,
     },
     reservation = await reserveIdempotency({
       ...input,
@@ -1586,7 +1632,7 @@ export async function createPage(input: {
     const statements = [
       d
         .prepare(
-          `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,1,0,?,?,?,?,?)`,
+          `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,source_url,retrieval_status,retrieved_at,extraction_method,confidence,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,?,?,?,?,?)`,
         )
         .bind(
           pageId,
@@ -1597,6 +1643,11 @@ export async function createPage(input: {
           input.title,
           input.pageType,
           input.markdown,
+          input.sourceUrl ?? null,
+          input.retrievalStatus ?? null,
+          input.retrievedAt ?? null,
+          input.extractionMethod ?? null,
+          input.confidence ?? null,
           frontmatter,
           input.email,
           input.email,
@@ -1684,6 +1735,11 @@ export async function createPage(input: {
       title: input.title,
       page_type: input.pageType,
       markdown: input.markdown,
+      source_url: input.sourceUrl ?? null,
+      retrieval_status: input.retrievalStatus ?? null,
+      retrieved_at: input.retrievedAt ?? null,
+      extraction_method: input.extractionMethod ?? null,
+      confidence: input.confidence ?? null,
       version: 1,
       sort_order: 0,
       created_by: input.email,
@@ -1960,12 +2016,14 @@ export async function appendPage(input: {
   operationId: string;
   requestId: string;
   origin: "human" | "webmcp";
+  replaceEmptyState?: boolean;
 }) {
   const page = await getPage(input.wikiId, input.pageId);
   const markdown = appendMarkdownToSection(
     page.markdown,
     input.content,
     input.section,
+    input.replaceEmptyState ?? false,
   );
   return updatePage({
     wikiId: input.wikiId,
@@ -1985,13 +2043,22 @@ export async function searchPages(
   query: string,
   pageTypes: PageType[],
   limit: number,
+  offset = 0,
 ) {
-  const like = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
   const typePlaceholders = pageTypes.length
     ? pageTypes.map(() => "?").join(",")
     : "";
-  const sql = `SELECT id,wiki_id,parent_id,slug,title,page_type,markdown,version,sort_order,created_by,updated_by,created_at,updated_at FROM pages WHERE wiki_id=? AND deleted_at IS NULL AND (title LIKE ? ESCAPE '\\' OR markdown LIKE ? ESCAPE '\\') ${pageTypes.length ? `AND page_type IN (${typePlaceholders})` : ""} ORDER BY CASE WHEN lower(title)=lower(?) THEN 0 WHEN lower(title) LIKE lower(?) THEN 1 ELSE 2 END,updated_at DESC LIMIT ?`;
-  const args = [wikiId, like, like, ...pageTypes, query, `${query}%`, limit];
+  const sql = `SELECT ${PAGE_COLUMNS} FROM pages WHERE wiki_id=? AND deleted_at IS NULL AND (instr(lower(title),lower(?))>0 OR instr(lower(markdown),lower(?))>0) ${pageTypes.length ? `AND page_type IN (${typePlaceholders})` : ""} ORDER BY CASE WHEN lower(title)=lower(?) THEN 0 WHEN instr(lower(title),lower(?))=1 THEN 1 ELSE 2 END,updated_at DESC,id ASC LIMIT ? OFFSET ?`;
+  const args = [
+    wikiId,
+    query,
+    query,
+    ...pageTypes,
+    query,
+    query,
+    limit,
+    offset,
+  ];
   const rows = await db()
     .prepare(sql)
     .bind(...args)
@@ -2007,6 +2074,22 @@ export async function searchPages(
       updated_at: row.updated_at,
     })),
   );
+}
+export async function countSearchPages(
+  wikiId: string,
+  query: string,
+  pageTypes: PageType[],
+) {
+  const typePlaceholders = pageTypes.length
+    ? pageTypes.map(() => "?").join(",")
+    : "";
+  const row = await db()
+    .prepare(
+      `SELECT COUNT(*) AS total FROM pages WHERE wiki_id=? AND deleted_at IS NULL AND (instr(lower(title),lower(?))>0 OR instr(lower(markdown),lower(?))>0) ${pageTypes.length ? `AND page_type IN (${typePlaceholders})` : ""}`,
+    )
+    .bind(wikiId, query, query, ...pageTypes)
+    .first<{ total: number }>();
+  return Number(row?.total ?? 0);
 }
 
 async function benchmarkSamples(
@@ -3097,6 +3180,7 @@ export async function getGraph(wikiId: string, limit: number) {
     .bind(wikiId, wikiId, wikiId, limit * 8)
     .all();
   return {
+    wiki_id: wikiId,
     nodes: nodes.results,
     edges: edges.results,
     truncated: nodes.results.length >= limit,
@@ -3689,7 +3773,7 @@ export async function prepareExport(input: {
       .first(),
     pages = await d
       .prepare(
-        `SELECT id,parent_id,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_at,updated_at FROM pages WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_key,sort_order,title`,
+        `SELECT id,parent_id,slug,title,page_type,markdown,source_url,retrieval_status,retrieved_at,extraction_method,confidence,frontmatter_json,version,sort_order,created_at,updated_at FROM pages WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_key,sort_order,title`,
       )
       .bind(input.wikiId)
       .all(),
@@ -4384,6 +4468,33 @@ function importedInteger(value: unknown, field: string, min = 0) {
     );
   return Number(value);
 }
+function importedOptionalString(value: unknown, field: string, max: number) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length < 1 || value.length > max)
+    throw new AppError(
+      "validation_error",
+      `Imported ${field} is invalid.`,
+      400,
+      { field },
+    );
+  return value;
+}
+function importedOptionalConfidence(value: unknown, field: string) {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1
+  )
+    throw new AppError(
+      "validation_error",
+      `Imported ${field} is invalid.`,
+      400,
+      { field },
+    );
+  return value;
+}
 
 export async function commitImport(input: {
   email: string;
@@ -4549,7 +4660,31 @@ export async function commitImport(input: {
         30,
       ) as PageType,
       markdown = importedString(page.markdown, "page.markdown", 262_144),
-      version = importedInteger(page.version, "page.version", 1);
+      version = importedInteger(page.version, "page.version", 1),
+      sourceUrl = importedOptionalString(
+        page.source_url,
+        "page.source_url",
+        2048,
+      ),
+      retrievalStatus = importedOptionalString(
+        page.retrieval_status,
+        "page.retrieval_status",
+        30,
+      ) as RetrievalStatus | null,
+      retrievedAt = importedOptionalString(
+        page.retrieved_at,
+        "page.retrieved_at",
+        40,
+      ),
+      extractionMethod = importedOptionalString(
+        page.extraction_method,
+        "page.extraction_method",
+        120,
+      ),
+      confidence = importedOptionalConfidence(
+        page.confidence,
+        "page.confidence",
+      );
     if (parentId && !pageIds.has(parentId))
       throw new AppError(
         "validation_error",
@@ -4564,6 +4699,35 @@ export async function commitImport(input: {
         400,
         { page_id: id },
       );
+    if (
+      (sourceUrl !== null ||
+        retrievalStatus !== null ||
+        retrievedAt !== null ||
+        extractionMethod !== null ||
+        confidence !== null) &&
+      pageType !== "source"
+    )
+      throw new AppError(
+        "validation_error",
+        "Structured source metadata is allowed only on source pages.",
+        400,
+        { page_id: id },
+      );
+    if (
+      retrievalStatus !== null &&
+      !new Set<RetrievalStatus>([
+        "success",
+        "partial",
+        "failed",
+        "unavailable",
+      ]).has(retrievalStatus)
+    )
+      throw new AppError(
+        "validation_error",
+        "Imported page.retrieval_status is invalid.",
+        400,
+        { page_id: id },
+      );
     return {
       id,
       parentId,
@@ -4571,6 +4735,11 @@ export async function commitImport(input: {
       slug,
       pageType,
       markdown,
+      sourceUrl,
+      retrievalStatus,
+      retrievedAt,
+      extractionMethod,
+      confidence,
       version,
       sortOrder: importedInteger(page.sort_order ?? 0, "page.sort_order"),
       frontmatter: JSON.stringify(parseFrontmatter(markdown)),
@@ -4962,7 +5131,7 @@ export async function commitImport(input: {
         ...pages.map((page) =>
           d
             .prepare(
-              `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              `INSERT INTO pages(id,wiki_id,parent_id,parent_key,slug,title,page_type,markdown,source_url,retrieval_status,retrieved_at,extraction_method,confidence,frontmatter_json,version,sort_order,created_by,updated_by,last_operation_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             )
             .bind(
               page.id,
@@ -4973,6 +5142,11 @@ export async function commitImport(input: {
               page.title,
               page.pageType,
               page.markdown,
+              page.sourceUrl,
+              page.retrievalStatus,
+              page.retrievedAt,
+              page.extractionMethod,
+              page.confidence,
               page.frontmatter,
               page.version,
               page.sortOrder,

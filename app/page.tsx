@@ -111,6 +111,7 @@ type PageDetails = {
   attachments: Attachment[];
 };
 type Graph = {
+  wiki_id: string;
   nodes: Array<{
     id: string;
     title: string;
@@ -168,20 +169,6 @@ function settleRequest<T>(request: Promise<T>): Promise<SettledRequest<T>> {
     (error: unknown) => ({ error }),
   );
 }
-
-const welcomeMarkdown = `# WebMCP Native Wiki
-
-사람과 에이전트가 **같은 지식 공간**을 함께 편집합니다.
-
-## 오늘의 초점
-
-- UI와 WebMCP는 같은 서버 명령을 사용합니다.
-- 모든 쓰기는 \`expected_version\`으로 충돌을 감지합니다.
-- 확정된 변경은 리비전으로 남고 언제든 복구할 수 있습니다.
-
-> 이 페이지는 열린 브라우저 세션의 권한을 그대로 사용합니다.
-
-관련 문서: [[아키텍처]] · [[도구 계약]] · [[운영과 복구]]`;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: "same-origin" });
@@ -330,6 +317,9 @@ export default function Home() {
   const [moveParentId, setMoveParentId] = useState<string | null>(null);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [newVaultTitle, setNewVaultTitle] = useState("");
+  const [newVaultTemplate, setNewVaultTemplate] = useState<"empty" | "starter">(
+    "empty",
+  );
   const [siteVersion, setSiteVersion] = useState(1);
   const [writeMode, setWriteMode] = useState<"read_write" | "read_only">(
     "read_write",
@@ -346,7 +336,8 @@ export default function Home() {
   const desiredPageIdRef = useRef<string | null>(null);
   const openPageRequestRef = useRef(0);
   const workspaceRequestRef = useRef(0);
-  const defaultPageCreationRef = useRef<Promise<unknown> | null>(null);
+  const graphRequestRef = useRef(0);
+  const currentWikiIdRef = useRef<string | null>(null);
   const dirtyRef = useRef(false);
   const markdownRef = useRef("");
   const autosavePausedRef = useRef(false);
@@ -547,7 +538,9 @@ export default function Home() {
       const requestNumber = ++workspaceRequestRef.current;
       try {
         const activePagesPromise = settleRequest(
-          api<{ pages: Page[] }>("/api/pages?depth=64&limit=200"),
+          api<{ pages: Page[] }>(
+            "/api/pages?depth=64&limit=200&include_markdown=true",
+          ),
         );
         const session = await api<{
           wiki: { id: string; title: string; role: string } | null;
@@ -557,6 +550,18 @@ export default function Home() {
           write_mode_reason: string | null;
         }>("/api/session/capabilities");
         if (requestNumber !== workspaceRequestRef.current) return;
+        if (currentWikiIdRef.current !== session.wiki?.id) {
+          currentWikiIdRef.current = session.wiki?.id ?? null;
+          graphRequestRef.current++;
+          setGraph(null);
+          openPageRequestRef.current++;
+          desiredPageIdRef.current = null;
+          activeRef.current = null;
+          setActive(null);
+          setMarkdown("");
+          setSavedMarkdown("");
+          pageDetailsCacheRef.current.clear();
+        }
         setCurrentWiki(session.wiki);
         setCaps(session.capabilities);
         setSiteVersion(session.site_version);
@@ -579,28 +584,8 @@ export default function Home() {
         setWikis(accessible.wikis);
         const activePagesRequest = await activePagesPromise;
         if ("error" in activePagesRequest) throw activePagesRequest.error;
-        let list = activePagesRequest.data.pages;
+        const list = activePagesRequest.data.pages;
         if (requestNumber !== workspaceRequestRef.current) return;
-        if (!list.length && session.capabilities.can_write) {
-          defaultPageCreationRef.current ??= api("/api/pages", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              title: "WebMCP Native Wiki",
-              page_type: "concept",
-              markdown: welcomeMarkdown,
-              parent_id: null,
-              operation_id: crypto.randomUUID(),
-            }),
-          }).finally(() => {
-            defaultPageCreationRef.current = null;
-          });
-          await defaultPageCreationRef.current;
-          if (requestNumber !== workspaceRequestRef.current) return;
-          list = (await api<{ pages: Page[] }>("/api/pages?depth=64&limit=200"))
-            .pages;
-          if (requestNumber !== workspaceRequestRef.current) return;
-        }
         pagesRef.current = list;
         for (const [pageId, cached] of pageDetailsCacheRef.current) {
           const listed = list.find((page) => page.id === pageId);
@@ -611,7 +596,7 @@ export default function Home() {
         if (session.capabilities.can_soft_delete) {
           window.setTimeout(() => {
             void api<{ pages: Page[] }>(
-              "/api/pages?deleted=only&limit=100",
+              "/api/pages?deleted=only&limit=100&include_markdown=true",
             ).then(
               ({ pages: deleted }) => {
                 if (requestNumber === workspaceRequestRef.current)
@@ -785,6 +770,10 @@ export default function Home() {
     if (active) document.documentElement.dataset.pageId = active.id;
     else delete document.documentElement.dataset.pageId;
   }, [active]);
+  useEffect(() => {
+    if (currentWiki) document.documentElement.dataset.wikiId = currentWiki.id;
+    else delete document.documentElement.dataset.wikiId;
+  }, [currentWiki]);
   useEffect(() => {
     const normalized = query.trim();
     if (!normalized) return;
@@ -1037,6 +1026,7 @@ export default function Home() {
       return;
     try {
       setStatus("Vault 전환 중…");
+      graphRequestRef.current++;
       openPageRequestRef.current++;
       desiredPageIdRef.current = null;
       activeRef.current = null;
@@ -1044,6 +1034,7 @@ export default function Home() {
       setMarkdown("");
       setSavedMarkdown("");
       setDeletedPages([]);
+      setGraph(null);
       pageDetailsCacheRef.current.clear();
       await api("/api/session/active-wiki", {
         method: "POST",
@@ -1068,6 +1059,7 @@ export default function Home() {
       return;
     try {
       setStatus("Vault 만드는 중…");
+      graphRequestRef.current++;
       openPageRequestRef.current++;
       desiredPageIdRef.current = null;
       activeRef.current = null;
@@ -1076,17 +1068,20 @@ export default function Home() {
       setSavedMarkdown("");
       setPages([]);
       setDeletedPages([]);
+      setGraph(null);
       pageDetailsCacheRef.current.clear();
       await api("/api/wikis", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           title: newVaultTitle.trim(),
+          template: newVaultTemplate,
           operation_id: crypto.randomUUID(),
         }),
       });
       setVaultDialogOpen(false);
       setNewVaultTitle("");
+      setNewVaultTemplate("empty");
       await loadWorkspace(true);
       setStatus("새 Vault를 만들었습니다.");
     } catch (error) {
@@ -1159,9 +1154,17 @@ export default function Home() {
 
   async function showGraph() {
     changeView("graph");
+    setGraph(null);
     setGraphLoading(true);
+    const expectedWikiId = currentWiki?.id ?? null,
+      requestNumber = ++graphRequestRef.current;
     try {
-      setGraph(await api<Graph>("/api/graph?limit=2000"));
+      const nextGraph = await api<Graph>("/api/graph?limit=2000");
+      if (
+        requestNumber === graphRequestRef.current &&
+        nextGraph.wiki_id === expectedWikiId
+      )
+        setGraph(nextGraph);
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -1323,7 +1326,7 @@ export default function Home() {
     return (
       <main className="wiki-shell bootstrap-shell-root">
         <SiteTools
-          key={`${currentWiki?.id ?? "none"}-${writeMode}-${caps.can_write}`}
+          key={`${writeMode}-${caps.can_write}-${caps.can_create_wiki}`}
         />
         <Suspense fallback={<WorkspaceLoading />}>
           <OperationsPanel
@@ -1341,7 +1344,7 @@ export default function Home() {
   return (
     <main className="wiki-app">
       <SiteTools
-        key={`${currentWiki?.id ?? "none"}-${writeMode}-${caps.can_write}`}
+        key={`${writeMode}-${caps.can_write}-${caps.can_create_wiki}`}
       />
       <IconSidebar
         activeView={view}
@@ -1381,6 +1384,7 @@ export default function Home() {
                   onSwitchVault={(wikiId) => void switchVault(wikiId)}
                   onCreateVault={() => {
                     setNewVaultTitle("");
+                    setNewVaultTemplate("empty");
                     setVaultDialogOpen(true);
                   }}
                   onRestorePage={(page) => {
@@ -1895,6 +1899,18 @@ export default function Home() {
                 createTarget.kind === "folder" ? "예: Research" : "예: 새 노트"
               }
             />
+          </label>
+          <label className="workspace-dialog-field">
+            <span>시작 방식</span>
+            <select
+              value={newVaultTemplate}
+              onChange={(event) =>
+                setNewVaultTemplate(event.target.value as "empty" | "starter")
+              }
+            >
+              <option value="empty">빈 Vault (권장)</option>
+              <option value="starter">시작 안내 페이지 포함</option>
+            </select>
           </label>
         </WorkspaceDialog>
       )}

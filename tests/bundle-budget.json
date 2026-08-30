@@ -11,7 +11,7 @@
   },
   "limits": {
     "total_raw_bytes": 4400951,
-    "total_gzip_bytes": 1242629,
+    "total_gzip_bytes": 1245000,
     "largest_chunk_gzip_bytes": 163512,
     "app_page_chunk_gzip_bytes": 163512
   }

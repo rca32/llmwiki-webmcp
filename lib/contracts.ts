@@ -10,6 +10,7 @@ export type PageType =
   | "comparison"
   | "query";
 export type LinkMode = "related_frontmatter" | "append_section";
+export type RetrievalStatus = "success" | "partial" | "failed" | "unavailable";
 export type ErrorCode =
   | "unauthenticated"
   | "forbidden"
@@ -66,6 +67,11 @@ export type WikiPage = {
   title: string;
   page_type: PageType;
   markdown: string;
+  source_url: string | null;
+  retrieval_status: RetrievalStatus | null;
+  retrieved_at: string | null;
+  extraction_method: string | null;
+  confidence: number | null;
   version: number;
   sort_order: number;
   created_by: string;

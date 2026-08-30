@@ -42,6 +42,57 @@ export function optionalNullableString(
   if (value === null || value === undefined || value === "") return null;
   return requiredString(value, field, 1, 200);
 }
+export function optionalUrl(value: unknown, field: string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const result = requiredString(value, field, 1, 2048);
+  try {
+    const url = new URL(result);
+    if (url.protocol !== "http:" && url.protocol !== "https:")
+      throw new Error();
+    return url.toString();
+  } catch {
+    throw new AppError(
+      "validation_error",
+      `${field} must be an http or https URL.`,
+      400,
+      { field },
+    );
+  }
+}
+export function optionalIsoDate(value: unknown, field: string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const result = requiredString(value, field, 1, 64);
+  const parsed = new Date(result);
+  if (Number.isNaN(parsed.getTime()))
+    throw new AppError(
+      "validation_error",
+      `${field} must be an ISO-8601 timestamp.`,
+      400,
+      { field },
+    );
+  return parsed.toISOString();
+}
+export function optionalNumber(
+  value: unknown,
+  field: string,
+  min: number,
+  max: number,
+): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < min ||
+    value > max
+  )
+    throw new AppError(
+      "validation_error",
+      `${field} must be a number between ${min} and ${max}.`,
+      400,
+      { field, min, max },
+    );
+  return value;
+}
 export function requiredInteger(
   value: unknown,
   field: string,
@@ -167,6 +218,7 @@ export function appendMarkdownToSection(
   markdown: string,
   content: string,
   section: string | null,
+  replaceEmptyState = false,
 ) {
   if (!section) return `${markdown.trimEnd()}\n\n${content}`;
   const lines = markdown.split("\n"),
@@ -185,6 +237,27 @@ export function appendMarkdownToSection(
     const next = lines[insertAt].match(/^(#+)\s/);
     if (next && next[1].length <= level) break;
     insertAt++;
+  }
+  if (replaceEmptyState) {
+    const bodyIndexes = Array.from(
+      { length: insertAt - headingIndex - 1 },
+      (_, index) => headingIndex + index + 1,
+    ).filter((index) => lines[index].trim());
+    if (
+      bodyIndexes.length === 1 &&
+      /^(?:아직\s+.+(?:없습니다|없어요)\.?|no\s+.+\s+yet\.?)$/i.test(
+        lines[bodyIndexes[0]].trim(),
+      )
+    ) {
+      lines.splice(
+        headingIndex + 1,
+        insertAt - headingIndex - 1,
+        "",
+        content,
+        "",
+      );
+      return lines.join("\n");
+    }
   }
   lines.splice(insertAt, 0, "", content);
   return lines.join("\n");

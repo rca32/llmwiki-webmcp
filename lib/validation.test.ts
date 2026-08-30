@@ -53,6 +53,17 @@ describe("wiki validation", () => {
     ).toContain("Existing\n\n- [[Target]]");
   });
 
+  it("replaces a recognized section empty state on first append", () => {
+    const result = appendMarkdownToSection(
+      "# Map\n\n## 페이지\n\n아직 처리한 뉴스가 없습니다.\n\n## Notes\n",
+      "- [[News 1]]",
+      "페이지",
+      true,
+    );
+    expect(result).toContain("## 페이지\n\n- [[News 1]]");
+    expect(result).not.toContain("아직 처리한 뉴스가 없습니다.");
+  });
+
   it("rejects unsupported link modes", () => {
     expect(linkMode("append_section")).toBe("append_section");
     expect(() => linkMode("direct_index_write")).toThrow(/link_mode/);

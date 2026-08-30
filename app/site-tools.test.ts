@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readTools, toolsForCapabilities, writeTools } from "./site-tools";
 
+type JsonObject = Record<string, unknown>;
+
 describe("WebMCP descriptor contract", () => {
   const tools = [...readTools(), ...writeTools()];
   it("has stable unique names", () => {
@@ -74,9 +76,34 @@ describe("WebMCP descriptor contract", () => {
         limit: 9,
       });
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "/api/pages?parent_id=&depth=2&limit=7",
+      "/api/pages?parent_id=&depth=2&limit=7&include_markdown=false",
     );
     expect(fetchMock.mock.calls[1][0]).toContain("/neighbors?depth=2&limit=9");
+  });
+
+  it("exposes cursor pagination and metadata-only page lists by default", () => {
+    const list = readTools().find((tool) => tool.name === "wiki_list_pages")!;
+    const search = readTools().find((tool) => tool.name === "wiki_search")!;
+    const listProperties = list.inputSchema.properties as Record<
+      string,
+      JsonObject
+    >;
+    const searchProperties = search.inputSchema.properties as Record<
+      string,
+      JsonObject
+    >;
+    expect(listProperties.limit.maximum).toBe(100);
+    expect(listProperties.cursor.type).toEqual(["string", "null"]);
+    expect(listProperties.include_markdown.default).toBe(false);
+    expect(searchProperties.limit.maximum).toBe(100);
+    expect(searchProperties.cursor.type).toEqual(["string", "null"]);
+  });
+
+  it("uses a vault-specific identifier description", () => {
+    const tool = readTools().find((item) => item.name === "wiki_switch_vault")!;
+    const wikiId = (tool.inputSchema.properties as Record<string, JsonObject>)
+      .wiki_id;
+    expect(wikiId.description).toBe("Stable wiki vault UUID");
   });
 
   it("exposes vault navigation to viewers and content writes only to writers", () => {

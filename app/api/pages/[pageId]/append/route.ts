@@ -37,6 +37,7 @@ export async function POST(request: Request, { params }: Context) {
       operationId: operationId(body.operation_id),
       requestId: id,
       origin: originFrom(request),
+      replaceEmptyState: body.replace_empty_state === true,
     });
     return Response.json(success(result, id, result.change_set));
   } catch (error) {

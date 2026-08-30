@@ -13,9 +13,35 @@ export async function POST(request: Request) {
       email: session.email,
       wikiId: requiredString(body.wiki_id, "wiki_id", 36, 36),
     });
-    return Response.json(success({ wiki }, id), {
-      headers: { "cache-control": "no-store" },
-    });
+    const nextSession = await getWikiSession(),
+      refreshRequired =
+        session.capabilities.can_read !== nextSession.capabilities.can_read ||
+        session.capabilities.can_write !== nextSession.capabilities.can_write ||
+        session.capabilities.can_create_wiki !==
+          nextSession.capabilities.can_create_wiki;
+    return Response.json(
+      success(
+        {
+          wiki,
+          current_page_id: null,
+          active_wiki_id: nextSession.wikiId,
+          refresh_required: refreshRequired,
+          stale_after_response: refreshRequired,
+          retry_after_refetch: refreshRequired,
+        },
+        id,
+        {
+          pages_changed: [],
+          tree_changed: true,
+          links_changed: true,
+          search_changed: true,
+          graph_changed: true,
+        },
+      ),
+      {
+        headers: { "cache-control": "no-store" },
+      },
+    );
   } catch (error) {
     return errorResponse(error, id);
   }

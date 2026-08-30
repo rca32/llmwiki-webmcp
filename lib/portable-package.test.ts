@@ -24,6 +24,11 @@ describe("portable backup projection", () => {
               title: "Unsafe Path",
               page_type: "source",
               markdown: "# Safe bytes\n",
+              source_url: "https://example.com/article",
+              retrieval_status: "partial",
+              retrieved_at: "2026-08-28T00:00:00.000Z",
+              extraction_method: "direct-html",
+              confidence: 0.7,
             },
           ],
           links: [{ source_page_id: "one", target_page_id: "two" }],
@@ -57,6 +62,17 @@ describe("portable backup projection", () => {
         projection["wiki/concepts/architecture-11111111.md"],
       ),
     ).toBe("# Architecture\n");
+    expect(
+      JSON.parse(
+        new TextDecoder().decode(projection["metadata/pages.json"]),
+      )[1],
+    ).toMatchObject({
+      source_url: "https://example.com/article",
+      retrieval_status: "partial",
+      retrieved_at: "2026-08-28T00:00:00.000Z",
+      extraction_method: "direct-html",
+      confidence: 0.7,
+    });
   });
 
   it("omits member references when the export did not request them", () => {

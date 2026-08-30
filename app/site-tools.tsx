@@ -82,6 +82,10 @@ const pageIdSchema = {
     "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
   description: "Stable page UUID",
 };
+const wikiIdSchema = {
+  ...pageIdSchema,
+  description: "Stable wiki vault UUID",
+};
 const operationSchema = {
   type: "string",
   minLength: 36,
@@ -105,11 +109,23 @@ export function readTools(): SiteTool[] {
           "/api/session/capabilities",
         );
         if (!session.ok) return session;
+        const activeWikiId =
+            session.data.wiki &&
+            typeof session.data.wiki === "object" &&
+            typeof (session.data.wiki as JsonObject).id === "string"
+              ? String((session.data.wiki as JsonObject).id)
+              : null,
+          pageWikiId = document.documentElement.dataset.wikiId ?? null;
         return {
           ...session,
           data: {
             ...session.data,
-            current_page_id: document.documentElement.dataset.pageId ?? null,
+            current_page_id:
+              activeWikiId && pageWikiId === activeWikiId
+                ? (document.documentElement.dataset.pageId ?? null)
+                : null,
+            current_page_wiki_id:
+              activeWikiId && pageWikiId === activeWikiId ? pageWikiId : null,
             selection: window.getSelection()?.toString().slice(0, 2000) ?? "",
           },
         };
@@ -128,8 +144,8 @@ export function readTools(): SiteTool[] {
       name: "wiki_switch_vault",
       title: "Switch the active wiki vault",
       description:
-        "Switch this signed-in user's active vault. Subsequent UI and wiki tool calls use that vault after the workspace refreshes.",
-      inputSchema: closed({ wiki_id: pageIdSchema }, ["wiki_id"]),
+        "Switch this signed-in user's active vault atomically. Returns current_page_id null and tells the caller whether fetchTools must be refreshed.",
+      inputSchema: closed({ wiki_id: wikiIdSchema }, ["wiki_id"]),
       annotations: writeAnnotations,
       execute: async (input) =>
         writeRequest("/api/session/active-wiki", "POST", {
@@ -140,19 +156,23 @@ export function readTools(): SiteTool[] {
       name: "wiki_list_pages",
       title: "List wiki pages",
       description:
-        "List active pages under a parent in the current wiki. Returns stable IDs, paths, titles, types, and versions.",
+        "List active pages under a parent in the current wiki with cursor pagination. Returns metadata only unless include_markdown is explicitly true.",
       inputSchema: closed({
         parent_id: { ...pageIdSchema, type: ["string", "null"] },
         depth: { type: "integer", minimum: 0, maximum: 2, default: 0 },
-        limit: { type: "integer", minimum: 1, maximum: 20, default: 20 },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+        cursor: { type: ["string", "null"], minLength: 1, maxLength: 2048 },
+        include_markdown: { type: "boolean", default: false },
       }),
       annotations: readAnnotations,
       execute: async (input) => {
         const parent = nullableUuid(input, "parent_id"),
-          limit = boundedInteger(input.limit, 1, 20, 20),
-          depth = boundedInteger(input.depth, 0, 2, 0);
+          limit = boundedInteger(input.limit, 1, 100, 20),
+          depth = boundedInteger(input.depth, 0, 2, 0),
+          cursor = nullableText(input, "cursor", 2048),
+          includeMarkdown = input.include_markdown === true;
         return requestJson(
-          `/api/pages?parent_id=${encodeURIComponent(parent ?? "")}&depth=${depth}&limit=${limit}`,
+          `/api/pages?parent_id=${encodeURIComponent(parent ?? "")}&depth=${depth}&limit=${limit}&include_markdown=${includeMarkdown}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
         );
       },
     },
@@ -160,7 +180,7 @@ export function readTools(): SiteTool[] {
       name: "wiki_search",
       title: "Search wiki pages",
       description:
-        "Search active wiki pages by title and Markdown body. Use this before requesting a page by ID. Returns concise matches with stable IDs and versions.",
+        "Search active wiki pages by title and Markdown body with cursor pagination. Returns concise matches, total, has_more, and a recovery-safe request ID.",
       inputSchema: closed(
         {
           query: { type: "string", minLength: 1, maxLength: 500 },
@@ -170,7 +190,8 @@ export function readTools(): SiteTool[] {
             maxItems: 8,
             uniqueItems: true,
           },
-          limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
+          limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
+          cursor: { type: ["string", "null"], minLength: 1, maxLength: 2048 },
         },
         ["query"],
       ),
@@ -182,7 +203,8 @@ export function readTools(): SiteTool[] {
           body: JSON.stringify({
             query: requiredText(input, "query", 500),
             page_types: optionalEnumArray(input.page_types),
-            limit: boundedInteger(input.limit, 1, 20, 10),
+            limit: boundedInteger(input.limit, 1, 100, 10),
+            cursor: nullableText(input, "cursor", 2048),
           }),
         }),
     },
@@ -305,13 +327,49 @@ export function writeTools(): SiteTool[] {
       name: "wiki_create_page",
       title: "Create a wiki page",
       description:
-        "Create one Markdown page in the current wiki as an authorized editor. A repeated operation_id returns the original result and never duplicates the page.",
+        "Create one Markdown page in the current wiki as an authorized editor. Source pages may include structured retrieval metadata. The committed response is sufficient to verify the created ID and version without an immediate get call.",
       inputSchema: closed(
         {
           parent_id: { ...pageIdSchema, type: ["string", "null"] },
           title: { type: "string", minLength: 1, maxLength: 200 },
           page_type: { type: "string", enum: PAGE_TYPES },
           markdown: { type: "string", minLength: 1, maxLength: 262144 },
+          source_url: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 2048,
+          },
+          retrieval_status: {
+            type: ["string", "null"],
+            enum: ["success", "partial", "failed", "unavailable", null],
+          },
+          retrieved_at: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 64,
+          },
+          extraction_method: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 120,
+          },
+          confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
+          index_page_id: { ...pageIdSchema, type: ["string", "null"] },
+          index_expected_version: {
+            type: ["integer", "null"],
+            minimum: 1,
+          },
+          index_section: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 200,
+          },
+          index_entry_markdown: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 4000,
+          },
+          replace_empty_state: { type: "boolean", default: true },
           operation_id: operationSchema,
         },
         ["title", "page_type", "markdown", "operation_id"],
@@ -323,6 +381,29 @@ export function writeTools(): SiteTool[] {
           title: requiredText(input, "title", 200),
           page_type: requiredEnum(input, "page_type", PAGE_TYPES),
           markdown: requiredText(input, "markdown", 262144),
+          source_url: nullableText(input, "source_url", 2048),
+          retrieval_status: nullableEnum(input, "retrieval_status", [
+            "success",
+            "partial",
+            "failed",
+            "unavailable",
+          ]),
+          retrieved_at: nullableText(input, "retrieved_at", 64),
+          extraction_method: nullableText(input, "extraction_method", 120),
+          confidence: nullableNumber(input, "confidence", 0, 1),
+          index_page_id: nullableUuid(input, "index_page_id"),
+          index_expected_version:
+            input.index_expected_version === undefined ||
+            input.index_expected_version === null
+              ? null
+              : boundedInteger(input.index_expected_version, 1),
+          index_section: nullableText(input, "index_section", 200),
+          index_entry_markdown: nullableText(
+            input,
+            "index_entry_markdown",
+            4000,
+          ),
+          replace_empty_state: input.replace_empty_state !== false,
           operation_id: requiredUuid(input, "operation_id"),
         }),
     },
@@ -364,13 +445,14 @@ export function writeTools(): SiteTool[] {
       name: "wiki_append_page",
       title: "Append to a wiki page",
       description:
-        "Append Markdown to a page or named section as an authorized editor. Requires the current version and an idempotency UUID.",
+        "Append Markdown to a page or named section as an authorized editor. On the first section append, replace_empty_state can remove a recognized empty-state sentence atomically.",
       inputSchema: closed(
         {
           page_id: pageIdSchema,
           expected_version: { type: "integer", minimum: 1 },
           content: { type: "string", minLength: 1, maxLength: 262144 },
           section: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+          replace_empty_state: { type: "boolean", default: true },
           operation_id: operationSchema,
         },
         ["page_id", "expected_version", "content", "operation_id"],
@@ -384,6 +466,7 @@ export function writeTools(): SiteTool[] {
             expected_version: boundedInteger(input.expected_version, 1),
             content: requiredText(input, "content", 262144),
             section: nullableText(input, "section", 200),
+            replace_empty_state: input.replace_empty_state !== false,
             operation_id: requiredUuid(input, "operation_id"),
           },
         ),
@@ -503,10 +586,15 @@ export function toolsForCapabilities(capabilities: {
       name: "wiki_create_vault",
       title: "Create a wiki vault",
       description:
-        "Create and activate a new independent vault owned by the signed-in user. A repeated operation_id returns the same vault.",
+        "Create and activate a new independent vault owned by the signed-in user. Defaults to an empty vault; starter content is opt-in. Returns whether tool discovery must be refreshed.",
       inputSchema: closed(
         {
           title: { type: "string", minLength: 1, maxLength: 120 },
+          template: {
+            type: "string",
+            enum: ["empty", "starter"],
+            default: "empty",
+          },
           operation_id: operationSchema,
         },
         ["title", "operation_id"],
@@ -515,6 +603,10 @@ export function toolsForCapabilities(capabilities: {
       execute: async (input) =>
         writeRequest("/api/wikis", "POST", {
           title: requiredText(input, "title", 120),
+          template:
+            input.template === undefined
+              ? "empty"
+              : requiredEnum(input, "template", ["empty", "starter"]),
           operation_id: requiredUuid(input, "operation_id"),
         }),
     });
@@ -565,6 +657,28 @@ function nullableUuid(input: JsonObject, key: string) {
   const value = input[key];
   if (value === undefined || value === null || value === "") return null;
   return requiredUuid(input, key);
+}
+function nullableEnum(input: JsonObject, key: string, allowed: string[]) {
+  const value = input[key];
+  if (value === undefined || value === null || value === "") return null;
+  return requiredEnum(input, key, allowed);
+}
+function nullableNumber(
+  input: JsonObject,
+  key: string,
+  min: number,
+  max: number,
+) {
+  const value = input[key];
+  if (value === undefined || value === null || value === "") return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < min ||
+    value > max
+  )
+    throw new Error(`${key} must be a number between ${min} and ${max}.`);
+  return value;
 }
 function boundedInteger(
   value: unknown,
@@ -709,10 +823,26 @@ async function writeRequest(path: string, method: string, body: JsonObject) {
     headers: { "content-type": "application/json", "x-wiki-origin": "webmcp" },
     body: JSON.stringify(body),
   });
-  if (result.ok)
+  if (result.ok) {
+    const data = result.data as JsonObject,
+      wiki = data.wiki as JsonObject | undefined,
+      activeWikiId =
+        typeof data.active_wiki_id === "string"
+          ? data.active_wiki_id
+          : typeof wiki?.id === "string"
+            ? wiki.id
+            : null;
+    if (
+      activeWikiId &&
+      (path === "/api/session/active-wiki" || path === "/api/wikis")
+    ) {
+      document.documentElement.dataset.wikiId = activeWikiId;
+      delete document.documentElement.dataset.pageId;
+    }
     window.dispatchEvent(
       new CustomEvent("wiki:changed", { detail: result.change_set ?? null }),
     );
+  }
   return result;
 }
 async function requestJson<T = unknown>(

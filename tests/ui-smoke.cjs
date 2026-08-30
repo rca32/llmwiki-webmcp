@@ -109,7 +109,7 @@ let activeBrowser;
     releaseStartupList = resolve;
   });
   await startupRacePage.route(
-    "**/api/pages?depth=64&limit=200",
+    "**/api/pages?depth=64&limit=200&include_markdown=true",
     async (route) => {
       await startupListReleased;
       await route.continue();
@@ -125,7 +125,8 @@ let activeBrowser;
   await startupRacePage.locator(".graph-view").waitFor();
   const startupListCompleted = startupRacePage.waitForResponse(
     (response) =>
-      response.url() === `${baseUrl}/api/pages?depth=64&limit=200` &&
+      response.url() ===
+        `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=true` &&
       response.ok(),
   );
   releaseStartupList();
@@ -192,7 +193,7 @@ let activeBrowser;
   if (themeAfter === themeBefore)
     throw new Error("The light/dark workspace theme did not toggle.");
   await page.getByRole("button", { name: /테마$/ }).click();
-  const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200`;
+  const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=true`;
   const workspaceListEnvelope = await context.request
     .get(workspaceListUrl)
     .then((response) => response.json());
@@ -239,8 +240,8 @@ let activeBrowser;
     }
     await route.continue();
   };
-  await page.route("**/api/pages?depth=64&limit=200", workspaceRaceHandler);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.route(workspaceListUrl, workspaceRaceHandler);
+  await page.evaluate(() => window.dispatchEvent(new Event("wiki:changed")));
   await firstWorkspaceListRequest;
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page
@@ -255,7 +256,7 @@ let activeBrowser;
     throw new Error(
       "An older workspace response replaced the newest page list.",
     );
-  await page.unroute("**/api/pages?depth=64&limit=200", workspaceRaceHandler);
+  await page.unroute(workspaceListUrl, workspaceRaceHandler);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reducedMotionDuration = await page
     .locator(".sidebar-icon-button")
