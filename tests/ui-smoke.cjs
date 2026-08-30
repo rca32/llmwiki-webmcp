@@ -1174,10 +1174,23 @@ let activeBrowser;
     throw new Error(
       `The knowledge tree collapsed in graph view (${graphKnowledgeTreeWidth}px).`,
     );
-  await page.locator(".graph-svg-node").first().waitFor();
-  const graphNodeCount = await page.locator(".graph-svg-node").count();
+  await page
+    .locator(".graph-accessible-node")
+    .first()
+    .waitFor({ state: "attached" });
+  const graphNodeCount = await page.locator(".graph-accessible-node").count();
   if (graphNodeCount < 1)
     throw new Error("The graph view did not render any nodes.");
+  if (
+    (await page.locator(".sigma-container canvas").count()) < 1 ||
+    (await page.getByRole("button", { name: "Type", exact: true }).count()) !==
+      1 ||
+    (await page
+      .getByRole("button", { name: "Community", exact: true })
+      .count()) !== 1 ||
+    (await page.getByText("Node Types", { exact: true }).count()) !== 1
+  )
+    throw new Error("The upstream Sigma graph visual contract is not active.");
   const graphFocusRefresh = page.waitForResponse(
     (response) =>
       response.url().includes("/api/session/capabilities") && response.ok(),

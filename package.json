@@ -29,10 +29,13 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@fontsource-variable/geist": "^5.3.0",
+    "@react-sigma/core": "^5.0.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "0.45.2",
     "fflate": "^0.8.2",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
     "katex": "^0.16.22",
     "lucide-react": "^1.37.0",
     "mermaid": "^11.16.1",
@@ -44,6 +47,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "sigma": "^3.0.2",
     "tailwind-merge": "^3.6.0",
     "unist-util-visit": "^5.0.0"
   },

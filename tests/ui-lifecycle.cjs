@@ -158,9 +158,20 @@ let activeBrowser;
   await page.getByRole("link", { name: attachmentName }).waitFor();
 
   await page.getByRole("button", { name: "그래프" }).click();
-  const graphNode = page.locator(".graph-svg-node", { hasText: childTitle });
-  await graphNode.waitFor({ timeout: 10_000 });
-  await graphNode.click();
+  const graphNode = page.getByRole("button", {
+    name: `${childTitle} 그래프 노드`,
+  });
+  await graphNode.waitFor({ state: "attached", timeout: 10_000 });
+  await graphNode.evaluate((element) => element.click());
+  await page.locator(".graph-preview-panel").waitFor();
+  if (
+    (await page.locator(".graph-preview-panel > header > span").innerText()) !==
+    childTitle
+  )
+    throw new Error(
+      "Graph node click did not open the upstream-style preview.",
+    );
+  await page.getByRole("button", { name: "문서 열기" }).click();
   await page.locator(".wiki-editor").waitFor();
   if (
     (await page.locator(".workspace-breadcrumbs strong").innerText()) !==

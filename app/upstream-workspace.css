@@ -261,13 +261,48 @@ textarea {
   background: var(--sidebar);
 }
 
+.tree-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 44px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+.tree-tabs button {
+  position: relative;
+  border: 0;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.tree-tabs button:hover,
+.tree-tabs button.active {
+  color: var(--foreground);
+}
+
+.tree-tabs button.active::after {
+  position: absolute;
+  right: 4px;
+  bottom: -1px;
+  left: 4px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--foreground);
+  content: "";
+}
+
 .tree-header {
   display: flex;
-  min-height: 58px;
+  min-height: 42px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 10px 8px 14px;
+  padding: 6px 8px 4px 14px;
 }
 
 .tree-header > div {
@@ -278,15 +313,17 @@ textarea {
 
 .tree-header strong {
   overflow: hidden;
-  font-size: 13px;
+  color: var(--muted-foreground);
+  font-size: 10px;
   font-weight: 650;
+  letter-spacing: 0.025em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tree-header span {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: 9px;
 }
 
 .tree-action,
@@ -379,7 +416,7 @@ textarea {
 }
 
 .tree-content {
-  padding: 0 7px 14px;
+  padding: 2px 7px 14px;
 }
 
 .tree-label {
@@ -471,6 +508,11 @@ textarea {
 
 .tree-group-items {
   margin-left: 14px;
+}
+
+.tree-file-list {
+  display: grid;
+  gap: 1px;
 }
 
 .tree-page-row {
@@ -1477,70 +1519,387 @@ button.context-row {
 
 .graph-toolbar {
   display: flex;
-  min-height: 52px;
+  min-height: 48px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 12px 0 16px;
+  padding: 0 10px 0 18px;
   border-bottom: 1px solid var(--border);
+  background: var(--background);
 }
 
-.graph-toolbar > div,
+.graph-title,
 .graph-toolbar nav {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.graph-toolbar > div > svg {
-  width: 17px;
-  height: 17px;
-}
-.graph-toolbar > div > span {
-  display: grid;
-  gap: 1px;
-}
-.graph-toolbar strong {
-  font-size: 11px;
-}
-.graph-toolbar small {
+.graph-title > svg {
+  width: 16px;
+  height: 16px;
   color: var(--muted-foreground);
+}
+
+.graph-title strong {
+  margin-right: 4px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.graph-title span {
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  font-size: 10px;
+}
+
+.graph-toolbar nav {
+  align-self: stretch;
+  gap: 3px;
+}
+
+.graph-toolbar nav button {
+  display: inline-flex;
+  width: auto;
+  height: 30px;
+  align-self: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 520;
+}
+
+.graph-toolbar nav button.active {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.graph-toolbar nav button.icon-only {
+  width: 30px;
+  padding: 0;
+}
+
+.graph-toolbar nav button b {
+  display: grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  background: var(--muted);
   font-size: 9px;
+  font-weight: 650;
+}
+
+.graph-body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .graph-canvas {
   position: relative;
+  min-width: 0;
   min-height: 0;
   flex: 1;
   overflow: hidden;
   background-color: var(--background);
-  background-image: radial-gradient(var(--border) 0.7px, transparent 0.7px);
-  background-size: 16px 16px;
 }
 
-.graph-canvas svg {
+.sigma-container {
   width: 100%;
   height: 100%;
-  min-height: 420px;
 }
 
-.graph-canvas line {
-  stroke: color-mix(in oklch, var(--muted-foreground) 38%, transparent);
-  stroke-width: 1;
+.graph-zoom-controls {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  right: 14px;
+  bottom: auto !important;
+  left: auto !important;
+  display: flex;
+  width: auto !important;
+  height: auto !important;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.graph-svg-node {
+.graph-zoom-controls button {
+  background: color-mix(in oklch, var(--background) 90%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.graph-legend {
+  position: absolute;
+  z-index: 4;
+  bottom: 14px;
+  left: 14px;
+  display: grid;
+  min-width: 126px;
+  max-width: 240px;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--background) 92%, transparent);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--foreground) 8%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.graph-legend > strong {
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.graph-legend > div {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.graph-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 4px color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.graph-legend b {
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+.graph-empty {
+  display: grid;
+  height: 100%;
+  place-content: center;
+  place-items: center;
+  gap: 10px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.graph-empty svg {
+  width: 24px;
+  height: 24px;
+}
+
+.graph-accessible-nodes {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.graph-preview-panel,
+.graph-insights-panel {
+  display: flex;
+  width: clamp(320px, 30vw, 430px);
+  min-width: 300px;
+  max-width: 50vw;
+  flex: 0 0 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+}
+
+.graph-preview-panel > header,
+.graph-insights-panel > header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.graph-preview-panel > header > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-preview-panel > header button,
+.graph-insights-panel > header button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  background: transparent;
   cursor: pointer;
-  outline: none;
 }
 
-.graph-svg-node circle {
-  fill: var(--background);
-  stroke: var(--foreground);
-  stroke-width: 1.5;
-  transition:
-    fill 120ms ease,
-    stroke-width 120ms ease;
+.graph-preview-panel > header button:hover,
+.graph-insights-panel > header button:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.graph-preview-panel > header svg,
+.graph-insights-panel > header svg {
+  width: 14px;
+  height: 14px;
+}
+
+.graph-preview-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.graph-preview-scroll .markdown-preview {
+  width: auto;
+  min-height: 100%;
+  margin: 0;
+  padding: 24px 22px 60px;
+  color: var(--foreground);
+  font-family: "Geist Variable", sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.graph-preview-scroll .markdown-preview h1 {
+  margin: 10px 0 18px;
+  overflow-wrap: anywhere;
+  font-size: 24px;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.graph-preview-scroll .markdown-preview h2 {
+  margin: 24px 0 10px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.graph-preview-scroll .markdown-preview h3 {
+  margin: 20px 0 8px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.graph-preview-scroll .markdown-preview p,
+.graph-preview-scroll .markdown-preview li,
+.graph-preview-scroll .markdown-preview td,
+.graph-preview-scroll .markdown-preview th {
+  overflow-wrap: anywhere;
+}
+
+.graph-preview-loading {
+  padding: 24px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.graph-preview-panel > footer {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px 6px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.graph-preview-panel > footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.graph-preview-panel > footer svg {
+  width: 12px;
+  height: 12px;
+}
+
+.graph-insights-panel > header > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--foreground);
+}
+
+.graph-insights-panel section {
+  display: grid;
+  gap: 8px;
+  padding: 15px;
+  border-bottom: 1px solid var(--border);
+}
+
+.graph-insights-panel section > span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.graph-insights-panel section > strong {
+  font-size: 13px;
+}
+
+.graph-insights-panel section > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.graph-insights-panel section > button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--card);
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-insights-panel section > button svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted-foreground);
+}
+
+.graph-insights-panel section > button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-truncated {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 9px;
 }
 
 .graph-toolbar nav button.loading svg {
@@ -1557,42 +1916,6 @@ button.context-row {
   to {
     transform: rotate(360deg);
   }
-}
-
-.graph-svg-node .graph-node-hit {
-  fill: transparent;
-  stroke: transparent;
-  pointer-events: all;
-}
-
-.graph-svg-node:hover circle:not(.graph-node-hit),
-.graph-svg-node:focus circle:not(.graph-node-hit) {
-  fill: var(--accent);
-  stroke-width: 3;
-}
-
-.graph-svg-node text {
-  fill: var(--foreground);
-  font-family: "Geist Variable", sans-serif;
-  font-size: 10px;
-}
-
-.graph-svg-node.type-concept circle {
-  stroke: oklch(0.63 0.16 80);
-}
-.graph-svg-node.type-source circle {
-  stroke: oklch(0.55 0.11 150);
-}
-.graph-svg-node.type-entity circle {
-  stroke: oklch(0.57 0.13 320);
-}
-
-.graph-truncated {
-  margin: 0;
-  padding: 6px 12px;
-  border-top: 1px solid var(--border);
-  color: var(--muted-foreground);
-  font-size: 9px;
 }
 
 /* Operations remains a secondary, dense maintenance surface. */

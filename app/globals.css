@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@react-sigma/core/lib/style.css";
 
 :root {
   --ink: #181915;

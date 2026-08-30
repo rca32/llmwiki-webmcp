@@ -274,11 +274,10 @@ export default function Home() {
   const autosavePausedRef = useRef(false);
   const dirty = markdown !== savedMarkdown;
   useEffect(() => {
-    const storedTheme = window.localStorage.getItem("liminal-wiki:theme");
-    const shouldUseDark =
-      storedTheme === "dark" ||
-      (!storedTheme &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const storedTheme = window.localStorage.getItem("liminal-wiki:theme-v2");
+    // The pinned llm_wiki workspace is light-first. Keep dark mode available,
+    // but make the upstream look the deterministic default across devices.
+    const shouldUseDark = storedTheme === "dark";
     document.documentElement.classList.toggle("dark", shouldUseDark);
     window.queueMicrotask(() => setDarkMode(shouldUseDark));
   }, []);
@@ -1151,9 +1150,7 @@ export default function Home() {
                   deletedPages={deletedPages}
                   activePageId={pendingPageId ?? active?.id ?? null}
                   pendingPageId={pendingPageId}
-                  query={query}
                   canWrite={caps.can_write}
-                  onQueryChange={setQuery}
                   onOpenPage={(pageId) => void openPage(pageId)}
                   onCreatePage={() => void createNewPage()}
                   onRestorePage={(page) => {
@@ -1170,99 +1167,100 @@ export default function Home() {
 
           <ResizablePanel id="wiki-content" minSize="38%">
             <section className="workspace-main">
-              <header className="workspace-topbar">
-                <div className="workspace-breadcrumbs">
-                  {!leftPanelOpen && (
-                    <button
-                      type="button"
-                      className="topbar-icon-button"
-                      onClick={() => setLeftPanelOpen(true)}
-                      aria-label="사이드바 열기"
-                    >
-                      <ChevronRight />
-                    </button>
-                  )}
-                  <span>Liminal Wiki</span>
-                  <ChevronRight />
-                  <strong>
-                    {view === "operations"
-                      ? "운영과 복구"
-                      : view === "graph"
-                        ? "Knowledge graph"
+              {view !== "graph" && (
+                <header className="workspace-topbar">
+                  <div className="workspace-breadcrumbs">
+                    {!leftPanelOpen && (
+                      <button
+                        type="button"
+                        className="topbar-icon-button"
+                        onClick={() => setLeftPanelOpen(true)}
+                        aria-label="사이드바 열기"
+                      >
+                        <ChevronRight />
+                      </button>
+                    )}
+                    <span>Liminal Wiki</span>
+                    <ChevronRight />
+                    <strong>
+                      {view === "operations"
+                        ? "운영과 복구"
                         : view === "search"
                           ? "Search"
                           : (active?.title ?? "불러오는 중")}
-                  </strong>
-                </div>
-                <div className="workspace-actions">
-                  {writeMode === "read_only" && (
-                    <span
-                      className="readonly-badge"
-                      title={
-                        writeModeReason ?? "운영자가 쓰기를 일시 중지했습니다."
-                      }
-                    >
-                      읽기 전용
+                    </strong>
+                  </div>
+                  <div className="workspace-actions">
+                    {writeMode === "read_only" && (
+                      <span
+                        className="readonly-badge"
+                        title={
+                          writeModeReason ??
+                          "운영자가 쓰기를 일시 중지했습니다."
+                        }
+                      >
+                        읽기 전용
+                      </span>
+                    )}
+                    <span className={"sync-state " + (dirty ? "dirty" : "")}>
+                      <i />
+                      {dirty ? "저장되지 않은 변경" : status}
                     </span>
-                  )}
-                  <span className={"sync-state " + (dirty ? "dirty" : "")}>
-                    <i />
-                    {dirty ? "저장되지 않은 변경" : status}
-                  </span>
-                  <button
-                    type="button"
-                    className="topbar-icon-button"
-                    onClick={() => {
-                      const next =
-                        !document.documentElement.classList.contains("dark");
-                      setDarkMode(next);
-                      document.documentElement.classList.toggle("dark", next);
-                      window.localStorage.setItem(
-                        "liminal-wiki:theme",
-                        next ? "dark" : "light",
-                      );
-                    }}
-                    aria-label={darkMode ? "라이트 테마" : "다크 테마"}
-                    title={darkMode ? "라이트 테마" : "다크 테마"}
-                  >
-                    {darkMode ? <Sun /> : <Moon />}
-                  </button>
-                  {view === "document" && (
                     <button
                       type="button"
                       className="topbar-icon-button"
-                      onClick={() => setRightPanelOpen((value) => !value)}
-                      aria-label={
-                        rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
-                      }
-                      title={
-                        rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
-                      }
+                      onClick={() => {
+                        const next =
+                          !document.documentElement.classList.contains("dark");
+                        setDarkMode(next);
+                        document.documentElement.classList.toggle("dark", next);
+                        window.localStorage.setItem(
+                          "liminal-wiki:theme-v2",
+                          next ? "dark" : "light",
+                        );
+                      }}
+                      aria-label={darkMode ? "라이트 테마" : "다크 테마"}
+                      title={darkMode ? "라이트 테마" : "다크 테마"}
                     >
-                      {rightPanelOpen ? (
-                        <PanelRightClose />
-                      ) : (
-                        <PanelRightOpen />
-                      )}
+                      {darkMode ? <Sun /> : <Moon />}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="topbar-text-button"
-                    onClick={() => setView("operations")}
-                    disabled={!caps.can_export_portable}
-                  >
-                    백업
-                  </button>
-                  <button
-                    type="button"
-                    className="workspace-avatar"
-                    aria-label="사용자 프로필"
-                  >
-                    DH
-                  </button>
-                </div>
-              </header>
+                    {view === "document" && (
+                      <button
+                        type="button"
+                        className="topbar-icon-button"
+                        onClick={() => setRightPanelOpen((value) => !value)}
+                        aria-label={
+                          rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
+                        }
+                        title={
+                          rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
+                        }
+                      >
+                        {rightPanelOpen ? (
+                          <PanelRightClose />
+                        ) : (
+                          <PanelRightOpen />
+                        )}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="topbar-text-button"
+                      onClick={() => setView("operations")}
+                      disabled={!caps.can_export_portable}
+                    >
+                      백업
+                    </button>
+                    <button
+                      type="button"
+                      className="workspace-avatar"
+                      aria-label="사용자 프로필"
+                    >
+                      DH
+                    </button>
+                  </div>
+                </header>
+              )}
 
               <div className="workspace-content">
                 <Suspense fallback={<WorkspaceLoading />}>

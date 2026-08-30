@@ -10,6 +10,11 @@ MCP, tray, watcher, CLI, and upstream branding are excluded. Human UI and
 page-scoped WebMCP tools continue to use the same authenticated HTTP/domain
 layer backed by D1 and R2.
 
+The graph workspace directly retains the upstream Sigma/Graphology and
+ForceAtlas2 visual interaction layer, including its node palette, sizing,
+hover emphasis, toolbar, legend, zoom controls, and side preview composition.
+Only the desktop data and command adapters are replaced.
+
 The authoritative file-by-file import and modification record is maintained in
 [`docs/UPSTREAM_LLM_WIKI.md`](docs/UPSTREAM_LLM_WIKI.md). The complete GPL-3.0
 license text remains in [`LICENSE`](LICENSE), and direct dependency licenses

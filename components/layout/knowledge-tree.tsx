@@ -8,11 +8,11 @@ import {
   ChevronRight,
   CircleDot,
   FileText,
+  FolderOpen,
   FolderTree,
   Globe,
   Lightbulb,
   Plus,
-  Search,
   Trash2,
 } from "lucide-react";
 
@@ -63,9 +63,7 @@ export function KnowledgeTree({
   deletedPages,
   activePageId,
   pendingPageId,
-  query,
   canWrite,
-  onQueryChange,
   onOpenPage,
   onCreatePage,
   onRestorePage,
@@ -74,13 +72,12 @@ export function KnowledgeTree({
   deletedPages: KnowledgeTreePage[];
   activePageId: string | null;
   pendingPageId: string | null;
-  query: string;
   canWrite: boolean;
-  onQueryChange: (query: string) => void;
   onOpenPage: (pageId: string) => void;
   onCreatePage: () => void;
   onRestorePage: (page: KnowledgeTreePage) => void;
 }) {
+  const [treeMode, setTreeMode] = useState<"knowledge" | "files">("knowledge");
   const [expandedTypes, setExpandedTypes] = useState(() => new Set(typeOrder));
   const [trashOpen, setTrashOpen] = useState(false);
   const grouped = useMemo(() => {
@@ -117,9 +114,25 @@ export function KnowledgeTree({
 
   return (
     <section className="knowledge-tree-shell" aria-label="Knowledge Tree">
+      <nav className="tree-tabs" aria-label="사이드바 보기">
+        <button
+          type="button"
+          className={treeMode === "knowledge" ? "active" : ""}
+          onClick={() => setTreeMode("knowledge")}
+        >
+          Knowledge
+        </button>
+        <button
+          type="button"
+          className={treeMode === "files" ? "active" : ""}
+          onClick={() => setTreeMode("files")}
+        >
+          Files
+        </button>
+      </nav>
       <header className="tree-header">
         <div>
-          <strong>Liminal Wiki</strong>
+          <strong>LIMINAL WIKI</strong>
           <span>{pages.length} pages</span>
         </div>
         <button
@@ -134,88 +147,101 @@ export function KnowledgeTree({
         </button>
       </header>
 
-      <label className="tree-search">
-        <Search aria-hidden="true" />
-        <input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search pages"
-          aria-label="페이지 검색"
-        />
-        <kbd>⌘K</kbd>
-      </label>
-
       <ScrollArea className="tree-scroll-area">
         <div className="tree-content">
-          <p className="tree-label">Knowledge</p>
+          <p className="tree-label">
+            {treeMode === "knowledge" ? "Knowledge" : "All files"}
+          </p>
           {grouped.length === 0 && (
             <p className="tree-empty">표시할 페이지가 없습니다.</p>
           )}
-          {grouped.map(([type, items]) => {
-            const config = typeConfig(type);
-            const Icon = config.icon;
-            const expanded = expandedTypes.has(type);
-            return (
-              <div className="tree-group" key={type}>
-                <button
-                  type="button"
-                  className="tree-group-heading"
-                  onClick={() => toggleType(type)}
-                  aria-expanded={expanded}
-                >
-                  {expanded ? <ChevronDown /> : <ChevronRight />}
-                  <Icon className={config.className} />
-                  <span>{config.label}</span>
-                  <b>{items.length}</b>
-                </button>
-                {expanded && (
-                  <div className="tree-group-items">
-                    {items.map((page) => (
-                      <button
-                        type="button"
-                        key={page.id}
-                        className={`tree-page-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""}`}
-                        onClick={() => onOpenPage(page.id)}
-                        title={page.path}
-                        data-page-id={page.id}
-                        aria-busy={pendingPageId === page.id}
-                        onKeyDown={(event) => {
-                          if (
-                            !["ArrowDown", "ArrowUp", "Home", "End"].includes(
-                              event.key,
+          {treeMode === "files" && (
+            <div className="tree-file-list">
+              {[...pages]
+                .sort((a, b) => a.path.localeCompare(b.path, "ko"))
+                .map((page) => (
+                  <button
+                    type="button"
+                    key={page.id}
+                    className={`tree-page-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""}`}
+                    onClick={() => onOpenPage(page.id)}
+                    title={page.path}
+                    data-page-id={page.id}
+                    aria-busy={pendingPageId === page.id}
+                  >
+                    <FolderOpen aria-hidden="true" />
+                    <span>{page.title}</span>
+                    <small>v{page.version}</small>
+                  </button>
+                ))}
+            </div>
+          )}
+          {treeMode === "knowledge" &&
+            grouped.map(([type, items]) => {
+              const config = typeConfig(type);
+              const Icon = config.icon;
+              const expanded = expandedTypes.has(type);
+              return (
+                <div className="tree-group" key={type}>
+                  <button
+                    type="button"
+                    className="tree-group-heading"
+                    onClick={() => toggleType(type)}
+                    aria-expanded={expanded}
+                  >
+                    {expanded ? <ChevronDown /> : <ChevronRight />}
+                    <Icon className={config.className} />
+                    <span>{config.label}</span>
+                    <b>{items.length}</b>
+                  </button>
+                  {expanded && (
+                    <div className="tree-group-items">
+                      {items.map((page) => (
+                        <button
+                          type="button"
+                          key={page.id}
+                          className={`tree-page-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""}`}
+                          onClick={() => onOpenPage(page.id)}
+                          title={page.path}
+                          data-page-id={page.id}
+                          aria-busy={pendingPageId === page.id}
+                          onKeyDown={(event) => {
+                            if (
+                              !["ArrowDown", "ArrowUp", "Home", "End"].includes(
+                                event.key,
+                              )
                             )
-                          )
-                            return;
-                          event.preventDefault();
-                          const rows = Array.from(
-                            event.currentTarget
-                              .closest(".tree-content")
-                              ?.querySelectorAll<HTMLButtonElement>(
-                                ".tree-page-row:not(.deleted)",
-                              ) ?? [],
-                          );
-                          const index = rows.indexOf(event.currentTarget);
-                          const nextIndex =
-                            event.key === "Home"
-                              ? 0
-                              : event.key === "End"
-                                ? rows.length - 1
-                                : event.key === "ArrowDown"
-                                  ? Math.min(index + 1, rows.length - 1)
-                                  : Math.max(index - 1, 0);
-                          rows[nextIndex]?.focus();
-                        }}
-                      >
-                        <FileText aria-hidden="true" />
-                        <span>{page.title}</span>
-                        <small>v{page.version}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                              return;
+                            event.preventDefault();
+                            const rows = Array.from(
+                              event.currentTarget
+                                .closest(".tree-content")
+                                ?.querySelectorAll<HTMLButtonElement>(
+                                  ".tree-page-row:not(.deleted)",
+                                ) ?? [],
+                            );
+                            const index = rows.indexOf(event.currentTarget);
+                            const nextIndex =
+                              event.key === "Home"
+                                ? 0
+                                : event.key === "End"
+                                  ? rows.length - 1
+                                  : event.key === "ArrowDown"
+                                    ? Math.min(index + 1, rows.length - 1)
+                                    : Math.max(index - 1, 0);
+                            rows[nextIndex]?.focus();
+                          }}
+                        >
+                          <FileText aria-hidden="true" />
+                          <span>{page.title}</span>
+                          <small>v{page.version}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
           {deletedPages.length > 0 && (
             <div className="tree-group tree-trash">
