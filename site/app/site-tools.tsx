@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import {
+  LLM_WIKI_CORE_ANTI_PATTERN,
+  LLM_WIKI_CORE_IDEA,
+  LLM_WIKI_CORE_INVARIANTS,
+  LLM_WIKI_REQUIRED_WORKFLOW,
+} from "../lib/llm-wiki-core";
 
 type JsonObject = Record<string, unknown>;
 type ApiEnvelope<T = unknown> =
@@ -223,9 +229,9 @@ export function readTools(): SiteTool[] {
   return [
     {
       name: "wiki_get_context",
-      title: "Get current wiki context",
+      title: "Bootstrap the current LLM Wiki context",
       description:
-        "Read the current wiki, open page, selected text, and session capabilities. Use this before choosing another wiki tool.",
+        "Bootstrap every LLM Wiki task with the current vault, page, selection, capabilities, and core operating model. Call this before any other wiki tool: this is a persistent, source-grounded, compounding knowledge wiki, not a temporary retrieval scratchpad.",
       inputSchema: closed({}),
       annotations: readAnnotations,
       execute: async () => {
@@ -251,6 +257,13 @@ export function readTools(): SiteTool[] {
             current_page_wiki_id:
               activeWikiId && pageWikiId === activeWikiId ? pageWikiId : null,
             selection: window.getSelection()?.toString().slice(0, 2000) ?? "",
+            llm_wiki_core: {
+              core_idea: LLM_WIKI_CORE_IDEA,
+              is_not: LLM_WIKI_CORE_ANTI_PATTERN,
+              invariants: [...LLM_WIKI_CORE_INVARIANTS],
+              required_workflow: [...LLM_WIKI_REQUIRED_WORKFLOW],
+              next_tool: "wiki_get_operating_contract",
+            },
           },
         };
       },
@@ -268,7 +281,7 @@ export function readTools(): SiteTool[] {
       name: "wiki_get_operating_contract",
       title: "Get the vault operating contract",
       description:
-        "Read the active vault's purpose, page types, naming, provenance, confidence, approval, and archive policies before planning substantial work.",
+        "Read the active vault's source-grounded, compounding knowledge contract before substantial work. It defines page types, search-before-create, provenance, confidence, plan-before-apply, and archive policies.",
       inputSchema: closed({}),
       annotations: readAnnotations,
       execute: async () => requestJson("/api/wiki-contract"),
@@ -313,7 +326,7 @@ export function readTools(): SiteTool[] {
       name: "wiki_search",
       title: "Search wiki pages",
       description:
-        "Search active wiki pages by title and Markdown body with cursor pagination. Returns concise matches, total, has_more, and a recovery-safe request ID.",
+        "Search active wiki pages by title and Markdown body before creating pages or planning ingestion. Use matches to update an existing canonical page when it already represents the subject.",
       inputSchema: closed(
         {
           query: { type: "string", minLength: 1, maxLength: 500 },
@@ -473,7 +486,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_plan_ingest",
       title: "Plan source-grounded wiki ingest",
       description:
-        "Persist an immutable, expiring review plan for one source, proposed knowledge pages, and claims. Requires write permission but does not change wiki pages or claims until wiki_apply_ingest is explicitly approved.",
+        "Persist an immutable, expiring review plan that preserves one source and integrates its evidence into canonical knowledge pages and grounded claims. Search first. Requires write permission but changes nothing until wiki_apply_ingest is explicitly approved.",
       inputSchema: closed(
         {
           source: ingestSourceSchema,
@@ -584,7 +597,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_create_page",
       title: "Create a wiki page",
       description:
-        "Create one Markdown page in the current wiki as an authorized editor. Source pages may include structured retrieval metadata. The committed response is sufficient to verify the created ID and version without an immediate get call.",
+        "Create one Markdown page for direct user-requested authoring after searching for an existing canonical page. For research or source ingestion, use wiki_plan_ingest instead so provenance, synthesis, and claims remain connected.",
       inputSchema: closed(
         {
           parent_id: { ...pageIdSchema, type: ["string", "null"] },
@@ -668,7 +681,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_update_page",
       title: "Update a wiki page",
       description:
-        "Replace a page Markdown body as an authorized editor. Read the page first and pass its current version; stale writes return a conflict and never overwrite newer work.",
+        "Replace a page Markdown body for direct user-requested editing. Read it first and pass its current version; use wiki_plan_ingest instead when integrating new research or source evidence.",
       inputSchema: closed(
         {
           page_id: pageIdSchema,
@@ -702,7 +715,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_append_page",
       title: "Append to a wiki page",
       description:
-        "Append Markdown to a page or named section as an authorized editor. On the first section append, replace_empty_state can remove a recognized empty-state sentence atomically.",
+        "Append Markdown for direct user-requested editing after reading the current page. Use wiki_plan_ingest instead when integrating research so source provenance and canonical synthesis are preserved.",
       inputSchema: closed(
         {
           page_id: pageIdSchema,

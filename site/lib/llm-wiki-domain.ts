@@ -1,4 +1,5 @@
 import { AppError, type PageType, type RetrievalStatus } from "./contracts";
+import { LLM_WIKI_CORE_IDEA } from "./llm-wiki-core";
 import {
   MAX_MARKDOWN,
   PAGE_TYPES,
@@ -35,7 +36,7 @@ export type WikiOperatingContract = {
 };
 
 export const DEFAULT_OPERATING_CONTRACT: WikiOperatingContract = {
-  purpose: "Build a source-grounded, compounding knowledge wiki.",
+  purpose: LLM_WIKI_CORE_IDEA,
   allowed_page_types: [...PAGE_TYPES],
   naming_policy: "descriptive_titles",
   linking_policy: "wikilinks_and_claims",

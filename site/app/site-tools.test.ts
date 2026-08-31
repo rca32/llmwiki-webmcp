@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LLM_WIKI_CORE_IDEA } from "../lib/llm-wiki-core";
 import { WEBMCP_TOOL_NAMES } from "../lib/webmcp-tool-names";
 import { readTools, toolsForCapabilities, writeTools } from "./site-tools";
 
@@ -117,6 +118,56 @@ describe("WebMCP descriptor contract", () => {
     const wikiId = (tool.inputSchema.properties as Record<string, JsonObject>)
       .wiki_id;
     expect(wikiId.description).toBe("Stable wiki vault UUID");
+  });
+
+  it("bootstraps the core idea and required workflow before other wiki tools", async () => {
+    const wikiId = "11111111-1111-4111-8111-111111111111";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          data: { wiki: { id: wikiId }, capabilities: { can_read: true } },
+          request_id: "req-context",
+          change_set: null,
+        }),
+      }),
+    );
+    vi.stubGlobal("document", {
+      documentElement: { dataset: { wikiId, pageId: "page-123" } },
+    });
+    vi.stubGlobal("window", {
+      getSelection: () => ({ toString: () => "selected evidence" }),
+    });
+
+    const contextTool = readTools().find(
+      (tool) => tool.name === "wiki_get_context",
+    )!;
+    const result = (await contextTool.execute({})) as {
+      data: {
+        llm_wiki_core: {
+          core_idea: string;
+          required_workflow: string[];
+          next_tool: string;
+        };
+      };
+    };
+
+    expect(contextTool.description).toContain("persistent, source-grounded");
+    expect(result.data.llm_wiki_core.core_idea).toBe(LLM_WIKI_CORE_IDEA);
+    expect(result.data.llm_wiki_core.required_workflow).toEqual([
+      "wiki_get_context",
+      "wiki_get_operating_contract",
+      "wiki_search",
+      "wiki_plan_ingest",
+      "review_plan_with_user",
+      "wiki_apply_ingest",
+      "wiki_lint",
+    ]);
+    expect(result.data.llm_wiki_core.next_tool).toBe(
+      "wiki_get_operating_contract",
+    );
   });
 
   it("exposes vault navigation to viewers and content writes only to writers", () => {

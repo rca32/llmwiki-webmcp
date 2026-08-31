@@ -4,6 +4,10 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./workspace.css";
 import { I18nProvider } from "@/components/i18n-provider";
+import {
+  LLM_WIKI_CORE_IDEA,
+  LLM_WIKI_META_DESCRIPTION,
+} from "@/lib/llm-wiki-core";
 import { chatGPTSignInPath, getChatGPTUser } from "./chatgpt-auth";
 
 const mono = IBM_Plex_Mono({
@@ -13,25 +17,25 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Liminal Wiki — WebMCP Native Knowledge",
-  description:
-    "A WebMCP-native knowledge workspace where people and agents share data, permissions, and revisions.",
+  title: "Liminal Wiki — Source-grounded, Compounding Knowledge",
+  description: LLM_WIKI_META_DESCRIPTION,
+  applicationName: "Liminal Wiki",
   openGraph: {
-    title: "Liminal Wiki",
-    description: "A knowledge space edited together by people and agents.",
+    title: "Liminal Wiki — Source-grounded, Compounding Knowledge",
+    description: LLM_WIKI_META_DESCRIPTION,
     images: [
       {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Liminal Wiki WebMCP Native Knowledge Workspace",
+        alt: "Liminal Wiki source-grounded compounding knowledge workspace",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Liminal Wiki",
-    description: "A knowledge space edited together by people and agents.",
+    title: "Liminal Wiki — Source-grounded, Compounding Knowledge",
+    description: LLM_WIKI_META_DESCRIPTION,
     images: ["/og.png"],
   },
 };
@@ -56,6 +60,7 @@ export default async function RootLayout({
                   ChatGPT sign-in is required. Your account opens or creates its
                   own private Liminal Wiki workspace.
                 </p>
+                <p>{LLM_WIKI_CORE_IDEA}</p>
                 <div className="bootstrap-actions">
                   <a
                     className="save-button"

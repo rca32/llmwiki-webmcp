@@ -39,7 +39,7 @@ const en = {
   "auth.eyebrow": "PRIVATE WIKI · CHATGPT SIGN-IN",
   "auth.title": "Sign in to open your wiki",
   "auth.description":
-    "ChatGPT sign-in is required. Your account opens or creates its own private Liminal Wiki workspace.",
+    "ChatGPT sign-in opens your private, source-grounded Liminal Wiki, where sources are preserved and new evidence compounds into canonical knowledge pages over time.",
   "auth.action": "Sign in with ChatGPT",
   "editor.editMode": "Editor mode",
   "editor.edit": "Edit",
@@ -251,7 +251,7 @@ const ko: Dictionary = {
   "auth.eyebrow": "개인 위키 · ChatGPT 로그인",
   "auth.title": "로그인하여 내 위키 열기",
   "auth.description":
-    "ChatGPT 로그인이 필요합니다. 로그인 계정 전용의 비공개 Liminal Wiki 작업공간을 열거나 새로 만듭니다.",
+    "ChatGPT로 로그인하면 출처를 보존하고 새로운 근거를 기존 지식 문서에 계속 통합하는 개인용 Liminal Wiki가 열립니다.",
   "auth.action": "ChatGPT로 로그인",
   "common.cancel": "취소",
   "common.create": "만들기",
@@ -446,7 +446,7 @@ const ja: Dictionary = {
   "auth.eyebrow": "プライベート Wiki · ChatGPT サインイン",
   "auth.title": "サインインして自分の Wiki を開く",
   "auth.description":
-    "ChatGPT でのサインインが必要です。アカウント専用の非公開 Liminal Wiki ワークスペースを開くか新規作成します。",
+    "ChatGPTでサインインすると、情報源を保存し、新しい根拠を既存の知識ページへ継続的に統合する非公開のLiminal Wikiが開きます。",
   "auth.action": "ChatGPT でサインイン",
   "common.cancel": "キャンセル",
   "common.create": "作成",
@@ -641,7 +641,7 @@ const zh: Dictionary = {
   "auth.eyebrow": "私人 Wiki · ChatGPT 登录",
   "auth.title": "登录以打开您的 Wiki",
   "auth.description":
-    "必须使用 ChatGPT 登录。系统会打开或创建仅属于该登录账户的私人 Liminal Wiki 工作区。",
+    "使用ChatGPT登录后，将打开您的私人Liminal Wiki；它会保留来源，并持续将新证据整合到规范知识页面中。",
   "auth.action": "使用 ChatGPT 登录",
   "common.cancel": "取消",
   "common.create": "创建",
