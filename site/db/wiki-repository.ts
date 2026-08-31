@@ -27,6 +27,12 @@ import { safeOperationalErrorTag } from "../lib/security-policy";
 import { assertActiveAttachmentCapacity } from "../lib/storage-quota";
 import { idempotencyDisposition } from "../lib/idempotency-policy";
 import {
+  isPublicDemoSlug,
+  PUBLIC_DEMO_D1_LIMIT_BYTES,
+  PUBLIC_DEMO_PAGE_LIMIT,
+  publicDemoIdentifiers,
+} from "../lib/public-demo";
+import {
   DEFAULT_OPERATING_CONTRACT,
   buildWikiLintReport,
   canonicalIngestPlanHash,
@@ -134,6 +140,7 @@ export function ensureWikiSchema(): Promise<void> {
 
 export async function getMembership(email: string): Promise<{
   wikiId: string | null;
+  wikiSlug: string | null;
   wikiTitle: string | null;
   role: Role | null;
   bootstrapStatus: string;
@@ -149,13 +156,14 @@ export async function getMembership(email: string): Promise<{
     .first<Record<string, unknown>>();
   const memberships = await db()
     .prepare(
-      `SELECT w.id AS wiki_id,w.title AS wiki_title,m.role,p.active_wiki_id AS preferred_wiki_id FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id AND w.status='active' AND w.deleted_at IS NULL LEFT JOIN wiki_user_preferences p ON p.user_email=m.user_email WHERE m.user_email=? ORDER BY CASE WHEN p.active_wiki_id=w.id THEN 0 WHEN w.id=? THEN 1 ELSE 2 END,w.updated_at DESC`,
+      `SELECT w.id AS wiki_id,w.slug AS wiki_slug,w.title AS wiki_title,m.role,p.active_wiki_id AS preferred_wiki_id FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id AND w.status='active' AND w.deleted_at IS NULL LEFT JOIN wiki_user_preferences p ON p.user_email=m.user_email WHERE m.user_email=? ORDER BY CASE WHEN p.active_wiki_id=w.id THEN 0 WHEN w.id=? THEN 1 ELSE 2 END,w.updated_at DESC`,
     )
     .bind(email, state?.active_wiki_id ?? null)
     .all<Record<string, unknown>>();
   const row = memberships.results[0];
   return {
     wikiId: typeof row?.wiki_id === "string" ? row.wiki_id : null,
+    wikiSlug: typeof row?.wiki_slug === "string" ? row.wiki_slug : null,
     wikiTitle: typeof row?.wiki_title === "string" ? row.wiki_title : null,
     role: (row?.role as Role | undefined) ?? null,
     bootstrapStatus: String(state?.bootstrap_status ?? "empty"),
@@ -782,6 +790,61 @@ export async function createWiki(input: {
       .bind(uuid(), wikiId, input.email, wikiId, input.requestId, timestamp),
   ]);
   return { id: wikiId, slug, title: input.title, role: "owner" as const };
+}
+
+export async function ensurePublicDemoWiki(input: { email: string }) {
+  const d = db(),
+    timestamp = now(),
+    { auditId, wikiId } = await publicDemoIdentifiers(input.email),
+    slug = `demo-${wikiId.slice(0, 8)}`,
+    title = "WebMCP Demo";
+  await d.batch([
+    d
+      .prepare(
+        `INSERT OR IGNORE INTO wikis(id,slug,title,status,created_at,updated_at) VALUES(?,?,?,'active',?,?)`,
+      )
+      .bind(wikiId, slug, title, timestamp, timestamp),
+    d
+      .prepare(
+        `INSERT OR IGNORE INTO wiki_members(wiki_id,user_email,role,created_at) VALUES(?,?,'editor',?)`,
+      )
+      .bind(wikiId, input.email, timestamp),
+    d
+      .prepare(
+        `INSERT OR IGNORE INTO wiki_usage(wiki_id,updated_at) VALUES(?,?)`,
+      )
+      .bind(wikiId, timestamp),
+    d
+      .prepare(
+        `INSERT INTO wiki_user_preferences(user_email,active_wiki_id,updated_at) VALUES(?,?,?) ON CONFLICT(user_email) DO UPDATE SET active_wiki_id=excluded.active_wiki_id,updated_at=excluded.updated_at`,
+      )
+      .bind(input.email, wikiId, timestamp),
+    d
+      .prepare(
+        `INSERT OR IGNORE INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'system','demo.auto_onboard','wiki',?,'success','demo.auto_onboard',?,?)`,
+      )
+      .bind(
+        auditId,
+        wikiId,
+        input.email,
+        wikiId,
+        JSON.stringify({ policy: "isolated_public_demo", role: "editor" }),
+        timestamp,
+      ),
+  ]);
+  const membership = await d
+    .prepare(
+      `SELECT w.id,w.slug,w.title,m.role FROM wikis w JOIN wiki_members m ON m.wiki_id=w.id WHERE w.id=? AND m.user_email=? AND w.status='active' AND w.deleted_at IS NULL`,
+    )
+    .bind(wikiId, input.email)
+    .first<Record<string, unknown>>();
+  if (!membership || membership.role !== "editor")
+    throw new AppError(
+      "internal_error",
+      "The isolated demo vault could not be prepared.",
+      500,
+    );
+  return membership;
 }
 
 type PageRow = {
@@ -1533,13 +1596,16 @@ async function assertContentQuota(
   wikiId: string,
   pageDelta: number,
   revisionBytes: number,
+  pageCountDelta = 0,
 ) {
   const usage = await db()
       .prepare(
-        `SELECT page_bytes,revision_inline_bytes,r2_ready_revision_bytes,r2_ready_attachment_bytes,r2_soft_deleted_bytes,r2_pending_bytes,r2_staging_import_bytes,r2_orphan_estimate_bytes FROM wiki_usage WHERE wiki_id=?`,
+        `SELECT u.page_bytes,u.revision_inline_bytes,u.r2_ready_revision_bytes,u.r2_ready_attachment_bytes,u.r2_soft_deleted_bytes,u.r2_pending_bytes,u.r2_staging_import_bytes,u.r2_orphan_estimate_bytes,u.page_count,w.slug AS wiki_slug FROM wiki_usage u JOIN wikis w ON w.id=u.wiki_id WHERE u.wiki_id=?`,
       )
       .bind(wikiId)
-      .first<Record<string, number>>(),
+      .first<Record<string, number | string>>(),
+    publicDemo = isPublicDemoSlug(usage?.wiki_slug),
+    d1Limit = publicDemo ? PUBLIC_DEMO_D1_LIMIT_BYTES : D1_SOFT_LIMIT_BYTES,
     d1Used =
       Number(usage?.page_bytes ?? 0) +
       Number(usage?.revision_inline_bytes ?? 0),
@@ -1554,15 +1620,31 @@ async function assertContentQuota(
       Math.max(pageDelta, 0) +
       (revisionBytes <= INLINE_REVISION_BYTES ? revisionBytes : 0),
     incomingR2 = revisionBytes > INLINE_REVISION_BYTES ? revisionBytes : 0;
-  if (d1Used + incomingD1 > D1_SOFT_LIMIT_BYTES * 0.95)
+  if (
+    publicDemo &&
+    Number(usage?.page_count ?? 0) + pageCountDelta > PUBLIC_DEMO_PAGE_LIMIT
+  )
     throw new AppError(
       "quota_exceeded",
-      "The D1 storage safety limit would be exceeded.",
+      "The public demo vault page limit would be exceeded.",
+      413,
+      {
+        page_count: Number(usage?.page_count ?? 0),
+        incoming_pages: pageCountDelta,
+        page_limit: PUBLIC_DEMO_PAGE_LIMIT,
+      },
+    );
+  if (d1Used + incomingD1 > d1Limit * 0.95)
+    throw new AppError(
+      "quota_exceeded",
+      publicDemo
+        ? "The public demo vault storage limit would be exceeded."
+        : "The D1 storage safety limit would be exceeded.",
       413,
       {
         used_bytes: d1Used,
         incoming_bytes: incomingD1,
-        soft_limit_bytes: D1_SOFT_LIMIT_BYTES,
+        soft_limit_bytes: d1Limit,
       },
     );
   if (r2Used + incomingR2 > R2_SOFT_LIMIT_BYTES * 0.95)
@@ -1628,6 +1710,7 @@ export async function createPage(input: {
     input.wikiId,
     bytes(input.markdown),
     bytes(input.markdown),
+    1,
   );
   if (input.parentId) {
     const parent = await getPage(input.wikiId, input.parentId);

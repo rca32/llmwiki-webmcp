@@ -164,6 +164,7 @@ type WikiSummary = {
   id: string;
   title: string;
   role: string;
+  is_demo?: boolean;
 };
 type Envelope<T> =
   | { ok: true; data: T; change_set: unknown }
@@ -600,7 +601,12 @@ export default function Home() {
           ),
         );
         let session = await api<{
-          wiki: { id: string; title: string; role: string } | null;
+          wiki: {
+            id: string;
+            title: string;
+            role: string;
+            is_demo?: boolean;
+          } | null;
           capabilities: Caps;
           site_version: number;
           write_mode: "read_write" | "read_only";
@@ -623,7 +629,12 @@ export default function Home() {
               ),
             );
             session = await api<{
-              wiki: { id: string; title: string; role: string } | null;
+              wiki: {
+                id: string;
+                title: string;
+                role: string;
+                is_demo?: boolean;
+              } | null;
               capabilities: Caps;
               site_version: number;
               write_mode: "read_write" | "read_only";

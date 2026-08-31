@@ -15,6 +15,7 @@ export async function GET() {
                 id: session.wikiId,
                 title: session.wikiTitle,
                 role: session.role,
+                is_demo: session.isPublicDemo,
               }
             : null,
           capabilities: session.capabilities,

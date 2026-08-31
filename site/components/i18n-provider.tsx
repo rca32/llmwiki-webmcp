@@ -88,6 +88,8 @@ const en = {
   "ops.startTitle": "Get started with Liminal Wiki",
   "ops.startDescription":
     "Create an empty wiki or restore a verified full backup from another Site. Restore is available only when there is no active wiki.",
+  "ops.noWikiAccess":
+    "This account is not connected to a wiki. Ask the site owner for access or sign in with an invited account.",
   "ops.createEmpty": "Create empty wiki",
   "ops.restoreBackup": "Restore from backup",
   "ops.title": "Operations & recovery",
@@ -291,6 +293,8 @@ const ko: Dictionary = {
   "ops.startTitle": "Liminal Wiki 시작하기",
   "ops.startDescription":
     "새 빈 위키를 만들거나 다른 Site의 검증된 전체 백업을 복원하세요. 복원은 활성 위키가 없을 때만 가능합니다.",
+  "ops.noWikiAccess":
+    "이 계정은 위키에 연결되어 있지 않습니다. 사이트 소유자에게 접근 권한을 요청하거나 초대된 계정으로 로그인하세요.",
   "ops.createEmpty": "빈 위키 만들기",
   "ops.restoreBackup": "백업에서 복원",
   "ops.title": "운영과 복구",
@@ -477,6 +481,8 @@ const ja: Dictionary = {
   "ops.startTitle": "Liminal Wikiを始める",
   "ops.startDescription":
     "空のWikiを作成するか、別のSiteの検証済み完全バックアップを復元します。復元は有効なWikiがない場合のみ利用できます。",
+  "ops.noWikiAccess":
+    "このアカウントはWikiに接続されていません。サイト所有者にアクセスを依頼するか、招待済みアカウントでサインインしてください。",
   "ops.createEmpty": "空のWikiを作成",
   "ops.restoreBackup": "バックアップから復元",
   "ops.title": "運用と復旧",
@@ -663,6 +669,8 @@ const zh: Dictionary = {
   "ops.startTitle": "开始使用Liminal Wiki",
   "ops.startDescription":
     "创建空Wiki或从其他Site恢复已验证的完整备份。仅在没有活动Wiki时可恢复。",
+  "ops.noWikiAccess":
+    "此账户尚未连接到Wiki。请向站点所有者申请访问权限，或使用受邀账户登录。",
   "ops.createEmpty": "创建空Wiki",
   "ops.restoreBackup": "从备份恢复",
   "ops.title": "运维与恢复",

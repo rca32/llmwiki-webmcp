@@ -718,6 +718,9 @@ export function OperationsPanel({
           <p className="eyebrow">NEW KNOWLEDGE SPACE</p>
           <h1>{t("ops.startTitle")}</h1>
           <p>{t("ops.startDescription")}</p>
+          {!capabilities.can_bootstrap && (
+            <p className="context-empty">{t("ops.noWikiAccess")}</p>
+          )}
           {message && (
             <div className="conflict-banner" role="alert">
               {message}
@@ -727,14 +730,14 @@ export function OperationsPanel({
             <button
               className="save-button"
               onClick={() => void createEmptyWiki()}
-              disabled={busy}
+              disabled={busy || !capabilities.can_bootstrap}
             >
               {t("ops.createEmpty")}
             </button>
             <button
               className="ghost-button"
               onClick={() => importRef.current?.click()}
-              disabled={busy}
+              disabled={busy || !capabilities.can_bootstrap}
             >
               {t("ops.restoreBackup")}
             </button>

@@ -7,7 +7,16 @@ import {
   type Role,
   type WriteMode,
 } from "./contracts";
-import { ensureWikiSchema, getMembership } from "../db/wiki-repository";
+import {
+  ensurePublicDemoWiki,
+  ensureWikiSchema,
+  getMembership,
+} from "../db/wiki-repository";
+import {
+  isPublicDemoSlug,
+  publicDemoEnabled,
+  restrictPublicDemoCapabilities,
+} from "./public-demo";
 
 export type WikiSession = {
   email: string;
@@ -15,6 +24,7 @@ export type WikiSession = {
   wikiId: string | null;
   wikiTitle: string | null;
   role: Role | null;
+  isPublicDemo: boolean;
   capabilities: Capabilities;
   siteVersion: number;
   writeMode: WriteMode;
@@ -47,7 +57,15 @@ export async function getWikiSession(): Promise<WikiSession> {
       "The signed-in identity has no usable email address.",
       401,
     );
-  const membership = await getMembership(email);
+  let membership = await getMembership(email);
+  if (
+    !membership.wikiId &&
+    authenticatedUser &&
+    publicDemoEnabled(env.PUBLIC_DEMO_AUTO_ONBOARD)
+  ) {
+    await ensurePublicDemoWiki({ email });
+    membership = await getMembership(email);
+  }
   const configuredOwner = (
     env.BOOTSTRAP_OWNER_EMAIL ??
     (process.env.NODE_ENV !== "production"
@@ -66,17 +84,22 @@ export async function getWikiSession(): Promise<WikiSession> {
       (configuredOwner === email || localOwner)) ||
     (membership.bootstrapStatus === "reserved" &&
       membership.reservedBy === email);
+  const isPublicDemo = isPublicDemoSlug(membership.wikiSlug),
+    capabilities = capabilitiesFor(
+      membership.role,
+      canBootstrap,
+      membership.writeMode,
+    );
   return {
     email,
     displayName: user.displayName,
     wikiId: membership.wikiId,
     wikiTitle: membership.wikiTitle,
     role: membership.role,
-    capabilities: capabilitiesFor(
-      membership.role,
-      canBootstrap,
-      membership.writeMode,
-    ),
+    isPublicDemo,
+    capabilities: isPublicDemo
+      ? restrictPublicDemoCapabilities(capabilities)
+      : capabilities,
     siteVersion: membership.siteVersion,
     writeMode: membership.writeMode,
     writeModeReason: membership.writeModeReason,
