@@ -1224,6 +1224,93 @@ textarea {
   background: var(--primary);
   font-size: 9px;
   font-weight: 650;
+  cursor: pointer;
+}
+
+.topbar-profile {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.topbar-profile > summary {
+  list-style: none;
+}
+
+.topbar-profile > summary::-webkit-details-marker {
+  display: none;
+}
+
+.topbar-profile[open] > summary {
+  outline: 2px solid color-mix(in oklch, var(--ring) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.topbar-profile-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  width: 232px;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: 0 16px 38px oklch(0 0 0 / 24%);
+}
+
+.topbar-profile-label {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topbar-profile-menu > strong,
+.topbar-profile-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-profile-menu > strong {
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.topbar-profile-email {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.topbar-profile-menu > a {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 0 7px;
+  border-radius: 6px;
+  color: var(--foreground);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.topbar-profile-menu > a:hover {
+  background: var(--accent);
+}
+
+.topbar-profile-menu > a svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
 }
 
 .workspace-content {

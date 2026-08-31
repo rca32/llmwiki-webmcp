@@ -17,6 +17,7 @@ import {
   FileText,
   Languages,
   Link2,
+  LogOut,
   Moon,
   Move,
   PanelLeftOpen,
@@ -178,6 +179,10 @@ type WikiSummary = {
   title: string;
   role: string;
 };
+type SessionIdentity = {
+  email: string;
+  display_name: string;
+};
 type Envelope<T> =
   | { ok: true; data: T; change_set: unknown }
   | {
@@ -198,6 +203,15 @@ function settleRequest<T>(request: Promise<T>): Promise<SettledRequest<T>> {
     (data) => ({ data }),
     (error: unknown) => ({ error }),
   );
+}
+
+function identityInitials(identity: SessionIdentity | null): string {
+  const label = identity?.display_name.trim() || identity?.email.trim() || "";
+  if (!label) return "LW";
+  const words = label.split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? `${words[0][0]}${words.at(-1)?.[0]}` : label[0])
+    .toLocaleUpperCase()
+    .slice(0, 2);
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -354,6 +368,7 @@ export default function Home() {
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [status, setStatus] = useState("연결 중…");
   const [caps, setCaps] = useState<Caps>(EMPTY_CAPABILITIES);
+  const [identity, setIdentity] = useState<SessionIdentity | null>(null);
   const [currentWiki, setCurrentWiki] = useState<WikiSummary | null>(null);
   const [wikis, setWikis] = useState<WikiSummary[]>([]);
   const [createTarget, setCreateTarget] = useState<{
@@ -602,6 +617,7 @@ export default function Home() {
           ),
         );
         let session = await api<{
+          identity: SessionIdentity;
           wiki: {
             id: string;
             title: string;
@@ -630,6 +646,7 @@ export default function Home() {
               ),
             );
             session = await api<{
+              identity: SessionIdentity;
               wiki: {
                 id: string;
                 title: string;
@@ -658,6 +675,7 @@ export default function Home() {
           pageDetailsCacheRef.current.clear();
         }
         setCurrentWiki(session.wiki);
+        setIdentity(session.identity);
         setCaps(session.capabilities);
         setSiteVersion(session.site_version);
         setWriteMode(session.write_mode);
@@ -744,6 +762,7 @@ export default function Home() {
           pagesRef.current = [];
           pageDetailsCacheRef.current.clear();
           setAuthRequired(true);
+          setIdentity(null);
           setCaps(EMPTY_CAPABILITIES);
           setCurrentWiki(null);
           setWikis([]);
@@ -1836,13 +1855,46 @@ export default function Home() {
                         </button>
                       </div>
                     </details>
-                    <button
-                      type="button"
-                      className="workspace-avatar"
-                      aria-label={t("page.profile")}
+                    <details
+                      className="topbar-profile"
+                      onBlur={(event) => {
+                        if (
+                          !event.currentTarget.contains(
+                            event.relatedTarget as Node | null,
+                          )
+                        ) {
+                          event.currentTarget.removeAttribute("open");
+                        }
+                      }}
                     >
-                      DH
-                    </button>
+                      <summary
+                        className="workspace-avatar"
+                        aria-label={t("page.profile")}
+                        title={t("page.profile")}
+                      >
+                        {identityInitials(identity)}
+                      </summary>
+                      <div className="topbar-profile-menu">
+                        <span className="topbar-profile-label">
+                          {t("page.signedInAs")}
+                        </span>
+                        <strong>
+                          {identity?.display_name || identity?.email}
+                        </strong>
+                        {identity?.display_name && identity.email && (
+                          <span className="topbar-profile-email">
+                            {identity.email}
+                          </span>
+                        )}
+                        <a
+                          href="/signout-with-chatgpt?return_to=%2F"
+                          target="_top"
+                        >
+                          <LogOut aria-hidden="true" />
+                          {t("page.signOut")}
+                        </a>
+                      </div>
+                    </details>
                   </div>
                 </header>
               )}

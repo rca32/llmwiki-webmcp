@@ -202,6 +202,23 @@ let activeBrowser;
     throw new Error("The light/dark workspace theme did not toggle.");
   await page.locator("summary.topbar-icon-button").click();
   await page.getByRole("button", { name: /테마$/ }).click();
+  const profileButton = page.locator("summary.workspace-avatar", {
+    hasText: /\S/,
+  });
+  if ((await profileButton.getAttribute("aria-label")) !== "사용자 프로필")
+    throw new Error("The profile menu trigger is not labelled.");
+  await profileButton.click();
+  const signOutLink = page.getByRole("link", { name: "로그아웃" });
+  await signOutLink.waitFor();
+  if (
+    (await signOutLink.getAttribute("href")) !==
+      "/signout-with-chatgpt?return_to=%2F" ||
+    (await signOutLink.getAttribute("target")) !== "_top"
+  )
+    throw new Error(
+      "The ChatGPT sign-out control is not top-level navigation.",
+    );
+  await profileButton.click();
   const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=true`;
   const workspaceListEnvelope = await context.request
     .get(workspaceListUrl)
@@ -1423,6 +1440,7 @@ let activeBrowser;
       optimisticPageOpenVerified: true,
       workspaceVisualVerified: true,
       lightDarkThemeVerified: true,
+      signOutControlVerified: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",
     }),
