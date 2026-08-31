@@ -15,18 +15,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 
 export type WorkspaceView = "document" | "search" | "graph" | "operations";
 
 const navItems: Array<{
   view: WorkspaceView;
   icon: typeof FileText;
-  label: string;
+  labelKey: TranslationKey;
 }> = [
-  { view: "document", icon: FileText, label: "문서" },
-  { view: "search", icon: Search, label: "검색" },
-  { view: "graph", icon: Network, label: "그래프" },
-  { view: "operations", icon: HardDrive, label: "운영과 복구" },
+  { view: "document", icon: FileText, labelKey: "nav.document" },
+  { view: "search", icon: Search, labelKey: "nav.search" },
+  { view: "graph", icon: Network, labelKey: "nav.graph" },
+  { view: "operations", icon: HardDrive, labelKey: "nav.operations" },
 ];
 
 export function IconSidebar({
@@ -40,14 +41,17 @@ export function IconSidebar({
   leftPanelOpen: boolean;
   onToggleLeftPanel: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <TooltipProvider delay={300}>
-      <aside className="icon-sidebar" aria-label="주요 화면">
+      <aside className="icon-sidebar" aria-label={t("nav.main")}>
         <div className="sidebar-wordmark" aria-label="Liminal Wiki">
           L
         </div>
         <nav className="sidebar-nav">
-          {navItems.map(({ view, icon: Icon, label }) => (
+          {navItems.map(({ view, icon: Icon, labelKey }) => {
+            const label = t(labelKey);
+            return (
             <Tooltip key={view}>
               <TooltipTrigger
                 type="button"
@@ -60,12 +64,15 @@ export function IconSidebar({
               </TooltipTrigger>
               <TooltipContent side="right">{label}</TooltipContent>
             </Tooltip>
-          ))}
+            );
+          })}
         </nav>
         <Tooltip>
           <TooltipTrigger
             type="button"
-            aria-label={leftPanelOpen ? "사이드바 접기" : "사이드바 열기"}
+            aria-label={
+              leftPanelOpen ? t("nav.sidebarClose") : t("nav.sidebarOpen")
+            }
             aria-pressed={!leftPanelOpen}
             className="sidebar-icon-button sidebar-toggle"
             onClick={onToggleLeftPanel}
@@ -73,7 +80,7 @@ export function IconSidebar({
             {leftPanelOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
           </TooltipTrigger>
           <TooltipContent side="right">
-            {leftPanelOpen ? "사이드바 접기" : "사이드바 열기"}
+            {leftPanelOpen ? t("nav.sidebarClose") : t("nav.sidebarOpen")}
           </TooltipContent>
         </Tooltip>
       </aside>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { buildPortableProjection } from "../lib/portable-package";
+import { useI18n } from "@/components/i18n-provider";
 
 type Capabilities = {
   can_bootstrap: boolean;
@@ -159,6 +160,7 @@ export function OperationsPanel({
   writeModeReason: string | null;
   onWorkspaceChanged: () => Promise<void>;
 }) {
+  const { language, t } = useI18n();
   const [members, setMembers] = useState<Member[]>([]),
     [events, setEvents] = useState<AuditEvent[]>([]),
     [operations, setOperations] = useState<Operations | null>(null),
@@ -714,11 +716,8 @@ export function OperationsPanel({
       <section className="bootstrap-stage">
         <div className="bootstrap-card">
           <p className="eyebrow">NEW KNOWLEDGE SPACE</p>
-          <h1>Liminal Wiki 시작하기</h1>
-          <p>
-            새 빈 위키를 만들거나, 다른 Site에서 내려받은 검증된 전체 백업을
-            복원하세요. 복원은 활성 위키가 없는 Site에서만 가능합니다.
-          </p>
+          <h1>{t("ops.startTitle")}</h1>
+          <p>{t("ops.startDescription")}</p>
           {message && (
             <div className="conflict-banner" role="alert">
               {message}
@@ -730,14 +729,14 @@ export function OperationsPanel({
               onClick={() => void createEmptyWiki()}
               disabled={busy}
             >
-              빈 위키 만들기
+              {t("ops.createEmpty")}
             </button>
             <button
               className="ghost-button"
               onClick={() => importRef.current?.click()}
               disabled={busy}
             >
-              백업에서 복원
+              {t("ops.restoreBackup")}
             </button>
             <input
               ref={importRef}
@@ -764,15 +763,15 @@ export function OperationsPanel({
       <header>
         <div>
           <span>WIKI OPERATIONS</span>
-          <h2>운영과 복구</h2>
-          <p>권한, 백업, 저장소 상태와 최근 변경을 한곳에서 확인합니다.</p>
+          <h2>{t("ops.title")}</h2>
+          <p>{t("ops.description")}</p>
         </div>
         <button
           className="ghost-button"
           onClick={() => void refresh()}
           disabled={busy}
         >
-          새로 고침
+          {t("ops.refresh")}
         </button>
       </header>
       {message && (
@@ -790,41 +789,39 @@ export function OperationsPanel({
           <section className="operation-card">
             <span>WRITE SAFETY</span>
             <h3>
-              {writeMode === "read_only" ? "읽기 전용 운영 중" : "쓰기 허용"}
+              {writeMode === "read_only"
+                ? t("ops.writeReadOnly")
+                : t("ops.writeEnabled")}
             </h3>
-            <p>
-              읽기 전용 모드는 사람 UI, WebMCP 도구 발견, 직접 API 실행에서
-              콘텐츠 변경을 함께 차단합니다.
-            </p>
+            <p>{t("ops.writeHint")}</p>
             <label className="backup-option">
-              전환 사유
+              {t("ops.reason")}
               <input
-                aria-label="읽기 전용 전환 사유"
+                aria-label={t("ops.reason")}
                 value={maintenanceReason}
                 onChange={(event) => setMaintenanceReason(event.target.value)}
                 disabled={busy || writeMode === "read_only"}
-                placeholder="예: D1 쓰기 장애 조사"
+                placeholder={t("ops.reasonPlaceholder")}
               />
             </label>
             {writeMode === "read_only" && writeModeReason && (
               <small className="warning-text">
-                현재 사유: {writeModeReason}
+                {t("ops.currentReason", { reason: writeModeReason })}
               </small>
             )}
             <div className="operation-actions">
               <button onClick={() => void changeWriteMode()} disabled={busy}>
-                {writeMode === "read_only" ? "쓰기 재개" : "읽기 전용 전환"}
+                {writeMode === "read_only"
+                  ? t("ops.resumeWriting")
+                  : t("ops.enableReadOnly")}
               </button>
             </div>
           </section>
         )}
         <section className="operation-card">
           <span>BACKUP & RESTORE</span>
-          <h3>이동 가능한 지식 보관</h3>
-          <p>
-            모든 파트의 크기와 SHA-256을 브라우저에서 다시 확인한 뒤 하나의
-            ZIP으로 저장하고 ACK합니다.
-          </p>
+          <h3>{t("ops.backupTitle")}</h3>
+          <p>{t("ops.backupDescription")}</p>
           {capabilities.can_full_backup && (
             <label className="backup-option">
               <input
@@ -835,8 +832,8 @@ export function OperationsPanel({
                 }
                 disabled={busy}
               />
-              멤버 이메일·역할 참조 포함
-              <small>다른 사람의 개인정보가 ZIP에 들어갑니다.</small>
+              {t("ops.includeMembers")}
+              <small>{t("ops.privacyWarning")}</small>
             </label>
           )}
           <div className="operation-actions">
@@ -844,18 +841,18 @@ export function OperationsPanel({
               onClick={() => void exportBackup("portable")}
               disabled={busy || !capabilities.can_export_portable}
             >
-              이동용 백업
+              {t("ops.portableBackup")}
             </button>
             {capabilities.can_full_backup && (
               <button onClick={() => void exportBackup("full")} disabled={busy}>
-                전체 백업
+                {t("ops.fullBackup")}
               </button>
             )}
             <button
               onClick={() => importRef.current?.click()}
               disabled={busy || !capabilities.can_import}
             >
-              빈 Site에서 복원
+              {t("ops.restoreEmpty")}
             </button>
             <input
               ref={importRef}
@@ -873,7 +870,7 @@ export function OperationsPanel({
               {fullBackupStale
                 ? "마지막 전체 백업이 7일보다 오래되었습니다: "
                 : "마지막 확인된 전체 백업: "}
-              {acknowledgedDate.toLocaleString("ko-KR")}
+              {acknowledgedDate.toLocaleString(language)}
             </small>
           ) : capabilities.can_full_backup ? (
             <small className="warning-text">확인된 전체 백업이 없습니다.</small>
@@ -882,27 +879,27 @@ export function OperationsPanel({
         {capabilities.can_full_backup && (
           <section className="operation-card">
             <span>STORAGE HEALTH</span>
-            <h3>저장소 상태</h3>
+            <h3>{t("ops.storageTitle")}</h3>
             <div className="metric-grid">
               <div>
                 <strong>{Number(operations?.usage?.page_count ?? 0)}</strong>
-                <small>페이지</small>
+                <small>{t("ops.pages")}</small>
               </div>
               <div>
                 <strong>
                   {Number(operations?.usage?.revision_count ?? 0)}
                 </strong>
-                <small>리비전</small>
+                <small>{t("ops.revisions")}</small>
               </div>
               <div>
                 <strong>
                   {Number(operations?.usage?.attachment_count ?? 0)}
                 </strong>
-                <small>첨부</small>
+                <small>{t("ops.attachments")}</small>
               </div>
               <div>
                 <strong>{operations?.pending_repairs ?? 0}</strong>
-                <small>대기 repair</small>
+                <small>{t("ops.pendingRepairs")}</small>
               </div>
             </div>
             <p>
@@ -912,10 +909,10 @@ export function OperationsPanel({
             </p>
             <div className="operation-actions">
               <button onClick={() => void runMaintenance()} disabled={busy}>
-                저장소 점검 실행
+                {t("ops.runStorageCheck")}
               </button>
               <button onClick={() => void runAtomicityProbe()} disabled={busy}>
-                D1 원자성 검사
+                {t("ops.atomicityCheck")}
               </button>
               {operations?.search_benchmark_enabled && (
                 <button
@@ -937,19 +934,16 @@ export function OperationsPanel({
         {capabilities.can_full_backup && (
           <section className="operation-card webmcp-observability-card">
             <span>WEBMCP OBSERVABILITY</span>
-            <h3>에이전트 도구 호출 상태</h3>
-            <p>
-              입력·응답 콘텐츠와 인증정보는 저장하지 않고 도구별 결과와
-              지연시간만 집계합니다.
-            </p>
+            <h3>{t("ops.agentTitle")}</h3>
+            <p>{t("ops.agentDescription")}</p>
             <div className="metric-grid webmcp-summary">
               <div>
                 <strong>{webmcpCalls}</strong>
-                <small>총 호출</small>
+                <small>{t("ops.totalCalls")}</small>
               </div>
               <div>
                 <strong>{webmcpAverageLatency} ms</strong>
-                <small>평균 지연</small>
+                <small>{t("ops.averageLatency")}</small>
               </div>
               <div>
                 <strong>
@@ -962,7 +956,7 @@ export function OperationsPanel({
                     0,
                   )}
                 </strong>
-                <small>성공</small>
+                <small>{t("ops.success")}</small>
               </div>
             </div>
             {webmcpMetrics.length ? (
@@ -984,27 +978,23 @@ export function OperationsPanel({
                 ))}
               </div>
             ) : (
-              <small>아직 기록된 WebMCP 호출이 없습니다.</small>
+              <small>{t("ops.noWebmcp")}</small>
             )}
           </section>
         )}
         {capabilities.can_full_backup && (
           <section className="operation-card webmcp-observability-card">
             <span>API OBSERVABILITY</span>
-            <h3>공통 명령 처리 상태</h3>
-            <p>
-              UI와 직접 API 요청을 같은 명령 이름으로 집계합니다. URL 인자, 요청
-              본문, 인증정보는 저장하지 않고 검색 결과 수와 실제 R2 업로드
-              바이트만 추가로 측정합니다.
-            </p>
+            <h3>{t("ops.apiTitle")}</h3>
+            <p>{t("ops.apiDescription")}</p>
             <div className="metric-grid webmcp-summary">
               <div>
                 <strong>{apiRequests}</strong>
-                <small>총 요청</small>
+                <small>{t("ops.totalRequests")}</small>
               </div>
               <div>
                 <strong>{apiAverageLatency} ms</strong>
-                <small>평균 지연</small>
+                <small>{t("ops.averageLatency")}</small>
               </div>
               <div>
                 <strong>
@@ -1017,19 +1007,19 @@ export function OperationsPanel({
                     0,
                   )}
                 </strong>
-                <small>성공</small>
+                <small>{t("ops.success")}</small>
               </div>
               <div>
                 <strong>
                   {Number(searchMeasurement?.average_result_count ?? 0)}
                 </strong>
-                <small>검색 평균 결과</small>
+                <small>{t("ops.averageSearchResults")}</small>
               </div>
               <div>
                 <strong>
                   {bytesLabel(uploadMeasurement?.total_size_bytes)}
                 </strong>
-                <small>실제 R2 업로드 누적</small>
+                <small>{t("ops.totalUploads")}</small>
               </div>
             </div>
             {apiMetrics.length ? (
@@ -1056,28 +1046,28 @@ export function OperationsPanel({
                 ))}
               </div>
             ) : (
-              <small>아직 집계된 API 요청이 없습니다.</small>
+              <small>{t("ops.noApi")}</small>
             )}
           </section>
         )}
         {capabilities.can_manage_members && (
           <section className="operation-card members-card">
             <span>MEMBERS</span>
-            <h3>멤버와 역할</h3>
+            <h3>{t("ops.membersTitle")}</h3>
             <div className="member-form">
               <input
                 type="email"
                 value={memberEmail}
                 onChange={(event) => setMemberEmail(event.target.value)}
                 placeholder="member@example.com"
-                aria-label="멤버 이메일"
+                aria-label={t("ops.memberEmail")}
               />
               <select
                 value={memberRole}
                 onChange={(event) =>
                   setMemberRole(event.target.value as "editor" | "viewer")
                 }
-                aria-label="멤버 역할"
+                aria-label={t("ops.memberRole")}
               >
                 <option value="editor">editor</option>
                 <option value="viewer">viewer</option>
@@ -1086,7 +1076,7 @@ export function OperationsPanel({
                 onClick={() => void saveMember()}
                 disabled={busy || !memberEmail.trim()}
               >
-                추가·저장
+                {t("ops.saveMember")}
               </button>
             </div>
             <div className="member-list">
@@ -1113,14 +1103,14 @@ export function OperationsPanel({
                         onClick={() => void transferOwner(member)}
                         disabled={busy}
                       >
-                        소유권 이전
+                        {t("ops.transferOwnership")}
                       </button>
                       <button
                         className="danger"
                         onClick={() => void removeMember(member)}
                         disabled={busy}
                       >
-                        제거
+                        {t("ops.remove")}
                       </button>
                     </span>
                   )}
@@ -1133,12 +1123,12 @@ export function OperationsPanel({
       <section className="audit-card">
         <div>
           <span>AUDIT TRAIL</span>
-          <h3>최근 변경</h3>
+          <h3>{t("ops.recentChanges")}</h3>
         </div>
         <div
           className="audit-list"
           role="region"
-          aria-label="최근 감사 이벤트"
+          aria-label={t("ops.recentAudit")}
           tabIndex={0}
         >
           {events.map((event) => (
@@ -1148,7 +1138,7 @@ export function OperationsPanel({
                 <strong>{event.action}</strong>
                 <small>
                   {event.actor_email} · {event.origin} ·{" "}
-                  {new Date(event.created_at).toLocaleString("ko-KR")}
+                  {new Date(event.created_at).toLocaleString(language)}
                 </small>
               </span>
               <code>{event.request_id}</code>

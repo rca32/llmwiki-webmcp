@@ -3,6 +3,7 @@ import { IBM_Plex_Mono } from "next/font/google";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./workspace.css";
+import { I18nProvider } from "@/components/i18n-provider";
 
 const mono = IBM_Plex_Mono({
   variable: "--font-mono",
@@ -13,10 +14,10 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Liminal Wiki — WebMCP Native Knowledge",
   description:
-    "사람과 에이전트가 같은 데이터, 권한, 리비전을 공유하는 WebMCP 네이티브 지식 작업공간",
+    "A WebMCP-native knowledge workspace where people and agents share data, permissions, and revisions.",
   openGraph: {
     title: "Liminal Wiki",
-    description: "사람과 에이전트가 함께 편집하는 지식 공간",
+    description: "A knowledge space edited together by people and agents.",
     images: [
       {
         url: "/og.png",
@@ -29,7 +30,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Liminal Wiki",
-    description: "사람과 에이전트가 함께 편집하는 지식 공간",
+    description: "A knowledge space edited together by people and agents.",
     images: ["/og.png"],
   },
 };
@@ -38,8 +39,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ko">
-      <body className={mono.variable}>{children}</body>
+    <html lang="en">
+      <body className={mono.variable}>
+        <I18nProvider>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

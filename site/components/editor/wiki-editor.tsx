@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Eye, Pause, Pencil, Play, Save } from "lucide-react";
 
 import { MarkdownPreview } from "@/app/markdown-preview";
+import { useI18n } from "@/components/i18n-provider";
 
 export function WikiEditor({
   title,
@@ -38,34 +39,35 @@ export function WikiEditor({
   onSave: () => void;
   onWikiLink: (title: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <article className="wiki-editor">
       <header className="editor-titlebar">
         <div className="editor-title-copy">
           <span>{pageType || "WIKI PAGE"}</span>
-          <h1>{title || "Untitled"}</h1>
+          <h1>{title || t("common.untitled")}</h1>
         </div>
         <div className="editor-title-actions">
           {headerActions}
           <div
             className="editor-mode-switch"
             role="group"
-            aria-label="편집 모드"
+            aria-label={t("editor.editMode")}
           >
             <button
               type="button"
               className={mode === "edit" ? "active" : ""}
               onClick={() => onModeChange("edit")}
             >
-              <Pencil /> <span>편집</span>
+              <Pencil /> <span>{t("editor.edit")}</span>
             </button>
             <button
               type="button"
-              aria-label="미리보기"
+              aria-label={t("editor.preview")}
               className={mode === "preview" ? "active" : ""}
               onClick={() => onModeChange("preview")}
             >
-              <Eye /> <span>읽기</span>
+              <Eye /> <span>{t("editor.read")}</span>
             </button>
           </div>
         </div>
@@ -75,7 +77,7 @@ export function WikiEditor({
         {mode === "edit" ? (
           <textarea
             className="markdown-editor"
-            aria-label="Markdown 편집기"
+            aria-label={t("editor.markdown")}
             spellCheck={false}
             value={markdown}
             readOnly={!canWrite}
@@ -88,7 +90,9 @@ export function WikiEditor({
       <footer className="editor-statusbar">
         <div>
           <span>Markdown</span>
-          <span>{markdown.length.toLocaleString()} chars</span>
+          <span>
+            {markdown.length.toLocaleString()} {t("editor.chars")}
+          </span>
           <span>v{version ?? "—"}</span>
         </div>
         <div>
@@ -100,7 +104,9 @@ export function WikiEditor({
               onClick={onAutosaveToggle}
             >
               {autosavePaused ? <Play /> : <Pause />}
-              {autosavePaused ? "자동 저장 재개" : "자동 저장 일시 중지"}
+              {autosavePaused
+                ? t("editor.autosaveResume")
+                : t("editor.autosavePause")}
             </button>
           )}
           <button
@@ -109,7 +115,8 @@ export function WikiEditor({
             disabled={!dirty || !canWrite}
             onClick={onSave}
           >
-            <Save /> {dirty ? "변경 저장" : "저장됨"}
+            <Save />
+            {dirty ? t("editor.saveChanges") : t("editor.saved")}
           </button>
         </div>
       </footer>

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { MarkdownPreview } from "@/app/markdown-preview";
+import { useI18n } from "@/components/i18n-provider";
 import { Button } from "@/components/ui/button";
 
 export type WikiGraph = {
@@ -360,12 +361,13 @@ function EventHandler({
 
 function ZoomControls() {
   const sigma = useSigma();
+  const { t } = useI18n();
   return (
-    <div className="graph-zoom-controls" aria-label="그래프 확대/축소">
+    <div className="graph-zoom-controls" aria-label={t("graph.zoomControls")}>
       <Button
         variant="outline"
         size="icon-xs"
-        aria-label="확대"
+        aria-label={t("graph.zoomIn")}
         onClick={() => sigma.getCamera().animatedZoom({ duration: 200 })}
       >
         <ZoomIn />
@@ -373,7 +375,7 @@ function ZoomControls() {
       <Button
         variant="outline"
         size="icon-xs"
-        aria-label="축소"
+        aria-label={t("graph.zoomOut")}
         onClick={() => sigma.getCamera().animatedUnzoom({ duration: 200 })}
       >
         <ZoomOut />
@@ -381,7 +383,7 @@ function ZoomControls() {
       <Button
         variant="outline"
         size="icon-xs"
-        aria-label="그래프 맞춤"
+        aria-label={t("graph.fit")}
         onClick={() => sigma.getCamera().animatedReset({ duration: 300 })}
       >
         <Maximize />
@@ -401,6 +403,7 @@ export function GraphView({
   onRefresh: () => void;
   onOpenPage: (pageId: string) => void;
 }) {
+  const { t } = useI18n();
   const graphData = useMemo(() => graph ?? EMPTY_GRAPH, [graph]);
   const [colorMode, setColorMode] = useState<ColorMode>("type");
   const [hoverState, setHoverState] = useState<HoverState>(null);
@@ -460,18 +463,18 @@ export function GraphView({
       <header className="graph-toolbar">
         <div className="graph-title">
           <Network />
-          <strong>Knowledge Graph</strong>
-          <span>{graphData.nodes.length} pages</span>
-          <span>{graphData.edges.length} links</span>
+          <strong>{t("graph.title")}</strong>
+          <span>{t("graph.pages", { count: graphData.nodes.length })}</span>
+          <span>{t("graph.links", { count: graphData.edges.length })}</span>
         </div>
-        <nav aria-label="그래프 도구">
+        <nav aria-label={t("graph.tools")}>
           <button
             type="button"
             className={colorMode === "type" ? "active" : ""}
             onClick={() => setColorMode("type")}
           >
             <Tag />
-            <span>Type</span>
+            <span>{t("graph.type")}</span>
           </button>
           <button
             type="button"
@@ -479,7 +482,7 @@ export function GraphView({
             onClick={() => setColorMode("community")}
           >
             <Layers />
-            <span>Community</span>
+            <span>{t("graph.community")}</span>
           </button>
           <button
             type="button"
@@ -487,7 +490,7 @@ export function GraphView({
             onClick={() => setShowInsights((value) => !value)}
           >
             <Lightbulb />
-            <span>Insights</span>
+            <span>{t("graph.insights")}</span>
             <b>{isolatedNodes.length}</b>
           </button>
           <button
@@ -495,7 +498,7 @@ export function GraphView({
             className={loading ? "loading icon-only" : "icon-only"}
             onClick={onRefresh}
             disabled={loading}
-            aria-label={loading ? "새로 고침 중" : "새로 고침"}
+            aria-label={loading ? t("graph.refreshing") : t("graph.refresh")}
           >
             <RefreshCw />
           </button>
@@ -530,15 +533,15 @@ export function GraphView({
               <Network />
               <strong>
                 {loading
-                  ? "그래프를 불러오는 중입니다."
-                  : "연결된 페이지가 없습니다."}
+                  ? t("graph.loading")
+                  : t("graph.empty")}
               </strong>
             </div>
           )}
 
           <div
             className="graph-accessible-nodes"
-            aria-label="그래프 페이지 목록"
+            aria-label={t("graph.pageList")}
           >
             {graphData.nodes.map((node) => (
               <button
@@ -546,7 +549,7 @@ export function GraphView({
                 type="button"
                 className="graph-accessible-node"
                 data-graph-node-id={node.id}
-                aria-label={`${node.title} 그래프 노드`}
+                aria-label={t("graph.node", { title: node.title })}
                 onClick={() => void openPreview(node.id)}
               >
                 {node.title}
@@ -554,9 +557,11 @@ export function GraphView({
             ))}
           </div>
 
-          <aside className="graph-legend" aria-label="노드 유형">
+          <aside className="graph-legend" aria-label={t("graph.nodeTypes")}>
             <strong>
-              {colorMode === "type" ? "Node Types" : "Communities"}
+              {colorMode === "type"
+                ? t("graph.nodeTypes")
+                : t("graph.communities")}
             </strong>
             {colorMode === "type"
               ? Object.entries(typeCounts).map(([type, count]) => (
@@ -572,7 +577,7 @@ export function GraphView({
                 ).map((color, index) => (
                   <div key={color}>
                     <i style={{ backgroundColor: color }} />
-                    <span>Community {index + 1}</span>
+                    <span>{t("graph.community")} {index + 1}</span>
                   </div>
                 ))}
           </aside>
@@ -583,26 +588,27 @@ export function GraphView({
             <header>
               <div>
                 <Lightbulb />
-                <strong>Insights</strong>
+                <strong>{t("graph.insights")}</strong>
               </div>
               <button
                 type="button"
                 onClick={() => setShowInsights(false)}
-                aria-label="인사이트 닫기"
+                aria-label={t("graph.closeInsights")}
               >
                 <X />
               </button>
             </header>
             <section>
-              <span>Graph summary</span>
+              <span>{t("graph.summary")}</span>
               <strong>
-                {graphData.nodes.length} pages · {graphData.edges.length} links
+                {t("graph.pages", { count: graphData.nodes.length })} ·{" "}
+                {t("graph.links", { count: graphData.edges.length })}
               </strong>
-              <p>연결되지 않은 페이지 {isolatedNodes.length}개</p>
+              <p>{t("graph.isolated", { count: isolatedNodes.length })}</p>
             </section>
             {isolatedNodes.length > 0 && (
               <section>
-                <span>Knowledge gaps</span>
+                <span>{t("graph.gaps")}</span>
                 {isolatedNodes.slice(0, 8).map((node) => (
                   <button
                     key={node.id}
@@ -621,21 +627,23 @@ export function GraphView({
         {preview && (
           <aside
             className="graph-preview-panel"
-            aria-label="그래프 문서 미리보기"
+            aria-label={t("graph.preview")}
           >
             <header>
               <span title={preview.path || preview.title}>{preview.title}</span>
               <button
                 type="button"
                 onClick={() => setPreview(null)}
-                aria-label="미리보기 닫기"
+                aria-label={t("graph.closePreview")}
               >
                 <X />
               </button>
             </header>
             <div className="graph-preview-scroll">
               {previewLoading && !preview.markdown ? (
-                <div className="graph-preview-loading">문서를 불러오는 중…</div>
+                <div className="graph-preview-loading">
+                  {t("graph.loadingDocument")}
+                </div>
               ) : preview.markdown ? (
                 <MarkdownPreview
                   value={preview.markdown}
@@ -650,7 +658,7 @@ export function GraphView({
                 />
               ) : (
                 <div className="graph-preview-loading">
-                  미리보기를 불러오지 못했습니다.
+                  {t("graph.previewFailed")}
                 </div>
               )}
             </div>
@@ -659,7 +667,7 @@ export function GraphView({
                 <FileText /> v{preview.version}
               </span>
               <Button size="sm" onClick={() => onOpenPage(preview.id)}>
-                문서 열기
+                {t("graph.openDocument")}
               </Button>
             </footer>
           </aside>
@@ -668,7 +676,7 @@ export function GraphView({
 
       {graphData.truncated && (
         <p className="graph-truncated">
-          노드 한도에 도달해 일부 결과가 생략되었습니다.
+          {t("graph.truncated")}
         </p>
       )}
     </section>

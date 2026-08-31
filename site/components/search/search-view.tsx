@@ -3,6 +3,7 @@
 import { ArrowUpRight, FileText, Search, X } from "lucide-react";
 
 import type { KnowledgeTreePage } from "@/components/layout/knowledge-tree";
+import { useI18n } from "@/components/i18n-provider";
 
 type SearchPage = KnowledgeTreePage & { markdown: string; updated_at: string };
 
@@ -29,6 +30,7 @@ export function SearchView({
   onQueryChange: (query: string) => void;
   onOpenPage: (pageId: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <section className="search-view">
       <header className="view-heading">
@@ -36,8 +38,8 @@ export function SearchView({
           <Search />
         </div>
         <div>
-          <h1>Search</h1>
-          <p>제목과 Markdown 본문에서 지식을 찾습니다.</p>
+          <h1>{t("search.title")}</h1>
+          <p>{t("search.description")}</p>
         </div>
       </header>
       <label className="search-view-input">
@@ -46,22 +48,22 @@ export function SearchView({
           autoFocus
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search the wiki…"
-          aria-label="위키 검색"
+          placeholder={t("search.placeholder")}
+          aria-label={t("search.aria")}
         />
         {query && (
           <button
             type="button"
             onClick={() => onQueryChange("")}
-            aria-label="검색어 지우기"
+            aria-label={t("search.clear")}
           >
             <X />
           </button>
         )}
       </label>
       <div className="search-summary">
-        <span>{query.trim() ? `“${query.trim()}”` : "All pages"}</span>
-        <b>{pages.length} results</b>
+        <span>{query.trim() ? `“${query.trim()}”` : t("search.allPages")}</span>
+        <b>{t("search.results", { count: pages.length })}</b>
       </div>
       <div className="search-results">
         {pages.map((page) => (
@@ -84,8 +86,8 @@ export function SearchView({
         {pages.length === 0 && (
           <div className="empty-view">
             <Search />
-            <strong>일치하는 페이지가 없습니다.</strong>
-            <p>다른 단어로 검색하거나 새 페이지를 만들어 보세요.</p>
+            <strong>{t("search.empty")}</strong>
+            <p>{t("search.emptyHint")}</p>
           </div>
         )}
       </div>

@@ -15,13 +15,16 @@ import {
   Clock3,
   Copy,
   FileText,
+  Languages,
   Link2,
   Moon,
   Move,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
   RotateCcw,
+  Settings2,
   Sun,
   Trash2,
   Upload,
@@ -43,6 +46,11 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import {
+  languageOptions,
+  useI18n,
+  type Language,
+} from "@/components/i18n-provider";
 
 const loadOperationsPanel = () => import("./operations-panel");
 const loadWikiEditor = () => import("@/components/editor/wiki-editor");
@@ -71,9 +79,10 @@ const SearchView = lazy(() =>
 );
 
 function WorkspaceLoading() {
+  const { t } = useI18n();
   return (
     <div className="workspace-loading" role="status" aria-live="polite">
-      작업공간 불러오는 중
+      {t("page.loading")}
     </div>
   );
 }
@@ -260,6 +269,7 @@ function WorkspaceDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       className="workspace-dialog-backdrop"
@@ -278,7 +288,7 @@ function WorkspaceDialog({
             <span>WORKSPACE</span>
             <h2 id="workspace-dialog-title">{title}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="닫기">
+          <button type="button" onClick={onClose} aria-label={t("common.close")}>
             ×
           </button>
         </header>
@@ -286,7 +296,7 @@ function WorkspaceDialog({
         {children}
         <footer>
           <button type="button" onClick={onClose}>
-            취소
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -303,8 +313,12 @@ function WorkspaceDialog({
 }
 
 export default function Home() {
+  const { language, setLanguage, t } = useI18n();
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [view, setView] = useState<WorkspaceView>("document");
+  const [mobileWorkspacePane, setMobileWorkspacePane] = useState<
+    "navigation" | "content" | "details"
+  >("content");
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
@@ -446,7 +460,10 @@ export default function Home() {
           ? cached
           : null;
 
-      if (!preserveDraft) changeView("document");
+      if (!preserveDraft) {
+        changeView("document");
+        setMobileWorkspacePane("content");
+      }
       if (!protectsCurrentDraft) {
         setPendingPageId(pageId);
         const immediatePage = validCache?.page ?? snapshot;
@@ -1481,16 +1498,61 @@ export default function Home() {
         leftPanelOpen={leftPanelOpen}
         onToggleLeftPanel={() => setLeftPanelOpen((value) => !value)}
         onViewChange={(nextView) => {
+          setMobileWorkspacePane("content");
           if (nextView === "graph") void showGraph();
           else changeView(nextView);
         }}
       />
       <div className="app-workspace">
+        {view === "document" && (
+          <nav className="mobile-panel-switcher" aria-label={t("mobile.workspace")}>
+            <button
+              type="button"
+              className={
+                mobileWorkspacePane === "navigation" ? "active" : ""
+              }
+              aria-pressed={mobileWorkspacePane === "navigation"}
+              onClick={() => {
+                setLeftPanelOpen(true);
+                setMobileWorkspacePane("navigation");
+              }}
+            >
+              <PanelLeftOpen />
+              <span>{t("mobile.navigation")}</span>
+            </button>
+            <button
+              type="button"
+              className={mobileWorkspacePane === "content" ? "active" : ""}
+              aria-pressed={mobileWorkspacePane === "content"}
+              onClick={() => setMobileWorkspacePane("content")}
+            >
+              <FileText />
+              <span>{t("mobile.content")}</span>
+            </button>
+            <button
+              type="button"
+              className={mobileWorkspacePane === "details" ? "active" : ""}
+              aria-pressed={mobileWorkspacePane === "details"}
+              disabled={!active}
+              onClick={() => {
+                setRightPanelOpen(true);
+                setMobileWorkspacePane("details");
+              }}
+            >
+              <PanelRightOpen />
+              <span>{t("mobile.details")}</span>
+            </button>
+          </nav>
+        )}
         <ResizablePanelGroup direction="horizontal">
           {leftPanelOpen && (
             <>
               <ResizablePanel
                 id="knowledge-tree"
+                data-mobile-pane="navigation"
+                data-mobile-active={
+                  mobileWorkspacePane === "navigation" ? "true" : "false"
+                }
                 defaultSize="20%"
                 minSize="14%"
                 maxSize="34%"
@@ -1529,7 +1591,16 @@ export default function Home() {
             </>
           )}
 
-          <ResizablePanel id="wiki-content" minSize="38%">
+          <ResizablePanel
+            id="wiki-content"
+            data-mobile-pane="content"
+            data-mobile-active={
+              view !== "document" || mobileWorkspacePane === "content"
+                ? "true"
+                : "false"
+            }
+            minSize="38%"
+          >
             <section className="workspace-main">
               {view !== "graph" && (
                 <header className="workspace-topbar">
@@ -1539,7 +1610,7 @@ export default function Home() {
                         type="button"
                         className="topbar-icon-button"
                         onClick={() => setLeftPanelOpen(true)}
-                        aria-label="사이드바 열기"
+                        aria-label={t("nav.sidebarOpen")}
                       >
                         <ChevronRight />
                       </button>
@@ -1574,10 +1645,10 @@ export default function Home() {
                         <ChevronRight />
                         <strong>
                           {view === "operations"
-                            ? "운영과 복구"
+                            ? t("nav.operations")
                             : view === "search"
-                              ? "Search"
-                              : "Knowledge graph"}
+                              ? t("nav.search")
+                              : t("nav.graph")}
                         </strong>
                       </>
                     )}
@@ -1588,65 +1659,126 @@ export default function Home() {
                         className="readonly-badge"
                         title={
                           writeModeReason ??
-                          "운영자가 쓰기를 일시 중지했습니다."
+                          t("page.readOnlyHint")
                         }
                       >
-                        읽기 전용
+                        {t("page.readOnly")}
                       </span>
                     )}
-                    <span className={"sync-state " + (dirty ? "dirty" : "")}>
+                    <span
+                      className={"sync-state " + (dirty ? "dirty" : "")}
+                      aria-label={dirty ? t("page.unsaved") : status}
+                      title={dirty ? t("page.unsaved") : status}
+                    >
                       <i />
-                      {dirty ? "저장되지 않은 변경" : status}
+                      <span>{dirty ? t("page.unsaved") : status}</span>
                     </span>
-                    <button
-                      type="button"
-                      className="topbar-icon-button"
-                      onClick={() => {
-                        const next =
-                          !document.documentElement.classList.contains("dark");
-                        setDarkMode(next);
-                        document.documentElement.classList.toggle("dark", next);
-                        window.localStorage.setItem(
-                          "liminal-wiki:theme-v2",
-                          next ? "dark" : "light",
-                        );
+                    <details
+                      className="topbar-settings"
+                      onBlur={(event) => {
+                        if (
+                          !event.currentTarget.contains(
+                            event.relatedTarget as Node | null,
+                          )
+                        ) {
+                          event.currentTarget.removeAttribute("open");
+                        }
                       }}
-                      aria-label={darkMode ? "라이트 테마" : "다크 테마"}
-                      title={darkMode ? "라이트 테마" : "다크 테마"}
                     >
-                      {darkMode ? <Sun /> : <Moon />}
-                    </button>
-                    {view === "document" && (
-                      <button
-                        type="button"
+                      <summary
                         className="topbar-icon-button"
-                        onClick={() => setRightPanelOpen((value) => !value)}
-                        aria-label={
-                          rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
-                        }
-                        title={
-                          rightPanelOpen ? "상세 패널 닫기" : "상세 패널 열기"
-                        }
+                        aria-label={t("page.settings")}
+                        title={t("page.settings")}
                       >
-                        {rightPanelOpen ? (
-                          <PanelRightClose />
-                        ) : (
-                          <PanelRightOpen />
+                        <Settings2 />
+                      </summary>
+                      <div className="topbar-settings-menu">
+                        <strong>{t("page.settings")}</strong>
+                        <label className="topbar-settings-language">
+                          <span>
+                            <Languages aria-hidden="true" />
+                            {t("language.selector")}
+                          </span>
+                          <select
+                            value={language}
+                            aria-label={t("language.selector")}
+                            onChange={(event) =>
+                              setLanguage(event.target.value as Language)
+                            }
+                          >
+                            {languageOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            const next =
+                              !document.documentElement.classList.contains(
+                                "dark",
+                              );
+                            setDarkMode(next);
+                            document.documentElement.classList.toggle(
+                              "dark",
+                              next,
+                            );
+                            window.localStorage.setItem(
+                              "liminal-wiki:theme-v2",
+                              next ? "dark" : "light",
+                            );
+                            event.currentTarget
+                              .closest("details")
+                              ?.removeAttribute("open");
+                          }}
+                        >
+                          {darkMode ? <Sun /> : <Moon />}
+                          {darkMode
+                            ? t("page.lightTheme")
+                            : t("page.darkTheme")}
+                        </button>
+                        {view === "document" && (
+                          <button
+                            type="button"
+                            className="context-panel-toggle"
+                            onClick={(event) => {
+                              setRightPanelOpen((value) => !value);
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                            }}
+                          >
+                            {rightPanelOpen ? (
+                              <PanelRightClose />
+                            ) : (
+                              <PanelRightOpen />
+                            )}
+                            {rightPanelOpen
+                              ? t("page.detailsClose")
+                              : t("page.detailsOpen")}
+                          </button>
                         )}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="topbar-text-button"
-                      onClick={() => changeView("operations")}
-                      disabled={!caps.can_export_portable}
-                    >
-                      백업
-                    </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            changeView("operations");
+                            event.currentTarget
+                              .closest("details")
+                              ?.removeAttribute("open");
+                          }}
+                          disabled={!caps.can_export_portable}
+                        >
+                          <Upload aria-hidden="true" />
+                          {t("page.backup")}
+                        </button>
+                      </div>
+                    </details>
                     <button
                       type="button"
                       className="workspace-avatar"
-                      aria-label="사용자 프로필"
+                      aria-label={t("page.profile")}
                     >
                       DH
                     </button>
@@ -1705,35 +1837,35 @@ export default function Home() {
                           <div
                             className="page-share-actions"
                             role="group"
-                            aria-label="페이지 복사 및 공유"
+                            aria-label={t("page.copyShare")}
                           >
                             <button
                               type="button"
                               className="page-share-action"
                               onClick={() => void copyActiveLink()}
                               disabled={!active || !currentWiki}
-                              title="페이지 링크 복사"
-                              aria-label="페이지 링크 복사"
+                              title={t("page.copyLink")}
+                              aria-label={t("page.copyLink")}
                             >
-                              <Link2 /> <span>링크</span>
+                              <Link2 /> <span>{t("page.link")}</span>
                             </button>
                             <button
                               type="button"
                               className="page-share-action"
                               onClick={() => void copyActiveMarkdown()}
                               disabled={!active}
-                              title="페이지 Markdown 복사"
-                              aria-label="페이지 Markdown 복사"
+                              title={t("page.copyMarkdown")}
+                              aria-label={t("page.copyMarkdown")}
                             >
-                              <Copy /> <span>본문</span>
+                              <Copy /> <span>{t("page.content")}</span>
                             </button>
                             <button
                               type="button"
                               className="page-share-action codex"
                               onClick={() => void copyCodexRequest()}
                               disabled={!active || !currentWiki}
-                              title="Codex 추가 조사 요청 복사"
-                              aria-label="Codex 추가 조사 요청 복사"
+                              title={t("page.copyCodex")}
+                              aria-label={t("page.copyCodex")}
                             >
                               <Bot /> <span>Codex</span>
                             </button>
@@ -1746,8 +1878,8 @@ export default function Home() {
                               setMoveDialogOpen(true);
                             }}
                             disabled={!active || dirty || !caps.can_write}
-                            title="페이지 이동"
-                            aria-label="페이지 이동"
+                            title={t("page.move")}
+                            aria-label={t("page.move")}
                           >
                             <Move />
                           </button>
@@ -1756,8 +1888,8 @@ export default function Home() {
                             className="editor-icon-action destructive"
                             onClick={() => void deleteActivePage()}
                             disabled={!active || dirty || !caps.can_soft_delete}
-                            title="페이지 삭제"
-                            aria-label="페이지 삭제"
+                            title={t("page.delete")}
+                            aria-label={t("page.delete")}
                           >
                             <Trash2 />
                           </button>
@@ -1771,7 +1903,7 @@ export default function Home() {
                               <button
                                 type="button"
                                 onClick={() => setNotice(null)}
-                                aria-label="알림 닫기"
+                                aria-label={t("page.closeNotice")}
                               >
                                 ×
                               </button>
@@ -1847,6 +1979,10 @@ export default function Home() {
               <ResizableHandle className="workspace-resize-handle" />
               <ResizablePanel
                 id="page-context"
+                data-mobile-pane="details"
+                data-mobile-active={
+                  mobileWorkspacePane === "details" ? "true" : "false"
+                }
                 defaultSize="22%"
                 minSize="18%"
                 maxSize="36%"
@@ -1854,13 +1990,16 @@ export default function Home() {
                 <aside className="context-panel">
                   <header className="context-panel-header">
                     <div>
-                      <strong>Page details</strong>
+                      <strong>{t("page.detailsTitle")}</strong>
                       <span>{active?.page_type ?? "wiki page"}</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setRightPanelOpen(false)}
-                      aria-label="상세 패널 닫기"
+                      onClick={() => {
+                        setRightPanelOpen(false);
+                        setMobileWorkspacePane("content");
+                      }}
+                      aria-label={t("page.detailsClose")}
                     >
                       <PanelRightClose />
                     </button>
@@ -1869,7 +2008,7 @@ export default function Home() {
                   <section className="context-section">
                     <div className="context-section-title">
                       <span>
-                        <Link2 /> Linked mentions
+                        <Link2 /> {t("page.linkedMentions")}
                       </span>
                       <b>{linkedPages.length}</b>
                     </div>
@@ -1889,8 +2028,8 @@ export default function Home() {
                               <strong>{item.title}</strong>
                               <small>
                                 {item.direction === "out"
-                                  ? "Outgoing link"
-                                  : "Backlink"}
+                                  ? t("page.outgoingLink")
+                                  : t("page.backlink")}
                               </small>
                             </span>
                             <ChevronRight />
@@ -1898,7 +2037,7 @@ export default function Home() {
                         ))
                       ) : (
                         <p className="context-empty">
-                          연결된 페이지가 없습니다.
+                          {t("page.noLinks")}
                         </p>
                       )}
                     </div>
@@ -1907,7 +2046,7 @@ export default function Home() {
                   <section className="context-section">
                     <div className="context-section-title">
                       <span>
-                        <Paperclip /> Attachments
+                        <Paperclip /> {t("page.attachments")}
                       </span>
                       <b>
                         {
@@ -1918,7 +2057,7 @@ export default function Home() {
                     </div>
                     {caps.can_manage_attachments && (
                       <label className="attachment-upload">
-                        <Upload /> 파일 추가
+                        <Upload /> {t("page.addFile")}
                         <input
                           type="file"
                           onChange={(event) => {
@@ -1982,7 +2121,7 @@ export default function Home() {
                         </div>
                       ))}
                       {!attachments.length && (
-                        <p className="context-empty">첨부파일이 없습니다.</p>
+                        <p className="context-empty">{t("page.noAttachments")}</p>
                       )}
                     </div>
                   </section>
@@ -1990,7 +2129,7 @@ export default function Home() {
                   <section className="context-section revision-section">
                     <div className="context-section-title">
                       <span>
-                        <Clock3 /> Version history
+                        <Clock3 /> {t("page.versionHistory")}
                       </span>
                       <b>{revisions.length}</b>
                     </div>
@@ -2000,7 +2139,7 @@ export default function Home() {
                           <i />
                           <div>
                             <strong>
-                              {revision.change_summary ?? "페이지 변경"}
+                              {revision.change_summary ?? t("page.pageChange")}
                             </strong>
                             <small>
                               {revision.origin} ·{" "}
@@ -2023,7 +2162,7 @@ export default function Home() {
                                   }
                                   disabled={dirty}
                                 >
-                                  이 버전 복구
+                                  {t("page.restoreVersion")}
                                 </button>
                               )}
                           </div>
@@ -2040,19 +2179,23 @@ export default function Home() {
       </div>
       {createTarget && (
         <WorkspaceDialog
-          title={createTarget.kind === "folder" ? "새 폴더" : "새 페이지"}
+          title={
+            createTarget.kind === "folder"
+              ? t("tree.newFolder")
+              : t("tree.newPage")
+          }
           description={
             createTarget.parentId
-              ? "현재 폴더 아래에 만듭니다."
-              : "Vault 루트에 만듭니다."
+              ? t("dialog.createFolderDescription")
+              : t("dialog.createRootDescription")
           }
-          confirmLabel="만들기"
+          confirmLabel={t("common.create")}
           confirmDisabled={!newItemTitle.trim()}
           onConfirm={() => void createNewPage()}
           onClose={() => setCreateTarget(null)}
         >
           <label className="workspace-dialog-field">
-            <span>제목</span>
+            <span>{t("dialog.title")}</span>
             <input
               autoFocus
               value={newItemTitle}
@@ -2062,33 +2205,39 @@ export default function Home() {
                   void createNewPage();
               }}
               placeholder={
-                createTarget.kind === "folder" ? "예: Research" : "예: 새 노트"
+                createTarget.kind === "folder"
+                  ? t("dialog.folderExample")
+                  : t("dialog.pageExample")
               }
             />
           </label>
           <label className="workspace-dialog-field">
-            <span>시작 방식</span>
+            <span>{t("dialog.startMethod")}</span>
             <select
               value={newVaultTemplate}
               onChange={(event) =>
                 setNewVaultTemplate(event.target.value as "empty" | "starter")
               }
             >
-              <option value="empty">빈 Vault (권장)</option>
-              <option value="starter">시작 안내 페이지 포함</option>
+              <option value="empty">{t("dialog.emptyVault")}</option>
+              <option value="starter">{t("dialog.starterVault")}</option>
             </select>
           </label>
         </WorkspaceDialog>
       )}
       {moveDialogOpen && active && (
         <WorkspaceDialog
-          title={`“${active.title}” 이동`}
-          description="새 위치를 선택하세요. 폴더의 하위 항목도 함께 이동되며, 모든 변경은 버전 기록에 남습니다."
-          confirmLabel="이 위치로 이동"
+          title={t("dialog.moveTitle", { title: active.title })}
+          description={t("dialog.moveDescription")}
+          confirmLabel={t("dialog.moveConfirm")}
           onConfirm={() => void movePageTo(active.id, moveParentId)}
           onClose={() => setMoveDialogOpen(false)}
         >
-          <div className="move-tree" role="tree" aria-label="이동할 폴더 선택">
+          <div
+            className="move-tree"
+            role="tree"
+            aria-label={t("dialog.moveTree")}
+          >
             <label className={moveParentId === null ? "selected" : ""}>
               <input
                 type="radio"
@@ -2125,15 +2274,15 @@ export default function Home() {
       )}
       {vaultDialogOpen && (
         <WorkspaceDialog
-          title="새 Vault"
-          description="독립된 페이지 트리와 검색·그래프를 가진 새 지식 공간을 만듭니다."
-          confirmLabel="Vault 만들기"
+          title={t("tree.newVault")}
+          description={t("dialog.newVaultDescription")}
+          confirmLabel={t("dialog.createVault")}
           confirmDisabled={!newVaultTitle.trim()}
           onConfirm={() => void createVault()}
           onClose={() => setVaultDialogOpen(false)}
         >
           <label className="workspace-dialog-field">
-            <span>Vault 이름</span>
+            <span>{t("dialog.vaultName")}</span>
             <input
               autoFocus
               value={newVaultTitle}
@@ -2142,7 +2291,7 @@ export default function Home() {
                 if (event.key === "Enter" && newVaultTitle.trim())
                   void createVault();
               }}
-              placeholder="예: Product Research"
+              placeholder={t("dialog.vaultExample")}
             />
           </label>
         </WorkspaceDialog>

@@ -20,6 +20,7 @@ import {
   Vault,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 
 export type KnowledgeTreePage = {
   id: string;
@@ -43,20 +44,20 @@ const typeOrder = [
   "query",
   "other",
 ];
-function typeConfig(type: string) {
+function typeConfig(type: string, t: (key: TranslationKey) => string) {
   const configs: Record<
     string,
     { label: string; icon: typeof FileText; className: string }
   > = {
-    overview: { label: "Overview", icon: Globe, className: "type-overview" },
-    concept: { label: "Concepts", icon: Lightbulb, className: "type-concept" },
-    entity: { label: "Entities", icon: CircleDot, className: "type-entity" },
-    note: { label: "Notes", icon: FileText, className: "type-note" },
-    source: { label: "Sources", icon: BookOpen, className: "type-source" },
-    synthesis: { label: "Synthesis", icon: Boxes, className: "type-synthesis" },
-    comparison: { label: "Comparisons", icon: Boxes, className: "type-other" },
-    query: { label: "Queries", icon: CircleDot, className: "type-other" },
-    other: { label: "Other", icon: FolderTree, className: "type-other" },
+    overview: { label: t("type.overview"), icon: Globe, className: "type-overview" },
+    concept: { label: t("type.concept"), icon: Lightbulb, className: "type-concept" },
+    entity: { label: t("type.entity"), icon: CircleDot, className: "type-entity" },
+    note: { label: t("type.note"), icon: FileText, className: "type-note" },
+    source: { label: t("type.source"), icon: BookOpen, className: "type-source" },
+    synthesis: { label: t("type.synthesis"), icon: Boxes, className: "type-synthesis" },
+    comparison: { label: t("type.comparison"), icon: Boxes, className: "type-other" },
+    query: { label: t("type.query"), icon: CircleDot, className: "type-other" },
+    other: { label: t("type.other"), icon: FolderTree, className: "type-other" },
   };
   return (
     configs[type] ?? {
@@ -102,6 +103,7 @@ export function KnowledgeTree({
   onCreateVault: () => void;
   onRestorePage: (page: KnowledgeTreePage) => void;
 }) {
+  const { language, t } = useI18n();
   const [treeMode, setTreeMode] = useState<"knowledge" | "files">("knowledge");
   const [expandedTypes, setExpandedTypes] = useState(() => new Set(typeOrder));
   const [expandedFolders, setExpandedFolders] = useState(
@@ -126,7 +128,7 @@ export function KnowledgeTree({
         ([type, items]) =>
           [
             type,
-            items.sort((a, b) => a.title.localeCompare(b.title, "ko")),
+            items.sort((a, b) => a.title.localeCompare(b.title, language)),
           ] as const,
       )
       .sort(([a], [b]) => {
@@ -134,7 +136,7 @@ export function KnowledgeTree({
           bi = typeOrder.indexOf(b);
         return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
       });
-  }, [pages]);
+  }, [language, pages]);
   const childrenByParent = useMemo(() => {
     const result = new Map<string, KnowledgeTreePage[]>();
     const ids = new Set(pages.map((page) => page.id));
@@ -148,10 +150,10 @@ export function KnowledgeTree({
         (a, b) =>
           Number(b.page_type === "folder") - Number(a.page_type === "folder") ||
           a.sort_order - b.sort_order ||
-          a.title.localeCompare(b.title, "ko"),
+          a.title.localeCompare(b.title, language),
       );
     return result;
-  }, [pages]);
+  }, [language, pages]);
 
   function toggleSet(
     setter: React.Dispatch<React.SetStateAction<Set<string>>>,
@@ -233,7 +235,7 @@ export function KnowledgeTree({
               type="button"
               className="tree-folder-toggle"
               onClick={() => toggleSet(setExpandedFolders, page.id)}
-              aria-label={`${page.title} ${expanded ? "접기" : "펼치기"}`}
+              aria-label={`${page.title} ${expanded ? t("tree.collapse") : t("tree.expand")}`}
               disabled={!children.length}
             >
               {children.length ? (
@@ -267,7 +269,7 @@ export function KnowledgeTree({
   }
 
   return (
-    <section className="knowledge-tree-shell" aria-label="Wiki 탐색기">
+    <section className="knowledge-tree-shell" aria-label={t("tree.explorer")}>
       <header className="vault-header">
         <Vault aria-hidden="true" />
         <label>
@@ -275,7 +277,7 @@ export function KnowledgeTree({
           <select
             value={activeVaultId ?? ""}
             onChange={(event) => onSwitchVault(event.target.value)}
-            aria-label="Vault 전환"
+            aria-label={t("tree.switchVault")}
           >
             {vaults.map((vault) => (
               <option key={vault.id} value={vault.id}>
@@ -289,34 +291,36 @@ export function KnowledgeTree({
           className="tree-action"
           onClick={onCreateVault}
           disabled={!canCreateVault}
-          title="새 Vault"
-          aria-label="새 Vault"
+          title={t("tree.newVault")}
+          aria-label={t("tree.newVault")}
         >
           <Plus />
         </button>
       </header>
-      <nav className="tree-tabs" aria-label="사이드바 보기">
+      <nav className="tree-tabs" aria-label={t("tree.sidebarView")}>
         <button
           type="button"
           className={treeMode === "knowledge" ? "active" : ""}
           onClick={() => setTreeMode("knowledge")}
         >
-          Knowledge
+          {t("tree.knowledge")}
         </button>
         <button
           type="button"
           className={treeMode === "files" ? "active" : ""}
           onClick={() => setTreeMode("files")}
         >
-          Files
+          {t("tree.files")}
         </button>
       </nav>
       <header className="tree-header">
         <div>
           <strong>{activeVaultTitle}</strong>
           <span>
-            {pages.length} pages ·{" "}
-            {pages.filter((page) => page.page_type === "folder").length} folders
+            {t("tree.pageCount", { count: pages.length })} ·{" "}
+            {t("tree.folderCount", {
+              count: pages.filter((page) => page.page_type === "folder").length,
+            })}
           </span>
         </div>
         <div className="tree-create-wrap">
@@ -325,8 +329,8 @@ export function KnowledgeTree({
             className="tree-action"
             onClick={() => setCreateMenuOpen((open) => !open)}
             disabled={!canWrite}
-            aria-label="새 항목"
-            title="새 페이지 또는 폴더"
+            aria-label={t("tree.newItem")}
+            title={t("tree.newPageOrFolder")}
             aria-expanded={createMenuOpen}
           >
             <Plus />
@@ -341,7 +345,7 @@ export function KnowledgeTree({
                   onCreatePage(currentFolderId, "page");
                 }}
               >
-                <FilePlus2 /> 새 페이지
+                <FilePlus2 /> {t("tree.newPage")}
               </button>
               <button
                 type="button"
@@ -351,7 +355,7 @@ export function KnowledgeTree({
                   onCreatePage(currentFolderId, "folder");
                 }}
               >
-                <FolderPlus /> 새 폴더
+                <FolderPlus /> {t("tree.newFolder")}
               </button>
             </div>
           )}
@@ -361,11 +365,11 @@ export function KnowledgeTree({
         <div className="tree-content">
           <p className="tree-label">
             {treeMode === "knowledge"
-              ? "Semantic groups"
-              : "Physical hierarchy"}
+              ? t("tree.semanticGroups")
+              : t("tree.physicalHierarchy")}
           </p>
           {pages.length === 0 && (
-            <p className="tree-empty">표시할 페이지가 없습니다.</p>
+            <p className="tree-empty">{t("tree.empty")}</p>
           )}
           {treeMode === "files" && (
             <div className="tree-file-list">
@@ -393,7 +397,7 @@ export function KnowledgeTree({
           )}
           {treeMode === "knowledge" &&
             grouped.map(([type, items]) => {
-              const config = typeConfig(type),
+              const config = typeConfig(type, t),
                 Icon = config.icon,
                 expanded = expandedTypes.has(type);
               return (
@@ -442,7 +446,7 @@ export function KnowledgeTree({
               >
                 {trashOpen ? <ChevronDown /> : <ChevronRight />}
                 <Trash2 />
-                <span>Trash</span>
+                <span>{t("tree.trash")}</span>
                 <b>{deletedPages.length}</b>
               </button>
               {trashOpen && (
@@ -456,7 +460,7 @@ export function KnowledgeTree({
                     >
                       <Trash2 />
                       <span>{page.title}</span>
-                      <small>복구</small>
+                      <small>{t("tree.restore")}</small>
                     </button>
                   ))}
                 </div>
@@ -467,7 +471,7 @@ export function KnowledgeTree({
       </ScrollArea>
       <footer className="tree-footer">
         <span className="status-dot" />
-        <span>Knowledge = meaning · Files = location</span>
+        <span>{t("tree.footer")}</span>
       </footer>
     </section>
   );
