@@ -279,9 +279,11 @@ Official challenge information is available from the
 
 ## License and provenance
 
-Liminal Wiki is licensed under
-[`GPL-3.0-only`](site/LICENSE). The production source selectively adapts
-GPL-3.0 UI code and interaction patterns from
+Except where a file or third-party notice states otherwise, all original
+Liminal Wiki source code and repository-owned modifications are licensed under
+[`GPL-3.0-only`](LICENSE). Third-party dependencies and separately attributed
+works retain their respective licenses. The production source selectively
+adapts GPL-3.0 UI code and interaction patterns from
 [`nashsu/llm_wiki`](https://github.com/nashsu/llm_wiki) release `v0.6.11`.
 The pinned source, modifications, exclusions, and direct dependency licenses
 are documented in [upstream provenance](site/UPSTREAM_PROVENANCE.md), the
