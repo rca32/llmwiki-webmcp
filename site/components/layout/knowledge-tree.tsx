@@ -49,15 +49,43 @@ function typeConfig(type: string, t: (key: TranslationKey) => string) {
     string,
     { label: string; icon: typeof FileText; className: string }
   > = {
-    overview: { label: t("type.overview"), icon: Globe, className: "type-overview" },
-    concept: { label: t("type.concept"), icon: Lightbulb, className: "type-concept" },
-    entity: { label: t("type.entity"), icon: CircleDot, className: "type-entity" },
+    overview: {
+      label: t("type.overview"),
+      icon: Globe,
+      className: "type-overview",
+    },
+    concept: {
+      label: t("type.concept"),
+      icon: Lightbulb,
+      className: "type-concept",
+    },
+    entity: {
+      label: t("type.entity"),
+      icon: CircleDot,
+      className: "type-entity",
+    },
     note: { label: t("type.note"), icon: FileText, className: "type-note" },
-    source: { label: t("type.source"), icon: BookOpen, className: "type-source" },
-    synthesis: { label: t("type.synthesis"), icon: Boxes, className: "type-synthesis" },
-    comparison: { label: t("type.comparison"), icon: Boxes, className: "type-other" },
+    source: {
+      label: t("type.source"),
+      icon: BookOpen,
+      className: "type-source",
+    },
+    synthesis: {
+      label: t("type.synthesis"),
+      icon: Boxes,
+      className: "type-synthesis",
+    },
+    comparison: {
+      label: t("type.comparison"),
+      icon: Boxes,
+      className: "type-other",
+    },
     query: { label: t("type.query"), icon: CircleDot, className: "type-other" },
-    other: { label: t("type.other"), icon: FolderTree, className: "type-other" },
+    other: {
+      label: t("type.other"),
+      icon: FolderTree,
+      className: "type-other",
+    },
   };
   return (
     configs[type] ?? {

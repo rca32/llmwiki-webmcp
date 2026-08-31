@@ -16,6 +16,9 @@ let activeBrowser;
     viewport: { width: 1440, height: 1000 },
     serviceWorkers: "block",
   });
+  await context.addInitScript(() => {
+    window.localStorage.setItem("liminal-wiki:language", "ko");
+  });
   const page = await context.newPage();
   const baseUrl = process.env.WIKI_URL || "http://127.0.0.1:3000";
   const errors = [];
@@ -143,6 +146,10 @@ let activeBrowser;
     const navigationStarted = Date.now();
     await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
     await page.locator(".knowledge-tree-shell").waitFor();
+    await page.waitForFunction(() =>
+      Boolean(document.documentElement.dataset.wikiId),
+    );
+    await page.locator(".sync-state").filter({ hasText: "동기화됨" }).waitFor();
     shellLoadSamplesMs.push(Date.now() - navigationStarted);
   }
   const sortedShellLoads = [...shellLoadSamplesMs].sort((a, b) => a - b),
@@ -182,6 +189,7 @@ let activeBrowser;
   const themeBefore = await page.evaluate(() =>
     document.documentElement.classList.contains("dark"),
   );
+  await page.locator("summary.topbar-icon-button").click();
   await page.getByRole("button", { name: /테마$/ }).click();
   await page.waitForFunction(
     (before) => document.documentElement.classList.contains("dark") !== before,
@@ -192,6 +200,7 @@ let activeBrowser;
   );
   if (themeAfter === themeBefore)
     throw new Error("The light/dark workspace theme did not toggle.");
+  await page.locator("summary.topbar-icon-button").click();
   await page.getByRole("button", { name: /테마$/ }).click();
   const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=true`;
   const workspaceListEnvelope = await context.request
@@ -206,6 +215,8 @@ let activeBrowser;
     slug: "newest-workspace-response",
     path: "/newest-workspace-response",
     title: "NEWEST_WORKSPACE_RESPONSE",
+    page_type: "note",
+    parent_id: null,
   };
   let workspaceListCalls = 0;
   let firstWorkspaceListRequested;
@@ -243,16 +254,18 @@ let activeBrowser;
   await page.route(workspaceListUrl, workspaceRaceHandler);
   await page.evaluate(() => window.dispatchEvent(new Event("wiki:changed")));
   await firstWorkspaceListRequest;
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page
-    .getByRole("button", { name: /NEWEST_WORKSPACE_RESPONSE/ })
-    .waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event("wiki:changed")));
+  const secondWorkspaceDeadline = Date.now() + 10_000;
+  while (workspaceListCalls < 2 && Date.now() < secondWorkspaceDeadline)
+    await page.waitForTimeout(25);
+  if (workspaceListCalls < 2)
+    throw new Error("The newer workspace refresh did not start.");
+  const newestWorkspaceRow = page
+    .locator(".tree-page-row")
+    .filter({ hasText: "NEWEST_WORKSPACE_RESPONSE" });
+  await newestWorkspaceRow.waitFor();
   await page.waitForTimeout(900);
-  if (
-    (await page
-      .getByRole("button", { name: /NEWEST_WORKSPACE_RESPONSE/ })
-      .count()) !== 1
-  )
+  if ((await newestWorkspaceRow.count()) !== 1)
     throw new Error(
       "An older workspace response replaced the newest page list.",
     );
@@ -275,9 +288,7 @@ let activeBrowser;
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await workspaceRestored;
-  await page
-    .getByRole("button", { name: /NEWEST_WORKSPACE_RESPONSE/ })
-    .waitFor({ state: "detached" });
+  await newestWorkspaceRow.waitFor({ state: "detached" });
   const roleStamp = Date.now();
   const editorEmail = `editor-${roleStamp}@sites.test`;
   const viewerEmail = `viewer-${roleStamp}@sites.test`;
@@ -1235,12 +1246,12 @@ let activeBrowser;
     throw new Error("The graph view did not render any nodes.");
   if (
     (await page.locator(".sigma-container canvas").count()) < 1 ||
-    (await page.getByRole("button", { name: "Type", exact: true }).count()) !==
+    (await page.getByRole("button", { name: "유형", exact: true }).count()) !==
       1 ||
     (await page
-      .getByRole("button", { name: "Community", exact: true })
+      .getByRole("button", { name: "커뮤니티", exact: true })
       .count()) !== 1 ||
-    (await page.getByText("Node Types", { exact: true }).count()) !== 1
+    (await page.getByText("노드 유형", { exact: true }).count()) !== 1
   )
     throw new Error("The Sigma graph visual contract is not active.");
   const graphFocusRefresh = page.waitForResponse(

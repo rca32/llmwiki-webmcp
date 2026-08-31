@@ -531,11 +531,7 @@ export function GraphView({
           ) : (
             <div className="graph-empty">
               <Network />
-              <strong>
-                {loading
-                  ? t("graph.loading")
-                  : t("graph.empty")}
-              </strong>
+              <strong>{loading ? t("graph.loading") : t("graph.empty")}</strong>
             </div>
           )}
 
@@ -577,7 +573,9 @@ export function GraphView({
                 ).map((color, index) => (
                   <div key={color}>
                     <i style={{ backgroundColor: color }} />
-                    <span>{t("graph.community")} {index + 1}</span>
+                    <span>
+                      {t("graph.community")} {index + 1}
+                    </span>
                   </div>
                 ))}
           </aside>
@@ -675,9 +673,7 @@ export function GraphView({
       </div>
 
       {graphData.truncated && (
-        <p className="graph-truncated">
-          {t("graph.truncated")}
-        </p>
+        <p className="graph-truncated">{t("graph.truncated")}</p>
       )}
     </section>
   );

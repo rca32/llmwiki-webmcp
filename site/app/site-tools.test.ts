@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WEBMCP_TOOL_NAMES } from "../lib/webmcp-tool-names";
 import { readTools, toolsForCapabilities, writeTools } from "./site-tools";
 
 type JsonObject = Record<string, unknown>;
@@ -61,6 +62,7 @@ describe("WebMCP descriptor contract", () => {
         ![
           "wiki_create_page",
           "wiki_create_folder",
+          "wiki_plan_ingest",
           "wiki_apply_ingest",
         ].includes(item.name),
     )) {
@@ -133,6 +135,18 @@ describe("WebMCP descriptor contract", () => {
         can_create_wiki: true,
       }).map((tool) => tool.name),
     ).toContain("wiki_create_vault");
+    expect(
+      toolsForCapabilities({
+        can_read: true,
+        can_write: true,
+        can_create_wiki: true,
+      }).map((tool) => tool.name),
+    ).toEqual(WEBMCP_TOOL_NAMES);
+    expect(
+      toolsForCapabilities({ can_read: true, can_write: false }).map(
+        (tool) => tool.name,
+      ),
+    ).not.toContain("wiki_plan_ingest");
     expect(
       toolsForCapabilities({ can_read: false, can_write: false }),
     ).toHaveLength(0);
@@ -323,14 +337,15 @@ describe("WebMCP descriptor contract", () => {
     ).rejects.toThrow(/section is required/);
   });
 
-  it("keeps ingest planning read-only and apply explicitly approved", () => {
-    const plan = readTools().find((tool) => tool.name === "wiki_plan_ingest")!,
+  it("marks persisted ingest planning as a non-idempotent write and requires explicit apply approval", () => {
+    const plan = writeTools().find((tool) => tool.name === "wiki_plan_ingest")!,
       apply = writeTools().find((tool) => tool.name === "wiki_apply_ingest")!,
       applyProperties = apply.inputSchema.properties as Record<
         string,
         JsonObject
       >;
-    expect(plan.annotations.readOnlyHint).toBe(true);
+    expect(plan.annotations.readOnlyHint).toBe(false);
+    expect(plan.annotations.idempotentHint).toBe(false);
     expect(apply.annotations.readOnlyHint).toBe(false);
     expect(applyProperties.approved.const).toBe(true);
     expect(applyProperties.plan_hash.pattern).toBe("^[0-9a-f]{64}$");
@@ -344,7 +359,7 @@ describe("WebMCP descriptor contract", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal("CustomEvent", class {});
-    await readTools()
+    await writeTools()
       .find((tool) => tool.name === "wiki_plan_ingest")!
       .execute({
         source: {

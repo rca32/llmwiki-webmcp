@@ -68,6 +68,12 @@ const writeAnnotations = {
   idempotentHint: true,
   openWorldHint: false,
 };
+const planAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+};
 const closed = (properties: JsonObject, required: string[] = []) => ({
   type: "object",
   properties,
@@ -458,11 +464,16 @@ export function readTools(): SiteTool[] {
           `/api/wiki-lint?limit=${boundedInteger(input.limit, 1, 500, 100)}`,
         ),
     },
+  ];
+}
+
+export function writeTools(): SiteTool[] {
+  return [
     {
       name: "wiki_plan_ingest",
       title: "Plan source-grounded wiki ingest",
       description:
-        "Create an immutable, expiring review plan for one source, proposed knowledge pages, and claims. This does not mutate wiki content.",
+        "Persist an immutable, expiring review plan for one source, proposed knowledge pages, and claims. Requires write permission but does not change wiki pages or claims until wiki_apply_ingest is explicitly approved.",
       inputSchema: closed(
         {
           source: ingestSourceSchema,
@@ -481,7 +492,7 @@ export function readTools(): SiteTool[] {
         },
         ["source"],
       ),
-      annotations: readAnnotations,
+      annotations: planAnnotations,
       execute: async (input) =>
         requestJson("/api/ingest/plans", {
           method: "POST",
@@ -492,11 +503,6 @@ export function readTools(): SiteTool[] {
           body: JSON.stringify(validatedIngestInput(input)),
         }),
     },
-  ];
-}
-
-export function writeTools(): SiteTool[] {
-  return [
     {
       name: "wiki_update_operating_contract",
       title: "Update the vault operating contract",

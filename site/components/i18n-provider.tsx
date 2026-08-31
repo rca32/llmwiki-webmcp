@@ -83,26 +83,32 @@ const en = {
   "graph.loadingDocument": "Loading document…",
   "graph.previewFailed": "Could not load preview.",
   "graph.openDocument": "Open document",
-  "graph.truncated": "Some results were omitted because the node limit was reached.",
+  "graph.truncated":
+    "Some results were omitted because the node limit was reached.",
   "ops.startTitle": "Get started with Liminal Wiki",
-  "ops.startDescription": "Create an empty wiki or restore a verified full backup from another Site. Restore is available only when there is no active wiki.",
+  "ops.startDescription":
+    "Create an empty wiki or restore a verified full backup from another Site. Restore is available only when there is no active wiki.",
   "ops.createEmpty": "Create empty wiki",
   "ops.restoreBackup": "Restore from backup",
   "ops.title": "Operations & recovery",
-  "ops.description": "Review permissions, backups, storage health, and recent changes in one place.",
+  "ops.description":
+    "Review permissions, backups, storage health, and recent changes in one place.",
   "ops.refresh": "Refresh",
   "ops.writeReadOnly": "Read-only mode active",
   "ops.writeEnabled": "Writing enabled",
-  "ops.writeHint": "Read-only mode blocks content changes in the human UI, WebMCP tools, and direct API calls.",
+  "ops.writeHint":
+    "Read-only mode blocks content changes in the human UI, WebMCP tools, and direct API calls.",
   "ops.reason": "Reason",
   "ops.reasonPlaceholder": "e.g. Investigating a D1 write failure",
   "ops.currentReason": "Current reason: {{reason}}",
   "ops.resumeWriting": "Resume writing",
   "ops.enableReadOnly": "Enable read only",
   "ops.backupTitle": "Portable knowledge archive",
-  "ops.backupDescription": "Verify every part and SHA-256 in the browser, save one ZIP, and acknowledge it.",
+  "ops.backupDescription":
+    "Verify every part and SHA-256 in the browser, save one ZIP, and acknowledge it.",
   "ops.includeMembers": "Include member email and role references",
-  "ops.privacyWarning": "The ZIP will contain other people's personal information.",
+  "ops.privacyWarning":
+    "The ZIP will contain other people's personal information.",
   "ops.portableBackup": "Portable backup",
   "ops.fullBackup": "Full backup",
   "ops.restoreEmpty": "Restore to empty Site",
@@ -114,14 +120,16 @@ const en = {
   "ops.runStorageCheck": "Run storage check",
   "ops.atomicityCheck": "D1 atomicity check",
   "ops.agentTitle": "Agent tool activity",
-  "ops.agentDescription": "Only tool outcomes and latency are aggregated; input, response content, and credentials are not stored.",
+  "ops.agentDescription":
+    "Only tool outcomes and latency are aggregated; input, response content, and credentials are not stored.",
   "ops.totalCalls": "Total calls",
   "ops.totalRequests": "Total requests",
   "ops.averageLatency": "Average latency",
   "ops.success": "Success",
   "ops.noWebmcp": "No WebMCP calls have been recorded yet.",
   "ops.apiTitle": "Shared command activity",
-  "ops.apiDescription": "UI and direct API requests are aggregated by the same command name without storing URLs, bodies, or credentials.",
+  "ops.apiDescription":
+    "UI and direct API requests are aggregated by the same command name without storing URLs, bodies, or credentials.",
   "ops.averageSearchResults": "Average search results",
   "ops.totalUploads": "Total R2 uploads",
   "ops.noApi": "No API requests have been aggregated yet.",
@@ -202,10 +210,12 @@ const en = {
   "dialog.pageExample": "e.g. New note",
   "dialog.folderExample": "e.g. Research",
   "dialog.moveTitle": "Move “{{title}}”",
-  "dialog.moveDescription": "Choose a new location. Child pages move with the folder and every change is versioned.",
+  "dialog.moveDescription":
+    "Choose a new location. Child pages move with the folder and every change is versioned.",
   "dialog.moveConfirm": "Move here",
   "dialog.moveTree": "Choose destination folder",
-  "dialog.newVaultDescription": "Create an independent knowledge space with its own page tree, search, and graph.",
+  "dialog.newVaultDescription":
+    "Create an independent knowledge space with its own page tree, search, and graph.",
   "dialog.createVault": "Create vault",
   "dialog.vaultName": "Vault name",
   "dialog.vaultExample": "e.g. Product Research",
@@ -279,22 +289,26 @@ const ko: Dictionary = {
   "graph.openDocument": "문서 열기",
   "graph.truncated": "노드 한도에 도달해 일부 결과가 생략되었습니다.",
   "ops.startTitle": "Liminal Wiki 시작하기",
-  "ops.startDescription": "새 빈 위키를 만들거나 다른 Site의 검증된 전체 백업을 복원하세요. 복원은 활성 위키가 없을 때만 가능합니다.",
+  "ops.startDescription":
+    "새 빈 위키를 만들거나 다른 Site의 검증된 전체 백업을 복원하세요. 복원은 활성 위키가 없을 때만 가능합니다.",
   "ops.createEmpty": "빈 위키 만들기",
   "ops.restoreBackup": "백업에서 복원",
   "ops.title": "운영과 복구",
-  "ops.description": "권한, 백업, 저장소 상태와 최근 변경을 한곳에서 확인합니다.",
+  "ops.description":
+    "권한, 백업, 저장소 상태와 최근 변경을 한곳에서 확인합니다.",
   "ops.refresh": "새로 고침",
   "ops.writeReadOnly": "읽기 전용 운영 중",
   "ops.writeEnabled": "쓰기 허용",
-  "ops.writeHint": "읽기 전용 모드는 사람 UI, WebMCP 도구와 직접 API 실행의 콘텐츠 변경을 차단합니다.",
+  "ops.writeHint":
+    "읽기 전용 모드는 사람 UI, WebMCP 도구와 직접 API 실행의 콘텐츠 변경을 차단합니다.",
   "ops.reason": "전환 사유",
   "ops.reasonPlaceholder": "예: D1 쓰기 장애 조사",
   "ops.currentReason": "현재 사유: {{reason}}",
   "ops.resumeWriting": "쓰기 재개",
   "ops.enableReadOnly": "읽기 전용 전환",
   "ops.backupTitle": "이동 가능한 지식 보관",
-  "ops.backupDescription": "모든 파트와 SHA-256을 브라우저에서 확인한 뒤 하나의 ZIP으로 저장하고 승인합니다.",
+  "ops.backupDescription":
+    "모든 파트와 SHA-256을 브라우저에서 확인한 뒤 하나의 ZIP으로 저장하고 승인합니다.",
   "ops.includeMembers": "멤버 이메일·역할 참조 포함",
   "ops.privacyWarning": "다른 사람의 개인정보가 ZIP에 들어갑니다.",
   "ops.portableBackup": "이동용 백업",
@@ -308,14 +322,16 @@ const ko: Dictionary = {
   "ops.runStorageCheck": "저장소 점검 실행",
   "ops.atomicityCheck": "D1 원자성 검사",
   "ops.agentTitle": "에이전트 도구 호출 상태",
-  "ops.agentDescription": "입력·응답 콘텐츠와 인증정보는 저장하지 않고 도구별 결과와 지연시간만 집계합니다.",
+  "ops.agentDescription":
+    "입력·응답 콘텐츠와 인증정보는 저장하지 않고 도구별 결과와 지연시간만 집계합니다.",
   "ops.totalCalls": "총 호출",
   "ops.totalRequests": "총 요청",
   "ops.averageLatency": "평균 지연",
   "ops.success": "성공",
   "ops.noWebmcp": "아직 기록된 WebMCP 호출이 없습니다.",
   "ops.apiTitle": "공통 명령 처리 상태",
-  "ops.apiDescription": "UI와 직접 API 요청을 같은 명령 이름으로 집계하며 URL, 본문, 인증정보는 저장하지 않습니다.",
+  "ops.apiDescription":
+    "UI와 직접 API 요청을 같은 명령 이름으로 집계하며 URL, 본문, 인증정보는 저장하지 않습니다.",
   "ops.averageSearchResults": "검색 평균 결과",
   "ops.totalUploads": "실제 R2 업로드 누적",
   "ops.noApi": "아직 집계된 API 요청이 없습니다.",
@@ -383,10 +399,12 @@ const ko: Dictionary = {
   "dialog.pageExample": "예: 새 노트",
   "dialog.folderExample": "예: Research",
   "dialog.moveTitle": "“{{title}}” 이동",
-  "dialog.moveDescription": "새 위치를 선택하세요. 폴더의 하위 항목도 함께 이동되며, 모든 변경은 버전 기록에 남습니다.",
+  "dialog.moveDescription":
+    "새 위치를 선택하세요. 폴더의 하위 항목도 함께 이동되며, 모든 변경은 버전 기록에 남습니다.",
   "dialog.moveConfirm": "이 위치로 이동",
   "dialog.moveTree": "이동할 폴더 선택",
-  "dialog.newVaultDescription": "독립된 페이지 트리와 검색·그래프를 가진 새 지식 공간을 만듭니다.",
+  "dialog.newVaultDescription":
+    "독립된 페이지 트리와 검색·그래프를 가진 새 지식 공간을 만듭니다.",
   "dialog.createVault": "Vault 만들기",
   "dialog.vaultName": "Vault 이름",
   "dialog.vaultExample": "예: Product Research",
@@ -457,22 +475,26 @@ const ja: Dictionary = {
   "graph.openDocument": "文書を開く",
   "graph.truncated": "ノード上限に達したため一部の結果を省略しました。",
   "ops.startTitle": "Liminal Wikiを始める",
-  "ops.startDescription": "空のWikiを作成するか、別のSiteの検証済み完全バックアップを復元します。復元は有効なWikiがない場合のみ利用できます。",
+  "ops.startDescription":
+    "空のWikiを作成するか、別のSiteの検証済み完全バックアップを復元します。復元は有効なWikiがない場合のみ利用できます。",
   "ops.createEmpty": "空のWikiを作成",
   "ops.restoreBackup": "バックアップから復元",
   "ops.title": "運用と復旧",
-  "ops.description": "権限、バックアップ、ストレージ状態、最近の変更を一か所で確認します。",
+  "ops.description":
+    "権限、バックアップ、ストレージ状態、最近の変更を一か所で確認します。",
   "ops.refresh": "更新",
   "ops.writeReadOnly": "読み取り専用モード",
   "ops.writeEnabled": "書き込み有効",
-  "ops.writeHint": "読み取り専用モードはUI、WebMCPツール、直接APIでの変更をブロックします。",
+  "ops.writeHint":
+    "読み取り専用モードはUI、WebMCPツール、直接APIでの変更をブロックします。",
   "ops.reason": "理由",
   "ops.reasonPlaceholder": "例：D1書き込み障害の調査",
   "ops.currentReason": "現在の理由：{{reason}}",
   "ops.resumeWriting": "書き込みを再開",
   "ops.enableReadOnly": "読み取り専用にする",
   "ops.backupTitle": "移動可能な知識アーカイブ",
-  "ops.backupDescription": "各パートとSHA-256をブラウザで検証し、1つのZIPとして保存・確認します。",
+  "ops.backupDescription":
+    "各パートとSHA-256をブラウザで検証し、1つのZIPとして保存・確認します。",
   "ops.includeMembers": "メンバーのメールと役割参照を含める",
   "ops.privacyWarning": "ZIPに他の人の個人情報が含まれます。",
   "ops.portableBackup": "移動用バックアップ",
@@ -486,14 +508,16 @@ const ja: Dictionary = {
   "ops.runStorageCheck": "ストレージ点検",
   "ops.atomicityCheck": "D1原子性検査",
   "ops.agentTitle": "エージェントツール活動",
-  "ops.agentDescription": "入力、応答内容、認証情報は保存せず、結果と遅延のみ集計します。",
+  "ops.agentDescription":
+    "入力、応答内容、認証情報は保存せず、結果と遅延のみ集計します。",
   "ops.totalCalls": "総呼び出し",
   "ops.totalRequests": "総リクエスト",
   "ops.averageLatency": "平均遅延",
   "ops.success": "成功",
   "ops.noWebmcp": "WebMCP呼び出しはまだ記録されていません。",
   "ops.apiTitle": "共通コマンド活動",
-  "ops.apiDescription": "UIと直接APIのリクエストを同じコマンド名で集計し、URL、本文、認証情報は保存しません。",
+  "ops.apiDescription":
+    "UIと直接APIのリクエストを同じコマンド名で集計し、URL、本文、認証情報は保存しません。",
   "ops.averageSearchResults": "平均検索結果",
   "ops.totalUploads": "R2アップロード合計",
   "ops.noApi": "APIリクエストはまだ集計されていません。",
@@ -561,10 +585,12 @@ const ja: Dictionary = {
   "dialog.pageExample": "例：新しいノート",
   "dialog.folderExample": "例：Research",
   "dialog.moveTitle": "「{{title}}」を移動",
-  "dialog.moveDescription": "新しい場所を選択してください。子ページも一緒に移動し、すべての変更が履歴に残ります。",
+  "dialog.moveDescription":
+    "新しい場所を選択してください。子ページも一緒に移動し、すべての変更が履歴に残ります。",
   "dialog.moveConfirm": "ここに移動",
   "dialog.moveTree": "移動先フォルダーを選択",
-  "dialog.newVaultDescription": "独立したページツリー、検索、グラフを持つ知識空間を作成します。",
+  "dialog.newVaultDescription":
+    "独立したページツリー、検索、グラフを持つ知識空間を作成します。",
   "dialog.createVault": "Vaultを作成",
   "dialog.vaultName": "Vault名",
   "dialog.vaultExample": "例：Product Research",
@@ -635,7 +661,8 @@ const zh: Dictionary = {
   "graph.openDocument": "打开文档",
   "graph.truncated": "已达到节点上限，部分结果被省略。",
   "ops.startTitle": "开始使用Liminal Wiki",
-  "ops.startDescription": "创建空Wiki或从其他Site恢复已验证的完整备份。仅在没有活动Wiki时可恢复。",
+  "ops.startDescription":
+    "创建空Wiki或从其他Site恢复已验证的完整备份。仅在没有活动Wiki时可恢复。",
   "ops.createEmpty": "创建空Wiki",
   "ops.restoreBackup": "从备份恢复",
   "ops.title": "运维与恢复",
@@ -643,14 +670,16 @@ const zh: Dictionary = {
   "ops.refresh": "刷新",
   "ops.writeReadOnly": "只读模式已启用",
   "ops.writeEnabled": "允许写入",
-  "ops.writeHint": "只读模式会阻止用户界面、WebMCP工具和直接API调用中的内容更改。",
+  "ops.writeHint":
+    "只读模式会阻止用户界面、WebMCP工具和直接API调用中的内容更改。",
   "ops.reason": "原因",
   "ops.reasonPlaceholder": "例如：调查D1写入故障",
   "ops.currentReason": "当前原因：{{reason}}",
   "ops.resumeWriting": "恢复写入",
   "ops.enableReadOnly": "启用只读",
   "ops.backupTitle": "可移植知识归档",
-  "ops.backupDescription": "在浏览器中验证所有部分和SHA-256后，保存并确认一个ZIP文件。",
+  "ops.backupDescription":
+    "在浏览器中验证所有部分和SHA-256后，保存并确认一个ZIP文件。",
   "ops.includeMembers": "包含成员邮箱和角色引用",
   "ops.privacyWarning": "ZIP中将包含他人的个人信息。",
   "ops.portableBackup": "可移植备份",
@@ -671,7 +700,8 @@ const zh: Dictionary = {
   "ops.success": "成功",
   "ops.noWebmcp": "尚未记录WebMCP调用。",
   "ops.apiTitle": "共享命令活动",
-  "ops.apiDescription": "按相同命令名汇总界面和直接API请求，不存储URL、正文或凭据。",
+  "ops.apiDescription":
+    "按相同命令名汇总界面和直接API请求，不存储URL、正文或凭据。",
   "ops.averageSearchResults": "平均搜索结果",
   "ops.totalUploads": "R2上传总量",
   "ops.noApi": "尚未汇总API请求。",
@@ -739,7 +769,8 @@ const zh: Dictionary = {
   "dialog.pageExample": "例如：新笔记",
   "dialog.folderExample": "例如：Research",
   "dialog.moveTitle": "移动“{{title}}”",
-  "dialog.moveDescription": "请选择新位置。子页面将随文件夹一起移动，所有更改都会记录版本。",
+  "dialog.moveDescription":
+    "请选择新位置。子页面将随文件夹一起移动，所有更改都会记录版本。",
   "dialog.moveConfirm": "移动到此处",
   "dialog.moveTree": "选择目标文件夹",
   "dialog.newVaultDescription": "创建拥有独立页面树、搜索和图谱的知识空间。",
@@ -792,7 +823,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [language, setLanguage, t],
   );
 
-  return <I18nContext.Provider value={context}>{children}</I18nContext.Provider>;
+  return (
+    <I18nContext.Provider value={context}>{children}</I18nContext.Provider>
+  );
 }
 
 export function useI18n() {

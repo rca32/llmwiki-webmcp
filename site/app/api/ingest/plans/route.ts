@@ -12,7 +12,7 @@ import { requireWikiSession } from "../../../../lib/server-session";
 export async function POST(request: Request) {
   const id = requestId("ingest.plan");
   try {
-    const session = await requireWikiSession("can_read"),
+    const session = await requireWikiSession("can_write"),
       proposed = parseIngestRequest(await jsonBody(request)),
       result = await createIngestPlan({
         wikiId: session.wikiId!,

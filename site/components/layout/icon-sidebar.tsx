@@ -52,18 +52,18 @@ export function IconSidebar({
           {navItems.map(({ view, icon: Icon, labelKey }) => {
             const label = t(labelKey);
             return (
-            <Tooltip key={view}>
-              <TooltipTrigger
-                type="button"
-                aria-label={label}
-                aria-current={activeView === view ? "page" : undefined}
-                className={`sidebar-icon-button ${activeView === view ? "active" : ""}`}
-                onClick={() => onViewChange(view)}
-              >
-                <Icon aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
+              <Tooltip key={view}>
+                <TooltipTrigger
+                  type="button"
+                  aria-label={label}
+                  aria-current={activeView === view ? "page" : undefined}
+                  className={`sidebar-icon-button ${activeView === view ? "active" : ""}`}
+                  onClick={() => onViewChange(view)}
+                >
+                  <Icon aria-hidden="true" />
+                </TooltipTrigger>
+                <TooltipContent side="right">{label}</TooltipContent>
+              </Tooltip>
             );
           })}
         </nav>

@@ -18,6 +18,9 @@ let activeBrowser;
     acceptDownloads: true,
     serviceWorkers: "block",
   });
+  await context.addInitScript(() => {
+    window.localStorage.setItem("liminal-wiki:language", "ko");
+  });
   const page = await context.newPage();
   const baseUrl = process.env.WIKI_URL || "http://127.0.0.1:3000";
   const errors = [];
@@ -32,6 +35,9 @@ let activeBrowser;
 
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.locator(".tree-page-row").first().waitFor();
+  await page.waitForFunction(() =>
+    Boolean(document.documentElement.dataset.wikiId),
+  );
   const staleFixtures = await context.request
     .get(`${baseUrl}/api/pages?depth=64&limit=200`)
     .then((response) => response.json());
@@ -241,6 +247,7 @@ let activeBrowser;
   )
     throw new Error("Graph node click did not open the selected page.");
 
+  await page.locator("summary.topbar-icon-button").click();
   await page.getByRole("button", { name: "백업", exact: true }).click();
   await page.locator(".operations-stage").waitFor();
   const artifactsDir = join(process.cwd(), "artifacts");

@@ -288,7 +288,11 @@ function WorkspaceDialog({
             <span>WORKSPACE</span>
             <h2 id="workspace-dialog-title">{title}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label={t("common.close")}>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("common.close")}
+          >
             ×
           </button>
         </header>
@@ -1505,12 +1509,13 @@ export default function Home() {
       />
       <div className="app-workspace">
         {view === "document" && (
-          <nav className="mobile-panel-switcher" aria-label={t("mobile.workspace")}>
+          <nav
+            className="mobile-panel-switcher"
+            aria-label={t("mobile.workspace")}
+          >
             <button
               type="button"
-              className={
-                mobileWorkspacePane === "navigation" ? "active" : ""
-              }
+              className={mobileWorkspacePane === "navigation" ? "active" : ""}
               aria-pressed={mobileWorkspacePane === "navigation"}
               onClick={() => {
                 setLeftPanelOpen(true);
@@ -1657,16 +1662,14 @@ export default function Home() {
                     {writeMode === "read_only" && (
                       <span
                         className="readonly-badge"
-                        title={
-                          writeModeReason ??
-                          t("page.readOnlyHint")
-                        }
+                        title={writeModeReason ?? t("page.readOnlyHint")}
                       >
                         {t("page.readOnly")}
                       </span>
                     )}
                     <span
                       className={"sync-state " + (dirty ? "dirty" : "")}
+                      role="status"
                       aria-label={dirty ? t("page.unsaved") : status}
                       title={dirty ? t("page.unsaved") : status}
                     >
@@ -2036,9 +2039,7 @@ export default function Home() {
                           </button>
                         ))
                       ) : (
-                        <p className="context-empty">
-                          {t("page.noLinks")}
-                        </p>
+                        <p className="context-empty">{t("page.noLinks")}</p>
                       )}
                     </div>
                   </section>
@@ -2121,7 +2122,9 @@ export default function Home() {
                         </div>
                       ))}
                       {!attachments.length && (
-                        <p className="context-empty">{t("page.noAttachments")}</p>
+                        <p className="context-empty">
+                          {t("page.noAttachments")}
+                        </p>
                       )}
                     </div>
                   </section>

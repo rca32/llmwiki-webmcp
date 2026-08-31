@@ -7,7 +7,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
+    "dev": "vinext dev --hostname 127.0.0.1",
     "build": "vinext build",
     "start": "vinext start",
     "format": "prettier --write . --ignore-path .gitignore",
@@ -18,11 +18,11 @@
     "test:backup-roundtrip": "node tests/backup-roundtrip.cjs",
     "test:backup-spike": "node tests/backup-roundtrip.cjs --bytes=104857600",
     "test:performance": "node tests/performance-benchmark.cjs",
-    "test:performance:ci": "start-server-and-test dev http-get://127.0.0.1:3000 test:performance",
+    "test:performance:ci": "node tests/run-with-server.cjs test:performance",
     "test:bundle": "node tests/check-bundle-size.cjs",
     "test:notices": "node scripts/check-third-party-notices.cjs",
     "test:ui": "node tests/ui-smoke.cjs && node tests/ui-lifecycle.cjs",
-    "test:ui:ci": "start-server-and-test dev http-get://127.0.0.1:3000 test:ui",
+    "test:ui:ci": "node tests/run-with-server.cjs test:ui",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check"
   },
@@ -68,7 +68,6 @@
     "playwright": "^1.62.1",
     "prettier": "^3.6.2",
     "react-server-dom-webpack": "19.2.6",
-    "start-server-and-test": "^2.1.2",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.3",
