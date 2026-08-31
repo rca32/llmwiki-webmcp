@@ -20,11 +20,12 @@ vault and becomes its owner. Returning with the same account reopens that
 workspace; another account receives a different vault and cannot discover the
 first account's content.
 
-There is no separate demo edition or temporary demo storage. Each account uses
-the normal wiki product, persistence, role model, WebMCP catalog, revisions,
-provenance, backups, and recovery features. Existing memberships and vaults are
-preserved. Legacy isolated demo vaults are upgraded in place to personal owner
-vaults on their next signed-in session, retaining their pages and history.
+Every account uses the production wiki product with persistent storage, the
+normal role model, the full owner WebMCP catalog, revisions, provenance,
+backups, and recovery features. There is no separate trial mode or temporary
+workspace. Existing memberships and vaults are preserved. Restricted isolated
+workspaces created under the earlier policy are upgraded in place to personal
+owner vaults on their next signed-in session, retaining their pages and history.
 
 In short, **public** describes who may reach the ChatGPT sign-in boundary. Data
 access still comes from the signed-in account's isolated membership; it never
