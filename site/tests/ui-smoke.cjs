@@ -292,6 +292,7 @@ let activeBrowser;
   const roleStamp = Date.now();
   const editorEmail = `editor-${roleStamp}@sites.test`;
   const viewerEmail = `viewer-${roleStamp}@sites.test`;
+  const outsiderEmail = `outsider-${roleStamp}@sites.test`;
   for (const [email, role] of [
     [editorEmail, "editor"],
     [viewerEmail, "viewer"],
@@ -310,7 +311,7 @@ let activeBrowser;
   });
   const outsiderContext = await activeBrowser.newContext({
     extraHTTPHeaders: {
-      "x-liminal-test-user-email": `outsider-${roleStamp}@sites.test`,
+      "x-liminal-test-user-email": outsiderEmail,
     },
   });
   const invalidReadOnly = await context.request.put(
@@ -400,11 +401,33 @@ let activeBrowser;
   );
   if (deniedFullBackup.status() !== 403)
     throw new Error("Editor full backup was not denied.");
-  const deniedOutsiderRead = await outsiderContext.request.get(
+  const ownerIsolationSession = await context.request
+    .get(`${baseUrl}/api/session/capabilities`)
+    .then((response) => response.json());
+  const outsiderIsolationSession = await outsiderContext.request
+    .get(`${baseUrl}/api/session/capabilities`)
+    .then((response) => response.json());
+  if (
+    outsiderIsolationSession.data.wiki.role !== "owner" ||
+    !outsiderIsolationSession.data.capabilities.can_create_wiki ||
+    outsiderIsolationSession.data.wiki.id === ownerIsolationSession.data.wiki.id
+  )
+    throw new Error(
+      "First-time account personal-wiki onboarding is incorrect.",
+    );
+  const outsiderPages = await outsiderContext.request.get(
     `${baseUrl}/api/pages`,
   );
-  if (deniedOutsiderRead.status() !== 403)
-    throw new Error("Non-member page read was not denied.");
+  if (!outsiderPages.ok() || (await outsiderPages.json()).data.pages.length)
+    throw new Error("A new personal wiki was not empty and isolated.");
+  const ownerIsolationPage = await context.request
+    .get(`${baseUrl}/api/pages?limit=1`)
+    .then((response) => response.json());
+  const deniedCrossVaultRead = await outsiderContext.request.get(
+    `${baseUrl}/api/pages/${ownerIsolationPage.data.pages[0].id}`,
+  );
+  if (deniedCrossVaultRead.status() !== 404)
+    throw new Error("A personal wiki could read another account's page.");
   const telemetryCorrelation = `ui-smoke-${roleStamp}`;
   const telemetryRecord = await viewerContext.request.post(
     `${baseUrl}/api/telemetry/webmcp`,
@@ -419,7 +442,7 @@ let activeBrowser;
   );
   if (!telemetryRecord.ok())
     throw new Error("A viewer could not record bounded WebMCP telemetry.");
-  const deniedOutsiderTelemetry = await outsiderContext.request.post(
+  const outsiderTelemetry = await outsiderContext.request.post(
     `${baseUrl}/api/telemetry/webmcp`,
     {
       data: {
@@ -430,8 +453,8 @@ let activeBrowser;
       },
     },
   );
-  if (deniedOutsiderTelemetry.status() !== 403)
-    throw new Error("A non-member could record WebMCP telemetry.");
+  if (!outsiderTelemetry.ok())
+    throw new Error("A personal-wiki owner could not record WebMCP telemetry.");
   const rejectedTelemetryContent = await context.request.post(
     `${baseUrl}/api/telemetry/webmcp`,
     {
@@ -616,8 +639,8 @@ let activeBrowser;
   const outsiderAttachmentRead = await outsiderContext.request.get(
     `${baseUrl}/api/attachments/${attachment.attachment_id}`,
   );
-  if (outsiderAttachmentRead.status() !== 403)
-    throw new Error("Non-member attachment read was not denied.");
+  if (outsiderAttachmentRead.status() !== 404)
+    throw new Error("A personal wiki could read another account's attachment.");
   const viewerAttachmentDelete = await viewerContext.request.delete(
     `${baseUrl}/api/attachments/${attachment.attachment_id}`,
     { data: { operation_id: crypto.randomUUID() } },

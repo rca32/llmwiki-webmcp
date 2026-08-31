@@ -50,12 +50,11 @@ export default async function RootLayout({
           <main className="wiki-shell bootstrap-shell-root">
             <section className="bootstrap-stage">
               <div className="bootstrap-card auth-card">
-                <p className="eyebrow">PUBLIC DEMO · PRIVATE DATA</p>
-                <h1>Sign in to open your demo</h1>
+                <p className="eyebrow">PRIVATE WIKI · CHATGPT SIGN-IN</p>
+                <h1>Sign in to open your wiki</h1>
                 <p>
-                  This public URL does not expose wiki data anonymously. Sign in
-                  with ChatGPT to open or create your isolated WebMCP Demo
-                  vault.
+                  ChatGPT sign-in is required. Your account opens or creates its
+                  own private Liminal Wiki workspace.
                 </p>
                 <div className="bootstrap-actions">
                   <a

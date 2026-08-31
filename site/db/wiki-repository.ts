@@ -27,11 +27,9 @@ import { safeOperationalErrorTag } from "../lib/security-policy";
 import { assertActiveAttachmentCapacity } from "../lib/storage-quota";
 import { idempotencyDisposition } from "../lib/idempotency-policy";
 import {
-  isPublicDemoSlug,
-  PUBLIC_DEMO_D1_LIMIT_BYTES,
-  PUBLIC_DEMO_PAGE_LIMIT,
-  publicDemoIdentifiers,
-} from "../lib/public-demo";
+  isLegacyPublicDemoSlug,
+  personalWikiIdentifiers,
+} from "../lib/personal-wiki";
 import {
   DEFAULT_OPERATING_CONTRACT,
   buildWikiLintReport,
@@ -792,12 +790,12 @@ export async function createWiki(input: {
   return { id: wikiId, slug, title: input.title, role: "owner" as const };
 }
 
-export async function ensurePublicDemoWiki(input: { email: string }) {
+export async function ensurePersonalWiki(input: { email: string }) {
   const d = db(),
     timestamp = now(),
-    { auditId, wikiId } = await publicDemoIdentifiers(input.email),
-    slug = `demo-${wikiId.slice(0, 8)}`,
-    title = "WebMCP Demo";
+    { auditId, wikiId } = await personalWikiIdentifiers(input.email),
+    slug = `personal-${wikiId}`,
+    title = "Liminal Wiki";
   await d.batch([
     d
       .prepare(
@@ -806,7 +804,7 @@ export async function ensurePublicDemoWiki(input: { email: string }) {
       .bind(wikiId, slug, title, timestamp, timestamp),
     d
       .prepare(
-        `INSERT OR IGNORE INTO wiki_members(wiki_id,user_email,role,created_at) VALUES(?,?,'editor',?)`,
+        `INSERT OR IGNORE INTO wiki_members(wiki_id,user_email,role,created_at) VALUES(?,?,'owner',?)`,
       )
       .bind(wikiId, input.email, timestamp),
     d
@@ -821,14 +819,18 @@ export async function ensurePublicDemoWiki(input: { email: string }) {
       .bind(input.email, wikiId, timestamp),
     d
       .prepare(
-        `INSERT OR IGNORE INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'system','demo.auto_onboard','wiki',?,'success','demo.auto_onboard',?,?)`,
+        `INSERT OR IGNORE INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'system','personal.auto_onboard','wiki',?,'success','personal.auto_onboard',?,?)`,
       )
       .bind(
         auditId,
         wikiId,
         input.email,
         wikiId,
-        JSON.stringify({ policy: "isolated_public_demo", role: "editor" }),
+        JSON.stringify({
+          authentication: "chatgpt_required",
+          policy: "isolated_personal_wiki",
+          role: "owner",
+        }),
         timestamp,
       ),
   ]);
@@ -838,13 +840,90 @@ export async function ensurePublicDemoWiki(input: { email: string }) {
     )
     .bind(wikiId, input.email)
     .first<Record<string, unknown>>();
-  if (!membership || membership.role !== "editor")
+  if (!membership || membership.role !== "owner")
     throw new AppError(
       "internal_error",
-      "The isolated demo vault could not be prepared.",
+      "The personal wiki could not be prepared.",
       500,
     );
   return membership;
+}
+
+export async function upgradeLegacyDemoWiki(input: {
+  email: string;
+  wikiId: string;
+}) {
+  const d = db(),
+    timestamp = now(),
+    legacySlug = `demo-${input.wikiId.slice(0, 8)}`,
+    personalSlug = `personal-${input.wikiId}`,
+    { upgradeAuditId } = await personalWikiIdentifiers(input.email),
+    existing = await d
+      .prepare(
+        `SELECT w.id,w.slug,w.title,m.role,(SELECT COUNT(*) FROM wiki_members all_members WHERE all_members.wiki_id=w.id) AS member_count FROM wikis w JOIN wiki_members m ON m.wiki_id=w.id AND m.user_email=? WHERE w.id=? AND w.status='active' AND w.deleted_at IS NULL`,
+      )
+      .bind(input.email, input.wikiId)
+      .first<Record<string, unknown>>();
+  if (!existing)
+    throw new AppError(
+      "not_found",
+      "The legacy wiki membership could not be found.",
+      404,
+    );
+  if (!isLegacyPublicDemoSlug(existing.slug)) return existing;
+  if (existing.slug !== legacySlug || Number(existing.member_count) !== 1)
+    throw new AppError(
+      "internal_error",
+      "The legacy isolated wiki could not be upgraded safely.",
+      500,
+    );
+  await d.batch([
+    d
+      .prepare(
+        `UPDATE wikis SET slug=?,title=CASE WHEN title='WebMCP Demo' THEN 'Liminal Wiki' ELSE title END,updated_at=? WHERE id=? AND slug=?`,
+      )
+      .bind(personalSlug, timestamp, input.wikiId, legacySlug),
+    d
+      .prepare(
+        `UPDATE wiki_members SET role='owner' WHERE wiki_id=? AND user_email=?`,
+      )
+      .bind(input.wikiId, input.email),
+    d
+      .prepare(
+        `INSERT INTO wiki_user_preferences(user_email,active_wiki_id,updated_at) VALUES(?,?,?) ON CONFLICT(user_email) DO UPDATE SET active_wiki_id=excluded.active_wiki_id,updated_at=excluded.updated_at`,
+      )
+      .bind(input.email, input.wikiId, timestamp),
+    d
+      .prepare(
+        `INSERT OR IGNORE INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'system','personal.upgrade_legacy_demo','wiki',?,'success','personal.upgrade_legacy_demo',?,?)`,
+      )
+      .bind(
+        upgradeAuditId,
+        input.wikiId,
+        input.email,
+        input.wikiId,
+        JSON.stringify({
+          authentication: "chatgpt_required",
+          from_role: existing.role,
+          policy: "isolated_personal_wiki",
+          to_role: "owner",
+        }),
+        timestamp,
+      ),
+  ]);
+  const upgraded = await d
+    .prepare(
+      `SELECT w.id,w.slug,w.title,m.role FROM wikis w JOIN wiki_members m ON m.wiki_id=w.id AND m.user_email=? WHERE w.id=? AND w.status='active' AND w.deleted_at IS NULL`,
+    )
+    .bind(input.email, input.wikiId)
+    .first<Record<string, unknown>>();
+  if (!upgraded || upgraded.slug !== personalSlug || upgraded.role !== "owner")
+    throw new AppError(
+      "internal_error",
+      "The legacy wiki upgrade did not complete.",
+      500,
+    );
+  return upgraded;
 }
 
 type PageRow = {
@@ -1596,16 +1675,13 @@ async function assertContentQuota(
   wikiId: string,
   pageDelta: number,
   revisionBytes: number,
-  pageCountDelta = 0,
 ) {
   const usage = await db()
       .prepare(
-        `SELECT u.page_bytes,u.revision_inline_bytes,u.r2_ready_revision_bytes,u.r2_ready_attachment_bytes,u.r2_soft_deleted_bytes,u.r2_pending_bytes,u.r2_staging_import_bytes,u.r2_orphan_estimate_bytes,u.page_count,w.slug AS wiki_slug FROM wiki_usage u JOIN wikis w ON w.id=u.wiki_id WHERE u.wiki_id=?`,
+        `SELECT u.page_bytes,u.revision_inline_bytes,u.r2_ready_revision_bytes,u.r2_ready_attachment_bytes,u.r2_soft_deleted_bytes,u.r2_pending_bytes,u.r2_staging_import_bytes,u.r2_orphan_estimate_bytes,u.page_count FROM wiki_usage u WHERE u.wiki_id=?`,
       )
       .bind(wikiId)
       .first<Record<string, number | string>>(),
-    publicDemo = isPublicDemoSlug(usage?.wiki_slug),
-    d1Limit = publicDemo ? PUBLIC_DEMO_D1_LIMIT_BYTES : D1_SOFT_LIMIT_BYTES,
     d1Used =
       Number(usage?.page_bytes ?? 0) +
       Number(usage?.revision_inline_bytes ?? 0),
@@ -1620,31 +1696,15 @@ async function assertContentQuota(
       Math.max(pageDelta, 0) +
       (revisionBytes <= INLINE_REVISION_BYTES ? revisionBytes : 0),
     incomingR2 = revisionBytes > INLINE_REVISION_BYTES ? revisionBytes : 0;
-  if (
-    publicDemo &&
-    Number(usage?.page_count ?? 0) + pageCountDelta > PUBLIC_DEMO_PAGE_LIMIT
-  )
+  if (d1Used + incomingD1 > D1_SOFT_LIMIT_BYTES * 0.95)
     throw new AppError(
       "quota_exceeded",
-      "The public demo vault page limit would be exceeded.",
-      413,
-      {
-        page_count: Number(usage?.page_count ?? 0),
-        incoming_pages: pageCountDelta,
-        page_limit: PUBLIC_DEMO_PAGE_LIMIT,
-      },
-    );
-  if (d1Used + incomingD1 > d1Limit * 0.95)
-    throw new AppError(
-      "quota_exceeded",
-      publicDemo
-        ? "The public demo vault storage limit would be exceeded."
-        : "The D1 storage safety limit would be exceeded.",
+      "The D1 storage safety limit would be exceeded.",
       413,
       {
         used_bytes: d1Used,
         incoming_bytes: incomingD1,
-        soft_limit_bytes: d1Limit,
+        soft_limit_bytes: D1_SOFT_LIMIT_BYTES,
       },
     );
   if (r2Used + incomingR2 > R2_SOFT_LIMIT_BYTES * 0.95)
@@ -1710,7 +1770,6 @@ export async function createPage(input: {
     input.wikiId,
     bytes(input.markdown),
     bytes(input.markdown),
-    1,
   );
   if (input.parentId) {
     const parent = await getPage(input.wikiId, input.parentId);

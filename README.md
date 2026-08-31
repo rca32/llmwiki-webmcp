@@ -6,34 +6,29 @@ same tools, permissions, revisions, and provenance through WebMCP.**
 [System design](docs/SYSTEM_DESIGN.md) ·
 [WebMCP Challenge](https://webmcp.devpost.com/)
 
-> Live judge demo: <https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>.
-> Public Site access removes the owner-invite requirement; it does not make the
-> wiki or its APIs anonymous. A ChatGPT sign-in and a WebMCP-capable host are
-> still required.
+> Live app: <https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>.
+> The URL is publicly reachable, but every workspace and API requires ChatGPT
+> sign-in. Wiki data is private to the signed-in account's memberships.
 
 ![Liminal Wiki workspace showing the knowledge tree, GraphRAG article, linked mentions, and revision history](docs/assets/liminal-wiki-workspace.png)
 
-## Public demo access and permissions
+## Account access and ownership
 
-The production Site provides a least-privilege judge path without sharing an
-owner account or private vault. On the first signed-in visit, an account that
-has no existing membership is assigned its own deterministic, isolated
-`WebMCP Demo` vault. Returning with the same account reopens that vault; another
-account receives a different vault and cannot discover the first account's
-content. Auto-onboarding is opt-in and activates only when the deployment sets
-`PUBLIC_DEMO_AUTO_ONBOARD=true`.
+ChatGPT sign-in is mandatory. On the first signed-in visit, an account that has
+no existing membership receives its own deterministic, isolated `Liminal Wiki`
+vault and becomes its owner. Returning with the same account reopens that
+workspace; another account receives a different vault and cannot discover the
+first account's content.
 
-Demo members can read and write ordinary wiki content, including the
-search → plan → approve → apply → provenance/lint flow used in the submission
-video. They cannot create additional vaults, restore revisions, soft-delete
-content, manage members or attachments, import/export data, or run full
-backups. Those capabilities are removed from WebMCP discovery and are enforced
-again by the same-origin API handlers. Each demo vault is additionally limited
-to 50 pages and 2 MiB of D1 content.
+There is no separate demo edition or temporary demo storage. Each account uses
+the normal wiki product, persistence, role model, WebMCP catalog, revisions,
+provenance, backups, and recovery features. Existing memberships and vaults are
+preserved. Legacy isolated demo vaults are upgraded in place to personal owner
+vaults on their next signed-in session, retaining their pages and history.
 
-In short, **public** describes who may reach the sign-in boundary. Data access
-still comes from the signed-in account's isolated membership and capability
-projection; it never grants anonymous, owner, or cross-vault access.
+In short, **public** describes who may reach the ChatGPT sign-in boundary. Data
+access still comes from the signed-in account's isolated membership; it never
+grants anonymous or cross-vault access.
 
 ## The problem
 
@@ -250,13 +245,13 @@ presence of registration code is not enough:
 4. Call a harmless read tool such as `wiki_get_context`.
 5. Re-discover after a role, vault, login, or operational mode change.
 
-The production judge-demo acceptance discovered the 20-tool catalog projected
-for its restricted editor role and completed the scripted
+The production acceptance discovered the full 22-tool catalog projected for
+the signed-in personal-vault owner role and completed the scripted
 context → contract → search → plan → apply → claims/revisions/lint flow. It
 created one source page, one entity page, and one grounded claim; the resulting
-quality check reported no issues. Owner-only operations such as vault creation,
-revision restoration, member management, and backups were not exposed to that
-session. A hosted viewer-only comparison remains a separate acceptance gate.
+quality check reported no issues. Destructive owner operations were discovered
+but deliberately not exercised. A hosted viewer-only comparison remains a
+separate acceptance gate.
 
 ## Repository map
 

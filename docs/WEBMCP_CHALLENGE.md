@@ -123,48 +123,45 @@ Liminal Wiki는 다음과 같이 대응할 수 있다.
 
 ## 6. 현재 프로젝트 감사 결과
 
-| 요구사항                      | 상태        | 근거 또는 후속 작업                                                                                                                                   |
-| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 챌린지 기간 내 신규 프로젝트  | 통과        | 공개 저장소 생성일은 2026-08-27, 최초 커밋은 2026-08-30이다.                                                                                          |
-| 공개 코드 저장소              | 통과        | <https://github.com/rca32/llmwiki-webmcp>                                                                                                             |
-| ChatGPT Sites 설정            | 통과        | `site/.openai/hosting.json`에 project, D1, R2 binding이 있다.                                                                                         |
-| WebMCP 등록 구현              | 통과        | `site/app/site-tools.tsx`에서 capability 확인 후 `document.modelContext.registerTool()`을 호출한다.                                                   |
-| lifecycle cleanup             | 통과        | component unmount 시 AbortController로 등록을 정리한다.                                                                                               |
-| capability-gated 도구         | 통과        | read, write, vault 생성 도구를 세션 capability에 따라 선택한다.                                                                                       |
-| closed schema와 executor 검증 | 통과        | top-level `additionalProperties: false`와 실행기 재검증이 있다.                                                                                       |
-| 실제 WebMCP 활용 깊이         | 강점        | 현재 catalog는 세션에 따라 최대 22개 도구를 제공한다.                                                                                                 |
-| owner host discovery          | 부분 통과   | owner 세션에서 discovery와 harmless read call 성공 기록이 있다.                                                                                       |
-| editor/viewer 권한 행렬       | 부분 통과   | hosted demo editor에서 제한된 20-tool discovery와 실제 호출을 검증했다. viewer-only hosted 비교는 남아 있다.                                          |
-| 최신 핵심 ingest 흐름         | 통과        | production demo에서 context → contract → search → plan → apply → claims/revisions/lint를 완주했다.                                                    |
-| 외부 심사 접근                | 통과        | Site는 public admission이며, 로그인한 비회원에게 계정별 격리 `WebMCP Demo` editor membership을 자동 연결한다. 익명 API와 관리자 권한은 계속 차단된다. |
-| 루트 라이선스 인식            | 부분 통과   | 루트 `LICENSE`와 README의 GPL-3.0-only 적용 범위는 준비됐다. push 후 GitHub About 인식 확인이 남아 있다.                                              |
-| GitHub Actions                | 재검증 필요 | 로컬에서 server bind, Windows 종료, UI selector와 접근성 실패를 수정해 `test:ui:ci`가 통과했다. 원격 Actions green 확인이 남아 있다.                  |
-| 영문 제출 설명                | 미완료      | 아래 초안을 기준으로 최종 편집해야 한다.                                                                                                              |
-| 공개 YouTube 영상             | 미완료      | 3분 미만 데모를 촬영하고 공개 URL을 제출해야 한다.                                                                                                    |
+| 요구사항                      | 상태        | 근거 또는 후속 작업                                                                                                                                           |
+| ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 챌린지 기간 내 신규 프로젝트  | 통과        | 공개 저장소 생성일은 2026-08-27, 최초 커밋은 2026-08-30이다.                                                                                                  |
+| 공개 코드 저장소              | 통과        | <https://github.com/rca32/llmwiki-webmcp>                                                                                                                     |
+| ChatGPT Sites 설정            | 통과        | `site/.openai/hosting.json`에 project, D1, R2 binding이 있다.                                                                                                 |
+| WebMCP 등록 구현              | 통과        | `site/app/site-tools.tsx`에서 capability 확인 후 `document.modelContext.registerTool()`을 호출한다.                                                           |
+| lifecycle cleanup             | 통과        | component unmount 시 AbortController로 등록을 정리한다.                                                                                                       |
+| capability-gated 도구         | 통과        | read, write, vault 생성 도구를 세션 capability에 따라 선택한다.                                                                                               |
+| closed schema와 executor 검증 | 통과        | top-level `additionalProperties: false`와 실행기 재검증이 있다.                                                                                               |
+| 실제 WebMCP 활용 깊이         | 강점        | 현재 catalog는 세션에 따라 최대 22개 도구를 제공한다.                                                                                                         |
+| owner host discovery          | 부분 통과   | owner 세션에서 discovery와 harmless read call 성공 기록이 있다.                                                                                               |
+| editor/viewer 권한 행렬       | 부분 통과   | owner 세션에서 22-tool discovery와 실제 호출을 검증했다. 초대된 editor/viewer의 hosted 비교는 남아 있다.                                                      |
+| 최신 핵심 ingest 흐름         | 통과        | production 개인 위키에서 context → contract → search → plan → apply → claims/revisions/lint를 완주했다.                                                       |
+| 외부 심사 접근                | 통과        | Site URL은 공개지만 ChatGPT 로그인이 필수다. 첫 로그인 계정에는 격리된 개인 `Liminal Wiki`와 owner membership을 자동 생성하며 익명·교차 계정 접근은 차단한다. |
+| 루트 라이선스 인식            | 부분 통과   | 루트 `LICENSE`와 README의 GPL-3.0-only 적용 범위는 준비됐다. push 후 GitHub About 인식 확인이 남아 있다.                                                      |
+| GitHub Actions                | 재검증 필요 | 로컬에서 server bind, Windows 종료, UI selector와 접근성 실패를 수정해 `test:ui:ci`가 통과했다. 원격 Actions green 확인이 남아 있다.                          |
+| 영문 제출 설명                | 미완료      | 아래 초안을 기준으로 최종 편집해야 한다.                                                                                                                      |
+| 공개 YouTube 영상             | 미완료      | 3분 미만 데모를 촬영하고 공개 URL을 제출해야 한다.                                                                                                            |
 
 ## 7. 제출 전 기술 조치
 
-### 7.1 격리된 심사용 라이브 환경
+### 7.1 로그인 필수 개인 위키 라이브 환경
 
-production judge demo는
-<https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>에서 제공한다. 여기서 Site의
-`public`은 owner 초대 없이 URL의 로그인 경계까지 접근할 수 있다는 뜻이며, 익명
-wiki/API 접근을 뜻하지 않는다.
+production live app은
+<https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>에서 제공한다. Site URL은
+공개되어 있지만 모든 위키 화면과 API는 ChatGPT 로그인을 요구한다.
 
-- ChatGPT 로그인이 필요하며 비로그인 API 요청은 기존과 같이 거부한다.
-- 자동 onboarding은 production 환경에서 `PUBLIC_DEMO_AUTO_ONBOARD=true`를
-  명시한 경우에만 활성화한다.
-- 기존 membership이 없는 로그인 계정에는 계정별로 결정적이고 격리된
-  `WebMCP Demo` vault를 자동 생성한다. 다른 계정은 이 vault를 발견하거나 읽을 수
-  없다.
-- demo role은 일반 콘텐츠의 `can_read`와 `can_write`만 유지한다.
-- vault 생성, revision 복원, soft delete, 멤버·첨부 관리, import/export와 full
-  backup capability는 제거한다.
-- capability에 없는 WebMCP 도구는 discovery에서 제외하고, 같은 권한을 서버 API가
+- 비로그인 방문자는 `Sign in with ChatGPT` 경계만 보고, API 요청은 401로 거부된다.
+- 기존 membership이 없는 로그인 계정에는 결정적이고 격리된 개인
+  `Liminal Wiki` vault를 자동 생성하고 해당 계정을 owner로 지정한다.
+- 같은 계정으로 돌아오면 같은 위키와 기록이 열리며, 다른 계정은 이를 발견하거나
+  읽을 수 없다.
+- 별도의 demo edition, demo role, 임시 저장소나 demo 전용 quota는 없다.
+- 신규 개인 위키는 일반 제품과 동일한 22-tool owner catalog, revision,
+  provenance, backup과 recovery 규칙을 사용한다.
+- 과거 격리 demo vault는 다음 로그인에서 페이지와 revision을 유지한 채 개인 owner
+  vault로 승격한다.
+- WebMCP discovery와 서버 API는 현재 로그인 세션의 membership과 capability를 각각
   다시 검사한다.
-- 각 demo vault는 50 pages와 2 MiB D1 content 한도를 가진다.
-- 대표 read/write 흐름은 허용하지만 owner 계정, 비밀번호나 private vault는
-  심사위원에게 제공하지 않는다.
 
 ### 7.2 루트 라이선스
 
@@ -292,28 +289,25 @@ Liminal Wiki는 WebMCP를 통해 열린 웹페이지 자체가 현재 상태와 
 영상에서 기능 수를 나열하는 대신 이 협업 루프 하나를 완주한다. 심사위원이
 반드시 확인해야 할 장면은 다음 다섯 가지다.
 
-1. 심사용 공개 환경은 개인정보가 없는 격리된 demo이며 실제 개인 vault가 아니다.
-2. WebMCP는 별도 AI 계정이나 만능 권한이 아니라 현재 로그인 세션과 role을 쓴다.
+1. 라이브 환경은 ChatGPT 로그인이 필수이며 로그인 계정별 개인 vault를 사용한다.
+2. WebMCP는 별도 AI 계정이 아니라 현재 로그인 세션과 실제 membership/role을 쓴다.
 3. 일반 브라우저 자동화가 아니라 현재 페이지가 제공한 WebMCP 도구를 호출한다.
 4. `plan`과 `apply` 사이에 사람의 명시적 승인이 있다.
 5. 적용 결과가 source, claim, revision 및 lint 결과로 추적된다.
 
 ### 9.2 녹화 전 준비
 
-- judge demo용 격리 vault 이름을 `WebMCP Demo`로 통일한다.
-- 여기서 `공개 demo`는 심사위원이 별도 owner 승인을 받지 않아도 접근할 수 있다는
-  뜻이다. 익명 API 공개를 뜻하지 않는다. Site와 API는 ChatGPT 로그인을 요구하고,
-  도구는 로그인한 심사 세션의 membership과 role을 사용한다.
-- 첫 로그인에서 계정별 demo vault가 자동 생성되고, 다른 계정의 demo/private
-  vault는 목록과 검색에 나타나지 않는다는 점을 확인한다.
-- demo에는 `can_read`와 `can_write`만 남고, vault 생성·복원·삭제·멤버 관리·백업
-  도구가 discovery에 없다는 점을 `wiki_get_context`와 tool catalog로 보여준다.
-- 50 pages와 2 MiB D1 content 한도는 심사용 오남용 방지 장치로 설명하되 영상의
-  핵심 협업 흐름을 방해하지 않도록 한 문장으로만 언급한다.
-- 녹화 계정에는 `can_read`와 `can_write`가 있어야 하며, 화면에 개인 이메일이나
-  다른 vault의 비공개 데이터가 보이지 않게 한다.
+- 녹화용 ChatGPT 계정의 개인 vault 이름을 `Liminal Wiki`로 통일한다.
+- 공개 URL은 익명 데이터 공개가 아니라 ChatGPT 로그인 진입점이라는 점을 설명한다.
+- 첫 로그인에서 계정별 개인 vault가 자동 생성되고, 다른 계정의 vault는 목록과
+  검색에 나타나지 않는다는 점을 확인한다.
+- `wiki_get_context`와 tool catalog에서 owner role과 22개 도구가 현재 로그인
+  membership과 일치하는지 보여준다.
+- 복원·삭제·멤버 관리·백업 같은 consequential 도구는 발견되더라도 시연 중에는
+  실행하지 않고 안전 장치를 설명한다.
+- 화면에 개인 이메일이나 다른 vault의 비공개 데이터가 보이지 않게 한다.
 - 가능하면 로그아웃 창에서 `Sign in with ChatGPT` 경계를 2~3초 보여준 뒤,
-  로그인된 demo 화면으로 전환한다. 실제 이메일이나 인증 과정은 녹화하지 않는다.
+  로그인된 개인 위키 화면으로 전환한다. 실제 이메일이나 인증 과정은 녹화하지 않는다.
 - 아래 시연에서 사용할 제목이 아직 존재하지 않는 깨끗한 seed 상태를 만든다.
   - source: `OpenScreen GitHub README — product overview`
   - entity: `OpenScreen`
@@ -375,17 +369,17 @@ Proposed claim:
 
 ### 9.4 2분 55초 최종 제품 소개 대본
 
-| 시간      | 화면과 조작                                                                                                                                                                                | 한국어 내레이션                                                                                                                                                                                                       | 영문 자막                                                                                                                                                                                                                                                                |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0:00–0:15 | 어두운 배경에 `What if a web app could tell AI exactly what it can do?`를 띄운 뒤 Liminal Wiki와 ChatGPT 화면으로 전환한다.                                                                | 지금까지 AI는 웹앱을 바깥에서 다뤘습니다. 화면을 읽고, 버튼을 추측하고, UI가 바뀌면 다시 배워야 했죠. WebMCP는 이 관계를 뒤집습니다. 이제 열린 페이지가 AI에게 정확한 도구를 직접 제공합니다.                         | Until now, AI has operated web apps from the outside—reading screens, guessing at controls, and breaking when the UI changes. WebMCP reverses that relationship: the open page provides AI with precise tools directly.                                                  |
-| 0:15–0:35 | `Liminal Wiki` 로고 뒤 로그아웃 상태의 `Sign in with ChatGPT`를 2초 보여준다. 로그인된 비식별 `WebMCP Demo`로 전환해 `editor`, 허용 capability와 제한된 tool catalog를 함께 보여준다.      | 공개 URL은 초대 없이 로그인할 수 있다는 뜻이지 익명 데이터 공개가 아닙니다. 로그인하면 계정별 격리 데모가 생기고 읽기와 쓰기만 허용됩니다. 멤버 관리, 백업과 복원 같은 관리자 기능은 UI와 WebMCP 모두에서 제외됩니다. | The public URL removes the invite requirement; it does not expose anonymous data. Sign-in creates an isolated per-account demo with read and write access only. Admin actions such as member management, backup, and restore stay unavailable in both the UI and WebMCP. |
-| 0:35–0:52 | 프롬프트 1을 전송한다. 발견된 descriptor의 name, description, input schema를 짧게 보여준 뒤 `wiki_get_context`의 실제 결과와 현재 UI의 vault·role이 일치하는지 강조한다.                   | ChatGPT는 페이지가 설명한 이름과 스키마로 도구를 발견하고 실제로 호출합니다. DOM에서 텍스트를 긁어 현재 상태를 짐작하는 대신, `wiki_get_context`가 열린 공간과 허용된 작업을 구조화된 결과로 돌려줍니다.              | ChatGPT discovers tools through the names and schemas published by the page, then calls them for real. Instead of scraping the DOM to infer state, `wiki_get_context` returns the open workspace and allowed actions as structured data.                                 |
-| 0:52–1:10 | `wiki_get_operating_contract`의 핵심 규칙과 `wiki_search` 결과를 연속해서 보여준다. 검색 중에는 마우스 클릭이 발생하지 않는 것을 화면에서 확인시킨다.                                      | 중요한 점은 WebMCP가 버튼 클릭을 자동화하는 기술이 아니라는 것입니다. 페이지는 ‘운영 규칙 읽기’와 ‘지식 검색’처럼 제품이 의미를 아는 작업을 제공합니다. UI 배치가 바뀌어도 이 작업 계약은 유지됩니다.                 | WebMCP is not a faster way to automate button clicks. The page exposes product-level actions such as reading workspace rules and searching knowledge. The interface can move while that action contract remains stable.                                                  |
-| 1:10–1:36 | 프롬프트 2를 보낸다. `wiki_plan_ingest` 입력과 결과에서 OpenScreen source, entity, grounded claim이 하나의 typed review plan으로 묶이는 모습을 보여주고 `Ready for review`를 오버레이한다. | 이제 공개 자료를 위키에 추가해 보겠습니다. 한 번의 구조화된 호출이 source, entity와 근거 있는 claim을 검토 가능한 계획으로 반환합니다. AI와 앱이 화면 문장이 아니라 명확한 입력과 결과 계약으로 대화하는 장면입니다.  | Now I will add a public source to the wiki. One structured call returns a reviewable plan containing the source, entity, and grounded claim. The AI and the app communicate through an explicit input-and-result contract, not screen text.                              |
-| 1:36–1:55 | source와 confidence를 확인한 뒤 프롬프트 3을 전송한다. `approved: true`, 동일한 `plan_hash`, 현재 version과 새 `operation_id`를 차례로 강조한다.                                           | WebMCP가 페이지 기능을 제공한다고 해서 앱의 안전장치를 우회하지는 않습니다. 같은 로그인 권한이 다시 검사되고, 명시적 승인과 plan hash, version이 검토하지 않은 변경이나 오래된 쓰기를 막습니다.                       | Exposing an action through WebMCP does not bypass the app's safeguards. The same session permission is enforced again, while explicit approval, the plan hash, and the current version prevent unreviewed or stale writes.                                               |
-| 1:55–2:18 | apply 성공 직후 왼쪽 tree에 source와 OpenScreen entity가 생기는 모습을 보여준다. tool result의 stable page ID/version을 UI의 새 페이지와 revision에 연결해 강조한다.                       | 적용 결과는 별도의 AI용 데이터베이스에 저장되지 않습니다. WebMCP 도구가 사람 UI와 같은 API와 같은 데이터를 사용하기 때문에 새 페이지와 revision이 즉시 현재 화면에 나타납니다. 동기화할 두 번째 시스템이 없습니다.    | The result is not stored in a separate database for AI. Because the WebMCP tool uses the same APIs and data as the human interface, the new page and revision appear here immediately. There is no second system to synchronize.                                         |
-| 2:18–2:40 | 프롬프트 4를 보낸다. `wiki_get_claims`, `wiki_list_revisions`, `wiki_lint`의 구조화된 결과에서 source ID, evidence, revision과 issue count를 차례로 보여준다.                              | 도구 결과도 다음 작업에 쓸 수 있는 stable ID와 구조를 가집니다. ChatGPT는 방금 만든 claim의 근거와 revision을 다시 따라가고, 위키 전체 품질까지 검사합니다. 이것이 단순 클릭 자동화와 제품 수준 통합의 차이입니다.    | Tool results carry stable IDs and structure that later actions can reuse. ChatGPT can trace the claim back to its evidence and revision, then audit the wiki. That is the difference between click automation and product-level integration.                             |
-| 2:40–2:55 | Liminal Wiki UI와 ChatGPT tool result를 나란히 보여주고 `Page-native tools · Session-aware · One shared product`를 표시한다.                                                               | WebMCP를 사용하면 웹페이지는 AI가 조작하는 화면을 넘어, 자신의 기능과 경계를 직접 설명합니다. AI는 사용자의 실제 세션 안에서 일하고, 사람 UI와 AI 도구는 하나의 제품이 됩니다.                                        | With WebMCP, a page is no longer just a screen for AI to operate. It declares its capabilities and boundaries while AI acts within the user's real session. The human UI and AI tools become one product.                                                                |
+| 시간      | 화면과 조작                                                                                                                                                                                | 한국어 내레이션                                                                                                                                                                                                      | 영문 자막                                                                                                                                                                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0:00–0:15 | 어두운 배경에 `What if a web app could tell AI exactly what it can do?`를 띄운 뒤 Liminal Wiki와 ChatGPT 화면으로 전환한다.                                                                | 지금까지 AI는 웹앱을 바깥에서 다뤘습니다. 화면을 읽고, 버튼을 추측하고, UI가 바뀌면 다시 배워야 했죠. WebMCP는 이 관계를 뒤집습니다. 이제 열린 페이지가 AI에게 정확한 도구를 직접 제공합니다.                        | Until now, AI has operated web apps from the outside—reading screens, guessing at controls, and breaking when the UI changes. WebMCP reverses that relationship: the open page provides AI with precise tools directly.                      |
+| 0:15–0:35 | `Liminal Wiki` 로고 뒤 로그아웃 상태의 `Sign in with ChatGPT`를 2초 보여준다. 로그인된 비식별 개인 위키로 전환해 `owner`, capability와 22-tool catalog를 함께 보여준다.                    | 공개 URL은 익명 데이터 공개가 아닙니다. ChatGPT 로그인이 필수이고, 처음 로그인한 계정에는 다른 계정과 분리된 개인 위키가 만들어집니다. 같은 세션의 실제 소유자 권한이 UI와 WebMCP에 함께 적용됩니다.                 | The public URL does not expose anonymous data. ChatGPT sign-in is required, and a first-time account receives its own workspace isolated from every other account. The same real owner permissions govern both the UI and WebMCP.            |
+| 0:35–0:52 | 프롬프트 1을 전송한다. 발견된 descriptor의 name, description, input schema를 짧게 보여준 뒤 `wiki_get_context`의 실제 결과와 현재 UI의 vault·role이 일치하는지 강조한다.                   | ChatGPT는 페이지가 설명한 이름과 스키마로 도구를 발견하고 실제로 호출합니다. DOM에서 텍스트를 긁어 현재 상태를 짐작하는 대신, `wiki_get_context`가 열린 공간과 허용된 작업을 구조화된 결과로 돌려줍니다.             | ChatGPT discovers tools through the names and schemas published by the page, then calls them for real. Instead of scraping the DOM to infer state, `wiki_get_context` returns the open workspace and allowed actions as structured data.     |
+| 0:52–1:10 | `wiki_get_operating_contract`의 핵심 규칙과 `wiki_search` 결과를 연속해서 보여준다. 검색 중에는 마우스 클릭이 발생하지 않는 것을 화면에서 확인시킨다.                                      | 중요한 점은 WebMCP가 버튼 클릭을 자동화하는 기술이 아니라는 것입니다. 페이지는 ‘운영 규칙 읽기’와 ‘지식 검색’처럼 제품이 의미를 아는 작업을 제공합니다. UI 배치가 바뀌어도 이 작업 계약은 유지됩니다.                | WebMCP is not a faster way to automate button clicks. The page exposes product-level actions such as reading workspace rules and searching knowledge. The interface can move while that action contract remains stable.                      |
+| 1:10–1:36 | 프롬프트 2를 보낸다. `wiki_plan_ingest` 입력과 결과에서 OpenScreen source, entity, grounded claim이 하나의 typed review plan으로 묶이는 모습을 보여주고 `Ready for review`를 오버레이한다. | 이제 공개 자료를 위키에 추가해 보겠습니다. 한 번의 구조화된 호출이 source, entity와 근거 있는 claim을 검토 가능한 계획으로 반환합니다. AI와 앱이 화면 문장이 아니라 명확한 입력과 결과 계약으로 대화하는 장면입니다. | Now I will add a public source to the wiki. One structured call returns a reviewable plan containing the source, entity, and grounded claim. The AI and the app communicate through an explicit input-and-result contract, not screen text.  |
+| 1:36–1:55 | source와 confidence를 확인한 뒤 프롬프트 3을 전송한다. `approved: true`, 동일한 `plan_hash`, 현재 version과 새 `operation_id`를 차례로 강조한다.                                           | WebMCP가 페이지 기능을 제공한다고 해서 앱의 안전장치를 우회하지는 않습니다. 같은 로그인 권한이 다시 검사되고, 명시적 승인과 plan hash, version이 검토하지 않은 변경이나 오래된 쓰기를 막습니다.                      | Exposing an action through WebMCP does not bypass the app's safeguards. The same session permission is enforced again, while explicit approval, the plan hash, and the current version prevent unreviewed or stale writes.                   |
+| 1:55–2:18 | apply 성공 직후 왼쪽 tree에 source와 OpenScreen entity가 생기는 모습을 보여준다. tool result의 stable page ID/version을 UI의 새 페이지와 revision에 연결해 강조한다.                       | 적용 결과는 별도의 AI용 데이터베이스에 저장되지 않습니다. WebMCP 도구가 사람 UI와 같은 API와 같은 데이터를 사용하기 때문에 새 페이지와 revision이 즉시 현재 화면에 나타납니다. 동기화할 두 번째 시스템이 없습니다.   | The result is not stored in a separate database for AI. Because the WebMCP tool uses the same APIs and data as the human interface, the new page and revision appear here immediately. There is no second system to synchronize.             |
+| 2:18–2:40 | 프롬프트 4를 보낸다. `wiki_get_claims`, `wiki_list_revisions`, `wiki_lint`의 구조화된 결과에서 source ID, evidence, revision과 issue count를 차례로 보여준다.                              | 도구 결과도 다음 작업에 쓸 수 있는 stable ID와 구조를 가집니다. ChatGPT는 방금 만든 claim의 근거와 revision을 다시 따라가고, 위키 전체 품질까지 검사합니다. 이것이 단순 클릭 자동화와 제품 수준 통합의 차이입니다.   | Tool results carry stable IDs and structure that later actions can reuse. ChatGPT can trace the claim back to its evidence and revision, then audit the wiki. That is the difference between click automation and product-level integration. |
+| 2:40–2:55 | Liminal Wiki UI와 ChatGPT tool result를 나란히 보여주고 `Page-native tools · Session-aware · One shared product`를 표시한다.                                                               | WebMCP를 사용하면 웹페이지는 AI가 조작하는 화면을 넘어, 자신의 기능과 경계를 직접 설명합니다. AI는 사용자의 실제 세션 안에서 일하고, 사람 UI와 AI 도구는 하나의 제품이 됩니다.                                       | With WebMCP, a page is no longer just a screen for AI to operate. It declares its capabilities and boundaries while AI acts within the user's real session. The human UI and AI tools become one product.                                    |
 
 ### 9.5 화면에서 전송할 프롬프트
 
@@ -463,15 +457,14 @@ wiki_search
 
 ### 9.6 촬영 성공 기준
 
-- 심사용 공개 demo와 실제 private vault의 차이가 음성과 화면에서 명확하다.
+- ChatGPT 로그인 경계와 로그인 후 계정별 private vault가 음성과 화면에서 명확하다.
 - 로그아웃 상태에서는 sign-in 경계가 보이고, 로그인 후에는 현재 role에 맞는
   도구만 발견된다. 이메일이나 인증 정보 자체는 노출하지 않는다.
 - tool call 카드나 host의 도구 상세에 `wiki_*` 이름이 읽을 수 있게 보인다.
 - `wiki_get_context` 결과의 active vault와 capability가 현재 UI와 일치한다.
-- demo context에서 `can_read`와 `can_write`는 true이고, vault 생성·복원·삭제·멤버
-  관리·첨부·import/export·full backup capability는 false로 표시된다.
-- 제한된 관리 도구가 WebMCP catalog에 없고 직접 API 호출도 같은 서버 권한 검사로
-  거부된다는 점을 확인한다.
+- owner context의 capability와 22-tool catalog가 현재 UI 권한과 일치한다.
+- consequential 관리 도구는 현재 owner에게만 노출되며, 실제 API도 같은 서버 권한을
+  다시 검사한다는 점을 확인한다.
 - operating contract에서 `search_before_create`와 `plan_before_apply`가 확인된다.
 - 계획 결과에 `plan_id`, 64자리 `plan_hash`, source/page/claim action이 있다.
 - 사람의 승인 전에는 `wiki_apply_ingest`가 호출되지 않는다.
@@ -488,10 +481,10 @@ wiki_search
 | 문제                       | 대체 방법                                                                                                                                 |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | 도구 discovery가 비어 있음 | 녹화를 중단하고 지원 host, 정확한 URL, 로그인 세션과 client registration 오류를 확인한다. 소스 코드 화면으로 성공 장면을 대체하지 않는다. |
-| 기존 title이 이미 존재함   | demo vault를 초기 seed로 복구하거나 concept title에 녹화 날짜를 붙인다. 기존 데이터를 덮어쓰지 않는다.                                    |
+| 기존 title이 이미 존재함   | 개인 vault에서 concept title에 녹화 날짜를 붙인다. 기존 데이터를 덮어쓰지 않는다.                                                         |
 | plan에 warning이 있음      | warning을 짧게 읽고 안전하면 그대로 심사 포인트로 사용한다. source metadata나 confidence 오류라면 packet을 수정하고 새 plan을 만든다.     |
 | apply가 conflict를 반환함  | stale plan이 최신 상태를 덮어쓰지 못했다는 안전 장치로 짧게 설명한 뒤, 깨끗한 seed에서 본 흐름을 다시 촬영한다.                           |
-| lint issue가 남음          | issue 종류와 개수를 그대로 보여준다. 데모가 만든 source/claim의 provenance 문제라면 제출 전 수정하고 재촬영한다.                          |
+| lint issue가 남음          | issue 종류와 개수를 그대로 보여준다. 시연 중 만든 source/claim의 provenance 문제라면 제출 전 수정하고 재촬영한다.                         |
 | 응답이 길어 3분을 넘김     | 입력 타이핑과 대기만 컷하고, tool name, 승인, 핵심 structured result는 유지한다.                                                          |
 
 ### 9.8 편집 및 업로드 체크
@@ -515,13 +508,13 @@ wiki_search
 - [ ] 제출 초안 생성 및 Project overview 저장
 - [x] 저장소 루트 `LICENSE` 추가
 - [x] CI server wait timeout 해결
-- [x] 심사용 격리 배포의 접근 정책 결정
+- [x] ChatGPT 로그인 필수·계정별 개인 위키 접근 정책 결정
 - [x] `wiki_plan_ingest` annotation과 권한 계약 수정
 
-### 데모 준비
+### 시연 준비
 
-- [x] judge demo용 계정별 격리 vault 자동 생성
-- [x] 비-owner 로그인 세션에서 라이브 URL 접근 확인
+- [x] 첫 로그인 계정별 개인 owner vault 자동 생성
+- [x] 신규 개인 owner 로그인 세션에서 라이브 URL 접근 확인
 - [x] host `fetchTools()`와 대표 read call 기록
 - [ ] 대표 ingest 흐름 완료; viewer-only role matrix 검증
 - [ ] 영문 README와 testing instructions 작성

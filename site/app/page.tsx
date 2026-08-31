@@ -177,7 +177,6 @@ type WikiSummary = {
   id: string;
   title: string;
   role: string;
-  is_demo?: boolean;
 };
 type Envelope<T> =
   | { ok: true; data: T; change_set: unknown }
@@ -607,7 +606,6 @@ export default function Home() {
             id: string;
             title: string;
             role: string;
-            is_demo?: boolean;
           } | null;
           capabilities: Caps;
           site_version: number;
@@ -636,7 +634,6 @@ export default function Home() {
                 id: string;
                 title: string;
                 role: string;
-                is_demo?: boolean;
               } | null;
               capabilities: Caps;
               site_version: number;

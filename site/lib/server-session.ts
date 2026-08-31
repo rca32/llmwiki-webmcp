@@ -8,15 +8,12 @@ import {
   type WriteMode,
 } from "./contracts";
 import {
-  ensurePublicDemoWiki,
+  ensurePersonalWiki,
   ensureWikiSchema,
   getMembership,
+  upgradeLegacyDemoWiki,
 } from "../db/wiki-repository";
-import {
-  isPublicDemoSlug,
-  publicDemoEnabled,
-  restrictPublicDemoCapabilities,
-} from "./public-demo";
+import { isLegacyPublicDemoSlug } from "./personal-wiki";
 
 export type WikiSession = {
   email: string;
@@ -24,7 +21,6 @@ export type WikiSession = {
   wikiId: string | null;
   wikiTitle: string | null;
   role: Role | null;
-  isPublicDemo: boolean;
   capabilities: Capabilities;
   siteVersion: number;
   writeMode: WriteMode;
@@ -58,12 +54,12 @@ export async function getWikiSession(): Promise<WikiSession> {
       401,
     );
   let membership = await getMembership(email);
-  if (
-    !membership.wikiId &&
-    authenticatedUser &&
-    publicDemoEnabled(env.PUBLIC_DEMO_AUTO_ONBOARD)
-  ) {
-    await ensurePublicDemoWiki({ email });
+  if (!membership.wikiId && authenticatedUser) {
+    await ensurePersonalWiki({ email });
+    membership = await getMembership(email);
+  }
+  if (membership.wikiId && isLegacyPublicDemoSlug(membership.wikiSlug)) {
+    await upgradeLegacyDemoWiki({ email, wikiId: membership.wikiId });
     membership = await getMembership(email);
   }
   const configuredOwner = (
@@ -84,22 +80,18 @@ export async function getWikiSession(): Promise<WikiSession> {
       (configuredOwner === email || localOwner)) ||
     (membership.bootstrapStatus === "reserved" &&
       membership.reservedBy === email);
-  const isPublicDemo = isPublicDemoSlug(membership.wikiSlug),
-    capabilities = capabilitiesFor(
-      membership.role,
-      canBootstrap,
-      membership.writeMode,
-    );
+  const capabilities = capabilitiesFor(
+    membership.role,
+    canBootstrap,
+    membership.writeMode,
+  );
   return {
     email,
     displayName: user.displayName,
     wikiId: membership.wikiId,
     wikiTitle: membership.wikiTitle,
     role: membership.role,
-    isPublicDemo,
-    capabilities: isPublicDemo
-      ? restrictPublicDemoCapabilities(capabilities)
-      : capabilities,
+    capabilities,
     siteVersion: membership.siteVersion,
     writeMode: membership.writeMode,
     writeModeReason: membership.writeModeReason,
