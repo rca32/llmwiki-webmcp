@@ -160,6 +160,19 @@ type Caps = {
   can_full_backup: boolean;
   can_import: boolean;
 };
+const EMPTY_CAPABILITIES: Caps = {
+  can_bootstrap: false,
+  can_create_wiki: false,
+  can_read: false,
+  can_write: false,
+  can_restore: false,
+  can_soft_delete: false,
+  can_manage_attachments: false,
+  can_export_portable: false,
+  can_manage_members: false,
+  can_full_backup: false,
+  can_import: false,
+};
 type WikiSummary = {
   id: string;
   title: string;
@@ -341,19 +354,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [status, setStatus] = useState("연결 중…");
-  const [caps, setCaps] = useState<Caps>({
-    can_bootstrap: false,
-    can_create_wiki: false,
-    can_read: false,
-    can_write: false,
-    can_restore: false,
-    can_soft_delete: false,
-    can_manage_attachments: false,
-    can_export_portable: false,
-    can_manage_members: false,
-    can_full_backup: false,
-    can_import: false,
-  });
+  const [caps, setCaps] = useState<Caps>(EMPTY_CAPABILITIES);
   const [currentWiki, setCurrentWiki] = useState<WikiSummary | null>(null);
   const [wikis, setWikis] = useState<WikiSummary[]>([]);
   const [createTarget, setCreateTarget] = useState<{
@@ -374,6 +375,7 @@ export default function Home() {
   );
   const [writeModeReason, setWriteModeReason] = useState<string | null>(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [editConflict, setEditConflict] = useState<EditConflict | null>(null);
   const [autosavePaused, setAutosavePaused] = useState(false);
@@ -612,6 +614,7 @@ export default function Home() {
           write_mode: "read_write" | "read_only";
           write_mode_reason: string | null;
         }>("/api/session/capabilities");
+        setAuthRequired(false);
         if (
           requestedTarget &&
           session.capabilities.can_read &&
@@ -736,18 +739,43 @@ export default function Home() {
       } catch (error) {
         if (requestNumber !== workspaceRequestRef.current) return;
         setSessionLoaded(true);
-        setStatus("연결 실패");
-        setNotice(
-          error instanceof Error
-            ? error.message
-            : "위키를 불러오지 못했습니다.",
-        );
+        const code =
+          error instanceof Error && "code" in error ? String(error.code) : null;
+        if (code === "unauthenticated") {
+          currentWikiIdRef.current = null;
+          activeRef.current = null;
+          pagesRef.current = [];
+          pageDetailsCacheRef.current.clear();
+          setAuthRequired(true);
+          setCaps(EMPTY_CAPABILITIES);
+          setCurrentWiki(null);
+          setWikis([]);
+          setPages([]);
+          setDeletedPages([]);
+          setActive(null);
+          setMarkdown("");
+          setSavedMarkdown("");
+          setRevisions([]);
+          setNeighbors([]);
+          setAttachments([]);
+          setGraph(null);
+          setStatus("로그인 필요");
+          setNotice(null);
+        } else {
+          setStatus("연결 실패");
+          setNotice(
+            error instanceof Error
+              ? error.message
+              : "위키를 불러오지 못했습니다.",
+          );
+        }
       }
     },
     [openPage],
   );
 
   useEffect(() => {
+    if (authRequired) return;
     const initial = window.setTimeout(() => void loadWorkspace(), 0);
     const onChange = () => void loadWorkspace(true);
     const onFocus = () => void loadWorkspace(true);
@@ -762,7 +790,7 @@ export default function Home() {
       window.removeEventListener("wiki:changed", onChange);
       window.removeEventListener("focus", onFocus);
     };
-  }, [loadWorkspace]);
+  }, [authRequired, loadWorkspace]);
   useEffect(() => {
     const onShortcut = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -1483,6 +1511,28 @@ export default function Home() {
     }
     return invalid;
   }, [active, pages]);
+
+  if (sessionLoaded && authRequired)
+    return (
+      <main className="wiki-shell bootstrap-shell-root">
+        <section className="bootstrap-stage">
+          <div className="bootstrap-card auth-card">
+            <p className="eyebrow">{t("auth.eyebrow")}</p>
+            <h1>{t("auth.title")}</h1>
+            <p>{t("auth.description")}</p>
+            <div className="bootstrap-actions">
+              <a
+                className="save-button"
+                href="/signin-with-chatgpt?return_to=%2F"
+                target="_top"
+              >
+                {t("auth.action")}
+              </a>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
 
   if (sessionLoaded && !caps.can_read)
     return (

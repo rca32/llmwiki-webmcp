@@ -1170,6 +1170,12 @@ body {
   gap: 8px;
   margin-top: 24px;
 }
+.bootstrap-card a.save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
 .bootstrap-card .conflict-banner {
   margin: 18px 0 0;
 }

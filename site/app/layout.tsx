@@ -4,6 +4,7 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./workspace.css";
 import { I18nProvider } from "@/components/i18n-provider";
+import { chatGPTSignInPath, getChatGPTUser } from "./chatgpt-auth";
 
 const mono = IBM_Plex_Mono({
   variable: "--font-mono",
@@ -35,13 +36,42 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export const dynamic = "force-dynamic";
+
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const mustSignIn =
+    process.env.NODE_ENV === "production" && !(await getChatGPTUser());
   return (
     <html lang="en">
       <body className={mono.variable}>
-        <I18nProvider>{children}</I18nProvider>
+        {mustSignIn ? (
+          <main className="wiki-shell bootstrap-shell-root">
+            <section className="bootstrap-stage">
+              <div className="bootstrap-card auth-card">
+                <p className="eyebrow">PUBLIC DEMO · PRIVATE DATA</p>
+                <h1>Sign in to open your demo</h1>
+                <p>
+                  This public URL does not expose wiki data anonymously. Sign in
+                  with ChatGPT to open or create your isolated WebMCP Demo
+                  vault.
+                </p>
+                <div className="bootstrap-actions">
+                  <a
+                    className="save-button"
+                    href={chatGPTSignInPath("/")}
+                    target="_top"
+                  >
+                    Sign in with ChatGPT
+                  </a>
+                </div>
+              </div>
+            </section>
+          </main>
+        ) : (
+          <I18nProvider>{children}</I18nProvider>
+        )}
       </body>
     </html>
   );
