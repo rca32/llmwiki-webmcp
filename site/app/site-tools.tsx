@@ -834,10 +834,18 @@ export function toolsForCapabilities(capabilities: {
   can_read?: boolean;
   can_write?: boolean;
   can_create_wiki?: boolean;
+  can_restore?: boolean;
 }) {
   const tools: SiteTool[] = [];
   if (capabilities.can_read) tools.push(...readTools());
-  if (capabilities.can_write) tools.push(...writeTools());
+  if (capabilities.can_write)
+    tools.push(
+      ...writeTools().filter(
+        (tool) =>
+          tool.name !== "wiki_restore_revision" ||
+          capabilities.can_restore !== false,
+      ),
+    );
   if (capabilities.can_create_wiki)
     tools.push({
       name: "wiki_create_vault",
@@ -870,17 +878,38 @@ export function toolsForCapabilities(capabilities: {
   return tools.map(observeTool);
 }
 
+async function waitForModelContext(signal: AbortSignal) {
+  while (!signal.aborted) {
+    const modelContext = document.modelContext;
+    if (typeof modelContext?.registerTool === "function") return modelContext;
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, 100);
+      const onAbort = () => {
+        window.clearTimeout(timer);
+        finish();
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+  return null;
+}
+
 export function SiteTools() {
   useEffect(() => {
-    const modelContext = document.modelContext;
-    if (typeof modelContext?.registerTool !== "function") return;
     const controller = new AbortController();
     void (async () => {
+      const modelContext = await waitForModelContext(controller.signal);
+      if (!modelContext || controller.signal.aborted) return;
       const session = await requestJson<{
         capabilities?: {
           can_read?: boolean;
           can_write?: boolean;
           can_create_wiki?: boolean;
+          can_restore?: boolean;
         };
       }>("/api/session/capabilities");
       const tools = toolsForCapabilities(

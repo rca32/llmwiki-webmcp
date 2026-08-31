@@ -132,6 +132,13 @@ describe("WebMCP descriptor contract", () => {
       toolsForCapabilities({
         can_read: true,
         can_write: true,
+        can_restore: false,
+      }).map((tool) => tool.name),
+    ).not.toContain("wiki_restore_revision");
+    expect(
+      toolsForCapabilities({
+        can_read: true,
+        can_write: true,
         can_create_wiki: true,
       }).map((tool) => tool.name),
     ).toContain("wiki_create_vault");
