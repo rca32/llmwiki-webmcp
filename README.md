@@ -6,12 +6,34 @@ same tools, permissions, revisions, and provenance through WebMCP.**
 [System design](docs/SYSTEM_DESIGN.md) ·
 [WebMCP Challenge](https://webmcp.devpost.com/)
 
-> ChatGPT Sites assigns a deployment URL when each user creates or redeploys
-> the Site. This repository intentionally does not pin a hosted Site URL.
-> Submission reviewers should use the current URL supplied with that specific
-> deployment.
+> Live judge demo: <https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>.
+> Public Site access removes the owner-invite requirement; it does not make the
+> wiki or its APIs anonymous. A ChatGPT sign-in and a WebMCP-capable host are
+> still required.
 
 ![Liminal Wiki workspace showing the knowledge tree, GraphRAG article, linked mentions, and revision history](docs/assets/liminal-wiki-workspace.png)
+
+## Public demo access and permissions
+
+The production Site provides a least-privilege judge path without sharing an
+owner account or private vault. On the first signed-in visit, an account that
+has no existing membership is assigned its own deterministic, isolated
+`WebMCP Demo` vault. Returning with the same account reopens that vault; another
+account receives a different vault and cannot discover the first account's
+content. Auto-onboarding is opt-in and activates only when the deployment sets
+`PUBLIC_DEMO_AUTO_ONBOARD=true`.
+
+Demo members can read and write ordinary wiki content, including the
+search → plan → approve → apply → provenance/lint flow used in the submission
+video. They cannot create additional vaults, restore revisions, soft-delete
+content, manage members or attachments, import/export data, or run full
+backups. Those capabilities are removed from WebMCP discovery and are enforced
+again by the same-origin API handlers. Each demo vault is additionally limited
+to 50 pages and 2 MiB of D1 content.
+
+In short, **public** describes who may reach the sign-in boundary. Data access
+still comes from the signed-in account's isolated membership and capability
+projection; it never grants anonymous, owner, or cross-vault access.
 
 ## The problem
 
@@ -228,11 +250,13 @@ presence of registration code is not enough:
 4. Call a harmless read tool such as `wiki_get_context`.
 5. Re-discover after a role, vault, login, or operational mode change.
 
-The recorded owner-session acceptance discovered the hosted tools and
-successfully called `wiki_get_operating_contract`, `wiki_lint`, and
-`wiki_get_context`. External judge access and the hosted editor/viewer matrix
-remain explicit submission gates and are not implied by the owner-session
-result.
+The production judge-demo acceptance discovered the 20-tool catalog projected
+for its restricted editor role and completed the scripted
+context → contract → search → plan → apply → claims/revisions/lint flow. It
+created one source page, one entity page, and one grounded claim; the resulting
+quality check reported no issues. Owner-only operations such as vault creation,
+revision restoration, member management, and backups were not exposed to that
+session. A hosted viewer-only comparison remains a separate acceptance gate.
 
 ## Repository map
 
