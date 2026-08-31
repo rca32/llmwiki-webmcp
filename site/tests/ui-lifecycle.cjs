@@ -232,9 +232,7 @@ let activeBrowser;
     (await page.locator(".graph-preview-panel > header > span").innerText()) !==
     childTitle
   )
-    throw new Error(
-      "Graph node click did not open the upstream-style preview.",
-    );
+    throw new Error("Graph node click did not open the document preview.");
   await page.getByRole("button", { name: "문서 열기" }).click();
   await page.locator(".wiki-editor").waitFor();
   if (

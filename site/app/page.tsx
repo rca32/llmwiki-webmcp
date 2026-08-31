@@ -381,8 +381,8 @@ export default function Home() {
   }, []);
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("liminal-wiki:theme-v2");
-    // The pinned llm_wiki workspace is light-first. Keep dark mode available,
-    // but make the upstream look the deterministic default across devices.
+    // Keep dark mode available, but use light as the deterministic default
+    // across devices.
     const shouldUseDark = storedTheme === "dark";
     document.documentElement.classList.toggle("dark", shouldUseDark);
     window.queueMicrotask(() => setDarkMode(shouldUseDark));

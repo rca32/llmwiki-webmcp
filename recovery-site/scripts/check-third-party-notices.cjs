@@ -6,6 +6,10 @@ const root = resolve(__dirname, "..");
 const manifest = require(join(root, "package.json"));
 const projectLicense = readFileSync(join(root, "LICENSE"), "utf8");
 const notices = readFileSync(join(root, "THIRD_PARTY_NOTICES.md"), "utf8");
+const sourceProvenance = readFileSync(
+  resolve(root, "..", "docs", "SOURCE_PROVENANCE.md"),
+  "utf8",
+);
 const normalizedRows = notices.split(/\r?\n/).map((line) =>
   line
     .split("|")
@@ -30,13 +34,17 @@ for (const name of Object.keys(manifest.dependencies ?? {}).sort()) {
     );
 }
 
+if (!notices.includes("GPL-3.0-only"))
+  failures.push("THIRD_PARTY_NOTICES.md must declare GPL-3.0-only");
+
 for (const required of [
-  "e8082119649e6a8e1cf85eaf289adcabfdf39d4e",
-  "UPSTREAM_PROVENANCE.md",
-  "GPL-3.0-only",
+  "## Pinned source",
+  "## Production Site file mapping",
+  "## Recovery Site status",
+  "## License handling",
 ])
-  if (!notices.includes(required))
-    failures.push(`missing required provenance marker: ${required}`);
+  if (!sourceProvenance.includes(required))
+    failures.push(`missing source provenance section: ${required}`);
 
 if (manifest.license !== "GPL-3.0-only")
   failures.push("package.json must declare GPL-3.0-only");
@@ -56,7 +64,7 @@ if (failures.length) {
     JSON.stringify({
       directRuntimeDependencies: Object.keys(manifest.dependencies ?? {})
         .length,
-      upstreamBaselineRecorded: true,
+      sourceProvenanceRecorded: true,
       projectLicense: manifest.license,
     }),
   );

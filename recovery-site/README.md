@@ -70,4 +70,4 @@ The current WebMCP mutation set is `wiki_create_page`, `wiki_update_page`, `wiki
 
 See `../docs/SYSTEM_DESIGN.md` for the complete architecture, contracts, operational evidence, and remaining release gates.
 Production rollback, revision recovery, and empty-Site full-backup restoration are documented in `RECOVERY_RUNBOOK.md`.
-Liminal Wiki is licensed under `GPL-3.0-only`; the complete terms are in `LICENSE`. Third-party provenance is recorded in `THIRD_PARTY_NOTICES.md` and `UPSTREAM_PROVENANCE.md`.
+Liminal Wiki is licensed under `GPL-3.0-only`; the complete terms are in `LICENSE`. Direct dependency licenses are recorded in `THIRD_PARTY_NOTICES.md`, and source provenance is consolidated in `../docs/SOURCE_PROVENANCE.md`.

@@ -148,7 +148,7 @@ let activeBrowser;
   const sortedShellLoads = [...shellLoadSamplesMs].sort((a, b) => a - b),
     shellLoadP75Ms =
       sortedShellLoads[Math.ceil(sortedShellLoads.length * 0.75) - 1];
-  const upstreamWorkspace = await page.evaluate(() => {
+  const workspaceVisual = await page.evaluate(() => {
     const sidebar = document.querySelector(".icon-sidebar");
     const bodyStyle = getComputedStyle(document.body);
     return {
@@ -169,15 +169,15 @@ let activeBrowser;
     };
   });
   if (
-    !upstreamWorkspace.fontFamily.includes("Geist") ||
-    upstreamWorkspace.backgroundImage !== "none" ||
-    upstreamWorkspace.iconSidebarWidth !== 48 ||
-    upstreamWorkspace.knowledgeTreeWidth < 180 ||
-    upstreamWorkspace.resizableHandles < 1 ||
-    upstreamWorkspace.legacyDashboardCards !== 0
+    !workspaceVisual.fontFamily.includes("Geist") ||
+    workspaceVisual.backgroundImage !== "none" ||
+    workspaceVisual.iconSidebarWidth !== 48 ||
+    workspaceVisual.knowledgeTreeWidth < 180 ||
+    workspaceVisual.resizableHandles < 1 ||
+    workspaceVisual.legacyDashboardCards !== 0
   )
     throw new Error(
-      `The upstream workspace visual contract is not active: ${JSON.stringify(upstreamWorkspace)}`,
+      `The workspace visual contract is not active: ${JSON.stringify(workspaceVisual)}`,
     );
   const themeBefore = await page.evaluate(() =>
     document.documentElement.classList.contains("dark"),
@@ -1242,7 +1242,7 @@ let activeBrowser;
       .count()) !== 1 ||
     (await page.getByText("Node Types", { exact: true }).count()) !== 1
   )
-    throw new Error("The upstream Sigma graph visual contract is not active.");
+    throw new Error("The Sigma graph visual contract is not active.");
   const graphFocusRefresh = page.waitForResponse(
     (response) =>
       response.url().includes("/api/session/capabilities") && response.ok(),
@@ -1387,7 +1387,7 @@ let activeBrowser;
       reducedMotionVerified: true,
       workspaceRefreshRaceProtected: true,
       optimisticPageOpenVerified: true,
-      upstreamWorkspaceVerified: true,
+      workspaceVisualVerified: true,
       lightDarkThemeVerified: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",

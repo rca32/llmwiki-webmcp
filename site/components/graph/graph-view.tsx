@@ -1,12 +1,5 @@
 "use client";
 
-/*
- * Adapted from nashsu/llm_wiki src/components/graph/graph-view.tsx
- * (GPL-3.0, pinned commit e8082119649e6a8e1cf85eaf289adcabfdf39d4e).
- * Desktop stores, filesystem commands, deep research, and local persistence
- * are replaced by the authenticated Sites graph/page API contracts.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";

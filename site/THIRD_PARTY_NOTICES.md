@@ -6,9 +6,9 @@ Last reviewed: 2026-08-30
 
 The original Liminal Wiki source code is licensed under `GPL-3.0-only`. The complete license text is included in [LICENSE](LICENSE). Third-party components remain under the licenses recorded below.
 
-## Selectively imported GPL-3.0 upstream
+## Source provenance
 
-This source tree selectively imports and adapts UI code and interaction patterns from [`nashsu/llm_wiki`](https://github.com/nashsu/llm_wiki) release `v0.6.11`, commit `e8082119649e6a8e1cf85eaf289adcabfdf39d4e`, licensed GPL-3.0. See [UPSTREAM_PROVENANCE.md](UPSTREAM_PROVENANCE.md) and [docs/UPSTREAM_LLM_WIKI.md](docs/UPSTREAM_LLM_WIKI.md) for the pinned source and file-by-file modification record. Upstream branding and desktop-only subsystems are not included.
+Pinned origins, adaptations, modifications, exclusions, and non-import declarations are consolidated in the repository [source provenance record](../docs/SOURCE_PROVENANCE.md).
 
 ## Direct runtime dependencies
 

@@ -3,13 +3,13 @@
 **A source-grounded knowledge workspace where humans and AI agents share the
 same tools, permissions, revisions, and provenance through WebMCP.**
 
-[Hosted preview](https://liminal-wiki-webmcp.epinfomax.chatgpt.site) ·
 [System design](docs/SYSTEM_DESIGN.md) ·
 [WebMCP Challenge](https://webmcp.devpost.com/)
 
-> The hosted preview is an access-controlled ChatGPT Sites deployment. Judge
-> access and the exact test flow will be provided in the Devpost submission
-> instructions.
+> ChatGPT Sites assigns a deployment URL when each user creates or redeploys
+> the Site. This repository intentionally does not pin a hosted Site URL.
+> Submission reviewers should use the current URL supplied with that specific
+> deployment.
 
 ![Liminal Wiki — WebMCP Native Knowledge Workspace](site/public/og.png)
 
@@ -221,7 +221,8 @@ npm run test:backup-spike
 WebMCP acceptance is a separate host-level step. A successful build or the
 presence of registration code is not enough:
 
-1. Open the exact deployed URL in a supported ChatGPT/Codex browser host.
+1. Copy the URL generated for the current ChatGPT Sites deployment and open it
+   in a supported ChatGPT/Codex browser host.
 2. Acquire the host's WebMCP capability and run `fetchTools()`.
 3. Inspect the discovered names, descriptions, schemas, and annotations.
 4. Call a harmless read tool such as `wiki_get_context`.
@@ -274,18 +275,15 @@ Official challenge information is available from the
   commands
 - [Recovery runbook](site/RECOVERY_RUNBOOK.md): rollback, revision recovery,
   and full-Site restoration
-- [Upstream adaptation record](site/docs/UPSTREAM_LLM_WIKI.md): file-by-file
-  provenance for selectively imported GPL-3.0 work
+- [Source provenance](docs/SOURCE_PROVENANCE.md): pinned origins,
+  file-by-file adaptation records, exclusions, and license handling
 
 ## License and provenance
 
 Except where a file or third-party notice states otherwise, all original
 Liminal Wiki source code and repository-owned modifications are licensed under
 [`GPL-3.0-only`](LICENSE). Third-party dependencies and separately attributed
-works retain their respective licenses. The production source selectively
-adapts GPL-3.0 UI code and interaction patterns from
-[`nashsu/llm_wiki`](https://github.com/nashsu/llm_wiki) release `v0.6.11`.
-The pinned source, modifications, exclusions, and direct dependency licenses
-are documented in [upstream provenance](site/UPSTREAM_PROVENANCE.md), the
-[adaptation record](site/docs/UPSTREAM_LLM_WIKI.md), and
-[third-party notices](site/THIRD_PARTY_NOTICES.md).
+works retain their respective licenses. Pinned origins, adapted files,
+modifications, exclusions, and non-import declarations are consolidated in
+[source provenance](docs/SOURCE_PROVENANCE.md). Direct dependency licenses are
+listed in [third-party notices](site/THIRD_PARTY_NOTICES.md).
