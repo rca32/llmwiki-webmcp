@@ -235,7 +235,7 @@ let activeBrowser;
   await graphNode.evaluate((element) => element.click());
   await page.locator(".graph-preview-panel").waitFor();
   if (
-    (await page.locator(".graph-preview-panel > header > span").innerText()) !==
+    (await page.locator(".graph-preview-heading > span").innerText()) !==
     childTitle
   )
     throw new Error("Graph node click did not open the document preview.");

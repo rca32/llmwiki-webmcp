@@ -31,6 +31,33 @@ In short, **public** describes who may reach the ChatGPT sign-in boundary. Data
 access still comes from the signed-in account's isolated membership; it never
 grants anonymous or cross-vault access.
 
+### Shared vaults and roles
+
+A personal vault stays private until its owner explicitly adds another
+ChatGPT account under **Operations & recovery → Members & roles**. Enter the
+email address used by that person's ChatGPT account and assign either
+`editor` or `viewer`. This creates a membership for that one vault; it does not
+publish the vault, expose any other vault, or replace either person's personal
+vault.
+
+No separate invitation email is sent. The added person opens the public Site
+URL, signs in with the matching ChatGPT account, and selects the shared vault
+from the vault switcher. Their own vaults remain available alongside it. An
+incorrect email address creates an unused membership, so the account email must
+match exactly.
+
+| Role     | Vault access                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------- |
+| `viewer` | Read pages, graph, revisions, attachments, and portable exports                                       |
+| `editor` | Viewer access plus page writes, revision restore, attachments, and recoverable content deletion       |
+| `owner`  | Editor access plus member and role management, ownership transfer, full backup/import, and operations |
+
+Only the current owner can add or remove members, change roles, or transfer
+ownership. The owner cannot be removed directly; ownership must first be
+transferred to an existing member, after which the previous owner becomes an
+editor. Member administration is intentionally available through the human UI
+and same-origin API, not through the page-scoped WebMCP tool catalog.
+
 ## The problem
 
 Knowledge tools usually make people choose between two weak forms of AI

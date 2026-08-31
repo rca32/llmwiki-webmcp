@@ -1294,6 +1294,46 @@ let activeBrowser;
     (await page.getByText("노드 유형", { exact: true }).count()) !== 1
   )
     throw new Error("The Sigma graph visual contract is not active.");
+  for (const controlName of ["전체", "로컬", "미연결", "방향", "링크 이름"]) {
+    if (
+      (await page
+        .getByRole("button", { name: controlName, exact: true })
+        .count()) !== 1
+    )
+      throw new Error(
+        `The graph exploration control is missing: ${controlName}`,
+      );
+  }
+  if (
+    (await page.getByPlaceholder("페이지 찾기…").count()) !== 1 ||
+    (await page.getByLabel("페이지 유형").count()) !== 1
+  )
+    throw new Error("The graph search and type filters are missing.");
+  await page
+    .locator(".graph-accessible-node")
+    .first()
+    .evaluate((element) => {
+      element.click();
+    });
+  await page.locator(".graph-preview-panel").waitFor();
+  await page.getByText("연결된 페이지", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "로컬", exact: true }).click();
+  await page.getByLabel("깊이").selectOption("2");
+  const localGraphNodeCount = Number(
+    await page.locator(".graph-canvas").getAttribute("data-node-count"),
+  );
+  if (localGraphNodeCount < 1 || localGraphNodeCount > graphNodeCount)
+    throw new Error(
+      `Local graph returned an invalid node count (${localGraphNodeCount}/${graphNodeCount}).`,
+    );
+  await page.getByRole("button", { name: "문서 열기", exact: true }).click();
+  await page.locator(".wiki-editor").waitFor();
+  await page.getByRole("button", { name: "그래프" }).click();
+  await page.locator(".graph-view").waitFor();
+  await page
+    .locator(".graph-accessible-node")
+    .first()
+    .waitFor({ state: "attached" });
   const graphFocusRefresh = page.waitForResponse(
     (response) =>
       response.url().includes("/api/session/capabilities") && response.ok(),
@@ -1406,6 +1446,7 @@ let activeBrowser;
     JSON.stringify({
       pageCount,
       graphNodeCount,
+      graphExplorationVerified: true,
       auditEventCount,
       shellLoadP75Ms,
       shellLoadSamplesMs,

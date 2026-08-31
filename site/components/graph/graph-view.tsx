@@ -12,6 +12,9 @@ import {
 } from "@react-sigma/core";
 import type { NodeHoverDrawingFunction } from "sigma/rendering";
 import {
+  ArrowDownLeft,
+  ArrowRight,
+  ArrowUpRight,
   EyeOff,
   FileText,
   Layers,
@@ -19,6 +22,7 @@ import {
   Maximize,
   Network,
   RefreshCw,
+  Search,
   Tag,
   X,
   ZoomIn,
@@ -28,20 +32,20 @@ import {
 import { MarkdownPreview } from "@/app/markdown-preview";
 import { useI18n } from "@/components/i18n-provider";
 import { Button } from "@/components/ui/button";
+import {
+  buildGraphTopology,
+  detectGraphCommunities,
+  filterGraph,
+  getNodeConnections,
+  type WikiGraph,
+} from "@/lib/graph-exploration";
 
-export type WikiGraph = {
-  nodes: Array<{
-    id: string;
-    title: string;
-    page_type: string;
-    version: number;
-  }>;
-  edges: Array<{ source: string; target: string; target_text: string }>;
-  truncated: boolean;
-};
+export type { WikiGraph } from "@/lib/graph-exploration";
 
 type ColorMode = "type" | "community";
 type HoverState = { node: string; neighbors: Set<string> } | null;
+type GraphScope = "global" | "local";
+type ContextMenuState = { nodeId: string; x: number; y: number } | null;
 type PreviewPage = {
   id: string;
   title: string;
@@ -213,9 +217,13 @@ function useResolvedDarkMode() {
 function GraphLoader({
   graphData,
   colorMode,
+  communityByNode,
+  showArrows,
 }: {
   graphData: WikiGraph;
   colorMode: ColorMode;
+  communityByNode: Map<string, number>;
+  showArrows: boolean;
 }) {
   const loadGraph = useLoadGraph();
   useEffect(() => {
@@ -231,14 +239,16 @@ function GraphLoader({
       const angle = (index / Math.max(nodeCount, 1)) * Math.PI * 2;
       const ring = Math.max(1, Math.ceil(Math.sqrt(nodeCount)));
       const hash = stringHash(node.id);
-      const community = hash % COMMUNITY_COLORS.length;
+      const community = communityByNode.get(node.id) ?? -1;
       graph.addNode(node.id, {
         x: Math.cos(angle) * ring + ((hash % 31) - 15) / 50,
         y: Math.sin(angle) * ring + (((hash >>> 5) % 31) - 15) / 50,
         size: nodeSize(degree.get(node.id) ?? 0, maxLinks, nodeCount),
         color:
           colorMode === "community"
-            ? COMMUNITY_COLORS[community]
+            ? community >= 0
+              ? COMMUNITY_COLORS[community % COMMUNITY_COLORS.length]
+              : "#94a3b8"
             : nodeColor(node.page_type),
         label: node.title,
         nodeType: node.page_type,
@@ -254,6 +264,8 @@ function GraphLoader({
         {
           color: "rgba(100,116,139,.34)",
           size: 1.2,
+          type: showArrows ? "arrow" : "line",
+          label: edge.target_text,
           sourceNode: edge.source,
           targetNode: edge.target,
         },
@@ -273,16 +285,18 @@ function GraphLoader({
       });
     }
     loadGraph(graph);
-  }, [colorMode, graphData, loadGraph]);
+  }, [colorMode, communityByNode, graphData, loadGraph, showArrows]);
   return null;
 }
 
 function GraphRenderSettings({
-  hoverState,
+  focusState,
   isDark,
+  showEdgeLabels,
 }: {
-  hoverState: HoverState;
+  focusState: HoverState;
   isDark: boolean;
+  showEdgeLabels: boolean;
 }) {
   const sigma = useSigma();
   const setSettings = useSetSettings();
@@ -295,19 +309,20 @@ function GraphRenderSettings({
       labelRenderedSizeThreshold: 5,
       labelFont: "Geist Variable",
       labelWeight: "600",
-      renderEdgeLabels: false,
+      renderEdgeLabels: showEdgeLabels,
       defaultDrawNodeHover: createGraphNodeHoverRenderer(isDark),
       nodeReducer: (node, attrs) => {
-        if (!hoverState) return attrs;
-        if (hoverState.node === node) {
+        if (!focusState) return attrs;
+        if (focusState.node === node) {
           return {
             ...attrs,
             size: (attrs.size ?? BASE_NODE_SIZE) * 1.4,
             forceLabel: true,
+            highlighted: true,
             zIndex: 10,
           };
         }
-        if (hoverState.neighbors.has(node))
+        if (focusState.neighbors.has(node))
           return { ...attrs, forceLabel: true };
         return {
           ...attrs,
@@ -317,25 +332,36 @@ function GraphRenderSettings({
         };
       },
       edgeReducer: (_edge, attrs) => {
-        if (!hoverState) return attrs;
+        if (!focusState) return attrs;
         const connected =
-          attrs.sourceNode === hoverState.node ||
-          attrs.targetNode === hoverState.node;
+          attrs.sourceNode === focusState.node ||
+          attrs.targetNode === focusState.node;
         return connected
-          ? { ...attrs, color: isDark ? "#38bdf8" : "#1e293b", size: 2 }
+          ? {
+              ...attrs,
+              color: isDark ? "#38bdf8" : "#1e293b",
+              size: 2,
+              forceLabel: showEdgeLabels,
+            }
           : { ...attrs, color: "rgba(148,163,184,.14)", size: 0.3 };
       },
     });
     sigma.refresh();
-  }, [hoverState, isDark, setSettings, sigma]);
+  }, [focusState, isDark, setSettings, showEdgeLabels, sigma]);
   return null;
 }
 
 function EventHandler({
   onNodeClick,
+  onNodeDoubleClick,
+  onNodeRightClick,
+  onStageClick,
   onHoverChange,
 }: {
   onNodeClick: (nodeId: string) => void;
+  onNodeDoubleClick: (nodeId: string) => void;
+  onNodeRightClick: (nodeId: string, x: number, y: number) => void;
+  onStageClick: () => void;
   onHoverChange: (state: HoverState) => void;
 }) {
   const registerEvents = useRegisterEvents();
@@ -343,6 +369,16 @@ function EventHandler({
   useEffect(() => {
     registerEvents({
       clickNode: ({ node }) => onNodeClick(node),
+      doubleClickNode: ({ node, event }) => {
+        event.preventSigmaDefault();
+        onNodeDoubleClick(node);
+      },
+      rightClickNode: ({ node, event }) => {
+        event.preventSigmaDefault();
+        event.original.preventDefault();
+        onNodeRightClick(node, event.x, event.y);
+      },
+      clickStage: onStageClick,
       enterNode: ({ node }) => {
         sigma.getContainer().style.cursor = "pointer";
         onHoverChange({
@@ -355,7 +391,15 @@ function EventHandler({
         onHoverChange(null);
       },
     });
-  }, [onHoverChange, onNodeClick, registerEvents, sigma]);
+  }, [
+    onHoverChange,
+    onNodeClick,
+    onNodeDoubleClick,
+    onNodeRightClick,
+    onStageClick,
+    registerEvents,
+    sigma,
+  ]);
   return null;
 }
 
@@ -395,41 +439,123 @@ function ZoomControls() {
 export function GraphView({
   graph,
   loading,
+  activePageId,
   onRefresh,
   onOpenPage,
 }: {
   graph: WikiGraph | null;
   loading: boolean;
+  activePageId: string | null;
   onRefresh: () => void;
   onOpenPage: (pageId: string) => void;
 }) {
   const { t } = useI18n();
   const graphData = useMemo(() => graph ?? EMPTY_GRAPH, [graph]);
   const [colorMode, setColorMode] = useState<ColorMode>("type");
+  const [scope, setScope] = useState<GraphScope>("global");
+  const [localDepth, setLocalDepth] = useState<1 | 2 | 3>(1);
+  const [query, setQuery] = useState("");
+  const [pageType, setPageType] = useState("all");
+  const [includeOrphans, setIncludeOrphans] = useState(true);
+  const [showArrows, setShowArrows] = useState(true);
+  const [showEdgeLabels, setShowEdgeLabels] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoverState, setHoverState] = useState<HoverState>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [preview, setPreview] = useState<PreviewPage | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const requestRef = useRef(0);
   const isDark = useResolvedDarkMode();
 
+  const topology = useMemo(() => buildGraphTopology(graphData), [graphData]);
+  const communityByNode = useMemo(
+    () => detectGraphCommunities(graphData),
+    [graphData],
+  );
+  const localRootId = selectedNodeId ?? activePageId;
+  const visibleGraph = useMemo(
+    () =>
+      filterGraph(graphData, topology, {
+        query,
+        pageType,
+        includeOrphans,
+        scope,
+        rootId: localRootId,
+        depth: localDepth,
+      }),
+    [
+      graphData,
+      includeOrphans,
+      localDepth,
+      localRootId,
+      pageType,
+      query,
+      scope,
+      topology,
+    ],
+  );
+  const nodeById = useMemo(
+    () => new Map(graphData.nodes.map((node) => [node.id, node])),
+    [graphData.nodes],
+  );
+
+  useEffect(() => {
+    if (selectedNodeId && !nodeById.has(selectedNodeId)) {
+      setSelectedNodeId(null);
+      setPreview(null);
+    }
+  }, [nodeById, selectedNodeId]);
+
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const node of graphData.nodes) {
+    for (const node of visibleGraph.nodes) {
       const type = node.page_type || "other";
       counts[type] = (counts[type] ?? 0) + 1;
     }
     return counts;
-  }, [graphData.nodes]);
+  }, [visibleGraph.nodes]);
+
+  const pageTypes = useMemo(
+    () =>
+      [
+        ...new Set(graphData.nodes.map((node) => node.page_type || "other")),
+      ].sort(),
+    [graphData.nodes],
+  );
+
+  const communityCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const node of visibleGraph.nodes) {
+      const community = communityByNode.get(node.id) ?? -1;
+      counts.set(community, (counts.get(community) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((left, right) => {
+      if (left[0] === -1) return 1;
+      if (right[0] === -1) return -1;
+      return left[0] - right[0];
+    });
+  }, [communityByNode, visibleGraph.nodes]);
 
   const isolatedNodes = useMemo(() => {
-    const linked = new Set<string>();
-    for (const edge of graphData.edges) {
-      linked.add(edge.source);
-      linked.add(edge.target);
-    }
-    return graphData.nodes.filter((node) => !linked.has(node.id));
-  }, [graphData]);
+    return graphData.nodes.filter(
+      (node) => (topology.degree.get(node.id) ?? 0) === 0,
+    );
+  }, [graphData.nodes, topology.degree]);
+
+  const selectedFocus = useMemo<HoverState>(() => {
+    if (!selectedNodeId || !topology.adjacency.has(selectedNodeId)) return null;
+    return {
+      node: selectedNodeId,
+      neighbors: topology.adjacency.get(selectedNodeId) ?? new Set<string>(),
+    };
+  }, [selectedNodeId, topology.adjacency]);
+  const focusState = hoverState ?? selectedFocus;
+
+  const previewConnections = useMemo(
+    () => (preview ? getNodeConnections(graphData, preview.id) : []),
+    [graphData, preview],
+  );
 
   const openPreview = useCallback(
     async (pageId: string) => {
@@ -458,16 +584,72 @@ export function GraphView({
     [graphData.nodes],
   );
 
+  const selectNode = useCallback(
+    (pageId: string) => {
+      setSelectedNodeId(pageId);
+      setContextMenu(null);
+      void openPreview(pageId);
+    },
+    [openPreview],
+  );
+
+  const useAsLocalRoot = useCallback((pageId: string) => {
+    setSelectedNodeId(pageId);
+    setScope("local");
+    setContextMenu(null);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    requestRef.current += 1;
+    setPreview(null);
+    setPreviewLoading(false);
+  }, []);
+
+  const openDocument = useCallback(
+    (pageId: string) => {
+      setContextMenu(null);
+      onOpenPage(pageId);
+    },
+    [onOpenPage],
+  );
+
+  const localRootTitle = localRootId
+    ? nodeById.get(localRootId)?.title
+    : undefined;
+
   return (
     <section className="graph-view">
       <header className="graph-toolbar">
         <div className="graph-title">
           <Network />
           <strong>{t("graph.title")}</strong>
-          <span>{t("graph.pages", { count: graphData.nodes.length })}</span>
-          <span>{t("graph.links", { count: graphData.edges.length })}</span>
+          <span>
+            {t("graph.visiblePages", {
+              visible: visibleGraph.nodes.length,
+              total: graphData.nodes.length,
+            })}
+          </span>
+          <span>{t("graph.links", { count: visibleGraph.edges.length })}</span>
         </div>
         <nav aria-label={t("graph.tools")}>
+          <button
+            type="button"
+            className={scope === "global" ? "active" : ""}
+            onClick={() => setScope("global")}
+          >
+            <Network />
+            <span>{t("graph.global")}</span>
+          </button>
+          <button
+            type="button"
+            className={scope === "local" ? "active" : ""}
+            onClick={() => setScope("local")}
+            disabled={!localRootId}
+            title={!localRootId ? t("graph.selectLocalRoot") : undefined}
+          >
+            <Layers />
+            <span>{t("graph.local")}</span>
+          </button>
           <button
             type="button"
             className={colorMode === "type" ? "active" : ""}
@@ -505,9 +687,105 @@ export function GraphView({
         </nav>
       </header>
 
+      <div className="graph-filterbar" aria-label={t("graph.filters")}>
+        <label className="graph-search">
+          <Search />
+          <span className="sr-only">{t("graph.search")}</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("graph.searchPlaceholder")}
+          />
+        </label>
+        <label className="graph-filter-select">
+          <span>{t("graph.pageType")}</span>
+          <select
+            value={pageType}
+            onChange={(event) => setPageType(event.target.value)}
+            aria-label={t("graph.pageType")}
+          >
+            <option value="all">{t("graph.allTypes")}</option>
+            {pageTypes.map((type) => (
+              <option key={type} value={type}>
+                {TYPE_LABELS[type] ?? type}
+              </option>
+            ))}
+          </select>
+        </label>
+        {scope === "local" && (
+          <label className="graph-filter-select">
+            <span>{t("graph.depth")}</span>
+            <select
+              value={localDepth}
+              onChange={(event) =>
+                setLocalDepth(Number(event.target.value) as 1 | 2 | 3)
+              }
+              aria-label={t("graph.depth")}
+            >
+              {[1, 2, 3].map((depth) => (
+                <option key={depth} value={depth}>
+                  {depth}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button
+          type="button"
+          className={includeOrphans ? "active" : ""}
+          aria-pressed={includeOrphans}
+          onClick={() => setIncludeOrphans((value) => !value)}
+        >
+          <EyeOff />
+          <span>{t("graph.unlinked")}</span>
+        </button>
+        <button
+          type="button"
+          className={showArrows ? "active" : ""}
+          aria-pressed={showArrows}
+          onClick={() => setShowArrows((value) => !value)}
+        >
+          <ArrowRight />
+          <span>{t("graph.arrows")}</span>
+        </button>
+        <button
+          type="button"
+          className={showEdgeLabels ? "active" : ""}
+          aria-pressed={showEdgeLabels}
+          onClick={() => setShowEdgeLabels((value) => !value)}
+        >
+          <Tag />
+          <span>{t("graph.linkLabels")}</span>
+        </button>
+        {scope === "local" && localRootTitle && (
+          <span className="graph-local-root" title={localRootTitle}>
+            {t("graph.centeredOn", { title: localRootTitle })}
+          </span>
+        )}
+        {selectedNodeId && (
+          <button
+            type="button"
+            className="graph-clear-selection"
+            onClick={() => {
+              setSelectedNodeId(null);
+              setHoverState(null);
+              setContextMenu(null);
+              if (scope === "local" && !activePageId) setScope("global");
+            }}
+          >
+            <X />
+            <span>{t("graph.clearSelection")}</span>
+          </button>
+        )}
+      </div>
+
       <div className="graph-body">
-        <div className="graph-canvas" data-node-count={graphData.nodes.length}>
-          {graphData.nodes.length ? (
+        <div
+          className="graph-canvas"
+          data-node-count={visibleGraph.nodes.length}
+        >
+          {visibleGraph.nodes.length ? (
             <SigmaContainer
               className="sigma-container"
               settings={{
@@ -520,10 +798,26 @@ export function GraphView({
                 zIndex: true,
               }}
             >
-              <GraphLoader graphData={graphData} colorMode={colorMode} />
-              <GraphRenderSettings hoverState={hoverState} isDark={isDark} />
+              <GraphLoader
+                graphData={visibleGraph}
+                colorMode={colorMode}
+                communityByNode={communityByNode}
+                showArrows={showArrows}
+              />
+              <GraphRenderSettings
+                focusState={focusState}
+                isDark={isDark}
+                showEdgeLabels={showEdgeLabels}
+              />
               <EventHandler
-                onNodeClick={openPreview}
+                onNodeClick={selectNode}
+                onNodeDoubleClick={openDocument}
+                onNodeRightClick={(nodeId, x, y) => {
+                  setSelectedNodeId(nodeId);
+                  void openPreview(nodeId);
+                  setContextMenu({ nodeId, x, y });
+                }}
+                onStageClick={() => setContextMenu(null)}
                 onHoverChange={setHoverState}
               />
               <ZoomControls />
@@ -531,7 +825,47 @@ export function GraphView({
           ) : (
             <div className="graph-empty">
               <Network />
-              <strong>{loading ? t("graph.loading") : t("graph.empty")}</strong>
+              <strong>
+                {loading
+                  ? t("graph.loading")
+                  : graphData.nodes.length
+                    ? t("graph.noMatches")
+                    : t("graph.empty")}
+              </strong>
+            </div>
+          )}
+
+          {contextMenu && (
+            <div
+              className="graph-context-menu"
+              role="menu"
+              style={{ left: contextMenu.x + 8, top: contextMenu.y + 8 }}
+            >
+              <strong>
+                {nodeById.get(contextMenu.nodeId)?.title ??
+                  t("graph.selectedPage")}
+              </strong>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => selectNode(contextMenu.nodeId)}
+              >
+                {t("graph.previewAction")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => useAsLocalRoot(contextMenu.nodeId)}
+              >
+                {t("graph.localFromHere")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => openDocument(contextMenu.nodeId)}
+              >
+                {t("graph.openDocument")}
+              </button>
             </div>
           )}
 
@@ -539,14 +873,16 @@ export function GraphView({
             className="graph-accessible-nodes"
             aria-label={t("graph.pageList")}
           >
-            {graphData.nodes.map((node) => (
+            {visibleGraph.nodes.map((node) => (
               <button
                 key={node.id}
                 type="button"
                 className="graph-accessible-node"
                 data-graph-node-id={node.id}
                 aria-label={t("graph.node", { title: node.title })}
-                onClick={() => void openPreview(node.id)}
+                aria-pressed={selectedNodeId === node.id}
+                onClick={() => selectNode(node.id)}
+                onDoubleClick={() => openDocument(node.id)}
               >
                 {node.title}
               </button>
@@ -567,15 +903,24 @@ export function GraphView({
                     <b>{count}</b>
                   </div>
                 ))
-              : COMMUNITY_COLORS.slice(
-                  0,
-                  Math.min(COMMUNITY_COLORS.length, graphData.nodes.length),
-                ).map((color, index) => (
-                  <div key={color}>
-                    <i style={{ backgroundColor: color }} />
+              : communityCounts.map(([community, count]) => (
+                  <div key={community}>
+                    <i
+                      style={{
+                        backgroundColor:
+                          community < 0
+                            ? "#94a3b8"
+                            : COMMUNITY_COLORS[
+                                community % COMMUNITY_COLORS.length
+                              ],
+                      }}
+                    />
                     <span>
-                      {t("graph.community")} {index + 1}
+                      {community < 0
+                        ? t("graph.unlinked")
+                        : `${t("graph.community")} ${community + 1}`}
                     </span>
+                    <b>{count}</b>
                   </div>
                 ))}
           </aside>
@@ -611,7 +956,7 @@ export function GraphView({
                   <button
                     key={node.id}
                     type="button"
-                    onClick={() => void openPreview(node.id)}
+                    onClick={() => selectNode(node.id)}
                   >
                     <EyeOff />
                     <span>{node.title}</span>
@@ -628,16 +973,64 @@ export function GraphView({
             aria-label={t("graph.preview")}
           >
             <header>
-              <span title={preview.path || preview.title}>{preview.title}</span>
+              <div className="graph-preview-heading">
+                <span title={preview.path || preview.title}>
+                  {preview.title}
+                </span>
+                <small>
+                  {TYPE_LABELS[preview.page_type] ?? preview.page_type} ·{" "}
+                  {t("graph.connections", {
+                    count: previewConnections.length,
+                  })}
+                </small>
+              </div>
               <button
                 type="button"
-                onClick={() => setPreview(null)}
+                onClick={closePreview}
                 aria-label={t("graph.closePreview")}
               >
                 <X />
               </button>
             </header>
             <div className="graph-preview-scroll">
+              <section className="graph-connections">
+                <header>
+                  <strong>{t("graph.connectedPages")}</strong>
+                  <span>{previewConnections.length}</span>
+                </header>
+                {previewConnections.length ? (
+                  <div>
+                    {previewConnections
+                      .slice(0, 16)
+                      .map((connection, index) => {
+                        const target = nodeById.get(connection.nodeId);
+                        if (!target) return null;
+                        return (
+                          <button
+                            key={`${connection.direction}:${connection.nodeId}:${index}`}
+                            type="button"
+                            onClick={() => selectNode(connection.nodeId)}
+                            title={connection.label}
+                          >
+                            {connection.direction === "incoming" ? (
+                              <ArrowDownLeft />
+                            ) : (
+                              <ArrowUpRight />
+                            )}
+                            <span>{target.title}</span>
+                            <small>
+                              {connection.direction === "incoming"
+                                ? t("graph.incoming")
+                                : t("graph.outgoing")}
+                            </small>
+                          </button>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <p>{t("graph.noConnections")}</p>
+                )}
+              </section>
               {previewLoading && !preview.markdown ? (
                 <div className="graph-preview-loading">
                   {t("graph.loadingDocument")}
@@ -651,7 +1044,7 @@ export function GraphView({
                         node.title.toLocaleLowerCase() ===
                         title.toLocaleLowerCase(),
                     );
-                    if (target) void openPreview(target.id);
+                    if (target) selectNode(target.id);
                   }}
                 />
               ) : (
@@ -664,9 +1057,18 @@ export function GraphView({
               <span>
                 <FileText /> v{preview.version}
               </span>
-              <Button size="sm" onClick={() => onOpenPage(preview.id)}>
-                {t("graph.openDocument")}
-              </Button>
+              <div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => useAsLocalRoot(preview.id)}
+                >
+                  {t("graph.localFromHere")}
+                </Button>
+                <Button size="sm" onClick={() => openDocument(preview.id)}>
+                  {t("graph.openDocument")}
+                </Button>
+              </div>
             </footer>
           </aside>
         )}

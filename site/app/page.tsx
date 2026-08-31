@@ -1921,6 +1921,7 @@ export default function Home() {
                     <GraphView
                       graph={graph}
                       loading={graphLoading}
+                      activePageId={pendingPageId ?? active?.id ?? null}
                       onRefresh={() => void showGraph()}
                       onOpenPage={(pageId) => void openPage(pageId)}
                     />
