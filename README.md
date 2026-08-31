@@ -11,7 +11,7 @@ same tools, permissions, revisions, and provenance through WebMCP.**
 > Submission reviewers should use the current URL supplied with that specific
 > deployment.
 
-![Liminal Wiki — WebMCP Native Knowledge Workspace](site/public/og.png)
+![Liminal Wiki workspace showing the knowledge tree, GraphRAG article, linked mentions, and revision history](docs/assets/liminal-wiki-workspace.png)
 
 ## The problem
 
