@@ -560,9 +560,9 @@ export function readTools(): SiteTool[] {
     },
     {
       name: "wiki_get_knowledge_map",
-      title: "Read the semantic Knowledge Atlas",
+      title: "Read the topic organization",
       description:
-        "Read the active vault's LLM-authored semantic outline, multi-placement page roles, evidence summaries, unmapped pages, warnings, and current map version. Use it before proposing Knowledge Atlas changes.",
+        "Read the active wiki's AI-authored topic outline, page roles, evidence summaries, unorganized pages, review items, and current map version. Use it before proposing topic changes.",
       inputSchema: closed({}),
       annotations: readAnnotations,
       execute: async () => requestJson("/api/knowledge-map"),
@@ -678,7 +678,7 @@ export function writeTools(): SiteTool[] {
     },
     {
       name: "wiki_plan_knowledge_map",
-      title: "Plan a Knowledge Atlas update",
+      title: "Plan a topic organization update",
       description:
         "Persist an immutable review plan for semantic topics and page placements in the active vault. Read the current map first, preserve user-locked items, reuse existing topics, and apply only after explicit approval.",
       inputSchema: knowledgeMapPatchSchema,
@@ -695,9 +695,9 @@ export function writeTools(): SiteTool[] {
     },
     {
       name: "wiki_apply_knowledge_map",
-      title: "Apply an approved Knowledge Atlas plan",
+      title: "Apply an approved topic organization plan",
       description:
-        "Apply the exact reviewed Knowledge Atlas plan using its unchanged hash, explicit approved=true, current map version, and a retry-safe operation UUID.",
+        "Apply the exact reviewed topic organization plan using its unchanged hash, explicit approved=true, current map version, and a retry-safe operation UUID.",
       inputSchema: closed(
         {
           plan_id: planIdSchema,

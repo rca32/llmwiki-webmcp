@@ -57,6 +57,7 @@ import {
   languageOptions,
   useI18n,
   type Language,
+  type TranslationKey,
 } from "@/components/i18n-provider";
 
 const loadOperationsPanel = () => import("./operations-panel");
@@ -99,6 +100,19 @@ const EMPTY_KNOWLEDGE_MAP: KnowledgeMapData = {
   placements: [],
   unmapped_pages: [],
   warnings: [],
+};
+
+const pageTypeKeys: Record<string, TranslationKey> = {
+  overview: "type.overview",
+  concept: "type.concept",
+  entity: "type.entity",
+  note: "type.note",
+  source: "type.source",
+  synthesis: "type.synthesis",
+  comparison: "type.comparison",
+  query: "type.query",
+  folder: "type.folder",
+  other: "type.other",
 };
 
 function WorkspaceLoading() {
@@ -1219,7 +1233,7 @@ export default function Home() {
 
   async function updateKnowledgeMapPatch(patch: Record<string, unknown>) {
     if (!caps.can_write) return;
-    setStatus("Knowledge Atlas 업데이트 중…");
+    setStatus(t("atlas.updatePending"));
     try {
       await api("/api/knowledge-map", {
         method: "PATCH",
@@ -1234,12 +1248,10 @@ export default function Home() {
       });
       const refreshed = await api<KnowledgeMapData>("/api/knowledge-map");
       setKnowledgeMap(refreshed);
-      setStatus("Knowledge Atlas가 업데이트되었습니다.");
+      setStatus(t("atlas.updateSuccess"));
     } catch (error) {
       setNotice(
-        error instanceof Error
-          ? error.message
-          : "Knowledge Atlas를 업데이트하지 못했습니다.",
+        error instanceof Error ? error.message : t("atlas.updateFailed"),
       );
     }
   }
@@ -1417,10 +1429,7 @@ export default function Home() {
   async function deleteActivePage() {
     if (!active || !caps.can_soft_delete || dirty || deletePending) return;
     const expectedConfirmation = `DELETE ${active.title}`;
-    if (
-      deleteConfirmation !== expectedConfirmation ||
-      !deleteReason.trim()
-    )
+    if (deleteConfirmation !== expectedConfirmation || !deleteReason.trim())
       return;
     setDeletePending(true);
     setDeleteError(null);
@@ -2129,12 +2138,8 @@ export default function Home() {
                     ) : (
                       <section className="atlas-fallback">
                         <Layers3 aria-hidden="true" />
-                        <h1>아직 생성된 Knowledge Atlas가 없습니다</h1>
-                        <p>
-                          기존 시맨틱 그룹은 왼쪽 Knowledge 탭에서 계속 사용할
-                          수 있습니다. 다음 LLM ingest 계획에 의미 구조를
-                          포함하면 이 화면이 점진적으로 채워집니다.
-                        </p>
+                        <h1>{t("atlas.fallbackTitle")}</h1>
+                        <p>{t("atlas.fallbackDescription")}</p>
                       </section>
                     )
                   ) : view === "search" ? (
@@ -2155,7 +2160,10 @@ export default function Home() {
                   ) : (
                     <WikiEditor
                       title={active?.title ?? ""}
-                      pageType={active?.page_type?.toUpperCase() ?? "WIKI PAGE"}
+                      pageType={t(
+                        pageTypeKeys[active?.page_type ?? "other"] ??
+                          "type.other",
+                      ).toUpperCase()}
                       version={active?.version ?? null}
                       markdown={markdown}
                       mode={mode}
@@ -2332,7 +2340,12 @@ export default function Home() {
                   <header className="context-panel-header">
                     <div>
                       <strong>{t("page.detailsTitle")}</strong>
-                      <span>{active?.page_type ?? "wiki page"}</span>
+                      <span>
+                        {t(
+                          pageTypeKeys[active?.page_type ?? "other"] ??
+                            "type.other",
+                        )}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -2587,8 +2600,8 @@ export default function Home() {
                 onChange={() => setMoveParentId(null)}
               />
               <span>▣</span>
-              <strong>{currentWiki?.title ?? "Vault"}</strong>
-              <small>root</small>
+              <strong>{currentWiki?.title ?? "Wiki"}</strong>
+              <small>{t("tree.topLevel")}</small>
             </label>
             {pages
               .filter((page) => page.page_type === "folder")

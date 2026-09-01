@@ -12,7 +12,7 @@ Important policies:
 - `required_source_metadata` lists source fields that lint treats as required.
 - `knowledge_map_policy` defines the allowed presentations, four-level topic depth, three placements per page, and preservation of manually locked structure. Older stored contracts receive these defaults when read.
 
-## Knowledge Atlas
+## Topic organization
 
 The Atlas is a versioned semantic projection and does not alter `pages.parent_id`. Read it before planning. Use `topic_id` for existing topics and a unique `client_key` for topics created within the same patch. New ingest pages may be referenced by proposed title; existing pages must use their stable page ID.
 

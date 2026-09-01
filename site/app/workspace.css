@@ -247,12 +247,6 @@ textarea {
   box-shadow: 0 6px 18px color-mix(in oklch, var(--foreground) 20%, transparent);
 }
 
-[data-slot="tooltip-arrow"] {
-  color: var(--foreground);
-  background: var(--foreground);
-  fill: var(--foreground);
-}
-
 .app-workspace {
   min-width: 0;
   min-height: 0;
@@ -2979,7 +2973,7 @@ button.context-row {
 
 .wiki-app .operations-stage > header span,
 .wiki-app .operation-card > span,
-.wiki-app .audit-card > div > span {
+.wiki-app .audit-card > summary > span {
   color: var(--muted-foreground);
 }
 
@@ -3004,6 +2998,55 @@ button.context-row {
   max-width: 1050px;
   margin: 0 auto;
   gap: 10px;
+}
+
+.wiki-app .operations-advanced {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.wiki-app .operations-advanced > summary,
+.wiki-app .audit-card > summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wiki-app .operations-advanced > summary::-webkit-details-marker,
+.wiki-app .audit-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.wiki-app .operations-advanced > summary strong,
+.wiki-app .audit-card > summary h3 {
+  color: var(--foreground);
+}
+
+.wiki-app .operations-advanced > summary span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.wiki-app .operations-advanced[open] > summary,
+.wiki-app .audit-card[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.wiki-app .operations-advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+.wiki-app .operations-advanced-grid .operation-card {
+  margin: 0;
 }
 
 .wiki-app .operation-card,
@@ -3034,6 +3077,16 @@ button.context-row {
   color: var(--foreground);
   font-size: 17px;
   font-weight: 620;
+}
+
+.wiki-app .audit-card {
+  max-width: 1050px;
+  margin: 10px auto 0;
+  padding: 0;
+}
+
+.wiki-app .audit-card .audit-list {
+  padding: 10px 16px 16px;
 }
 
 .wiki-app .metric-grid {
@@ -3099,6 +3152,9 @@ button.context-row {
 }
 
 @media (max-width: 980px) {
+  .wiki-app .operations-advanced-grid {
+    grid-template-columns: 1fr;
+  }
   .sync-state {
     display: none;
   }

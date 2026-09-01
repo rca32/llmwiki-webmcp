@@ -18,7 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { useI18n } from "@/components/i18n-provider";
+import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 
 export type KnowledgeTopic = {
   id: string;
@@ -80,12 +80,35 @@ export type KnowledgeMapData = {
 };
 
 const presentationMeta = {
-  cluster: { label: "CLUSTER", icon: Layers3 },
-  sequence: { label: "SEQUENCE", icon: ArrowRight },
-  comparison: { label: "COMPARE", icon: GitCompareArrows },
-  questions: { label: "QUESTIONS", icon: CircleHelp },
-  evidence: { label: "EVIDENCE", icon: ShieldCheck },
+  cluster: { labelKey: "atlas.presentationCluster", icon: Layers3 },
+  sequence: { labelKey: "atlas.presentationSequence", icon: ArrowRight },
+  comparison: {
+    labelKey: "atlas.presentationComparison",
+    icon: GitCompareArrows,
+  },
+  questions: { labelKey: "atlas.presentationQuestions", icon: CircleHelp },
+  evidence: { labelKey: "atlas.presentationEvidence", icon: ShieldCheck },
 } as const;
+
+const roleKeys: Record<KnowledgePlacement["role"], TranslationKey> = {
+  primary: "atlas.rolePrimary",
+  supporting: "atlas.roleSupporting",
+  evidence: "atlas.roleEvidence",
+  question: "atlas.roleQuestion",
+};
+
+const pageTypeKeys: Record<string, TranslationKey> = {
+  overview: "type.overview",
+  concept: "type.concept",
+  entity: "type.entity",
+  note: "type.note",
+  source: "type.source",
+  synthesis: "type.synthesis",
+  comparison: "type.comparison",
+  query: "type.query",
+  folder: "type.folder",
+  other: "type.other",
+};
 
 export function KnowledgeAtlas({
   map,
@@ -147,16 +170,14 @@ export function KnowledgeAtlas({
   }
 
   return (
-    <section className="knowledge-atlas" aria-label="Knowledge Atlas">
+    <section className="knowledge-atlas" aria-label={t("nav.knowledge")}>
       <header className="atlas-hero">
         <div>
           <span className="atlas-eyebrow">
-            <Network /> KNOWLEDGE ATLAS · v{map.version}
+            <Network /> {t("atlas.eyebrow")}
           </span>
           <h1>{selected?.title ?? t("atlas.overviewTitle")}</h1>
-          <p>
-            {selected?.summary ?? t("atlas.overviewDescription")}
-          </p>
+          <p>{selected?.summary ?? t("atlas.overviewDescription")}</p>
         </div>
         <div className="atlas-stat-grid" aria-label={t("atlas.summary")}>
           <span>
@@ -237,7 +258,7 @@ export function KnowledgeAtlas({
                   onClick={() => onSelectTopic(topic.id)}
                 >
                   <span className="atlas-topic-kind">
-                    <Icon /> {meta.label}
+                    <Icon /> {t(meta.labelKey)}
                   </span>
                   <span
                     className={`atlas-topic-status ${topicWarnings.length ? "warning" : ""}`}
@@ -380,7 +401,7 @@ export function KnowledgeAtlas({
         <section className="atlas-unmapped">
           <header>
             <div>
-              <span>NEEDS ORGANIZING</span>
+              <span>{t("atlas.unmappedLabel")}</span>
               <h2>{t("atlas.needsOrganizing")}</h2>
             </div>
             <b>{map.unmapped_pages.length}</b>
@@ -395,7 +416,9 @@ export function KnowledgeAtlas({
                 <FileText />
                 <span>
                   <strong>{page.title}</strong>
-                  <small>{page.page_type}</small>
+                  <small>
+                    {t(pageTypeKeys[page.page_type] ?? "type.other")}
+                  </small>
                 </span>
                 <ChevronRight />
               </button>
@@ -444,7 +467,7 @@ function AtlasPlacement({
       <button type="button" onClick={() => onOpenPage(placement.page_id)}>
         {placement.page.page_type === "source" ? <BookOpen /> : <FileText />}
         <span>
-          <small>{placement.role}</small>
+          <small>{t(roleKeys[placement.role])}</small>
           <strong>{placement.page.title}</strong>
           <p>{placement.summary}</p>
         </span>

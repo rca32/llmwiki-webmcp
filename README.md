@@ -10,15 +10,15 @@ same tools, permissions, revisions, and provenance through WebMCP.**
 > The URL is publicly reachable, but every workspace and API requires ChatGPT
 > sign-in. Wiki data is private to the signed-in account's memberships.
 
-![Liminal Wiki workspace showing the knowledge tree, GraphRAG article, linked mentions, and revision history](docs/assets/liminal-wiki-workspace.png)
+![Liminal Wiki workspace showing topic navigation, a research article, connected pages, and change history](docs/assets/liminal-wiki-workspace.png)
 
 ## Account access and ownership
 
 ChatGPT sign-in is mandatory. On the first signed-in visit, an account that has
 no existing membership receives its own deterministic, isolated `Liminal Wiki`
-vault and becomes its owner. Returning with the same account reopens that
-workspace; another account receives a different vault and cannot discover the
-first account's content.
+and becomes its owner. Returning with the same account reopens that wiki;
+another account receives a different wiki and cannot discover the first
+account's content.
 
 Every account uses the production wiki product with persistent storage, the
 normal role model, the full owner WebMCP catalog, revisions, provenance,
@@ -31,24 +31,24 @@ In short, **public** describes who may reach the ChatGPT sign-in boundary. Data
 access still comes from the signed-in account's isolated membership; it never
 grants anonymous or cross-vault access.
 
-### Shared vaults and roles
+### Shared wikis and roles
 
-A personal vault stays private until its owner explicitly adds another
-ChatGPT account under **Operations & recovery → Members & roles**. Enter the
+A personal wiki stays private until its owner explicitly adds another
+ChatGPT account under **Settings & backup → People & access**. Enter the
 email address used by that person's ChatGPT account and assign either
-`editor` or `viewer`. This creates a membership for that one vault; it does not
-publish the vault, expose any other vault, or replace either person's personal
-vault.
+`editor` or `viewer`. This creates a membership for that one wiki; it does not
+publish the wiki, expose any other wiki, or replace either person's personal
+wiki.
 
 No separate invitation email is sent. The added person opens the public Site
-URL, signs in with the matching ChatGPT account, and selects the shared vault
-from the vault switcher. Their own vaults remain available alongside it. An
+URL, signs in with the matching ChatGPT account, and selects the shared wiki
+from the wiki switcher. Their own wikis remain available alongside it. An
 incorrect email address creates an unused membership, so the account email must
 match exactly.
 
-| Role     | Vault access                                                                                          |
+| Role     | Wiki access                                                                                           |
 | -------- | ----------------------------------------------------------------------------------------------------- |
-| `viewer` | Read pages, graph, revisions, attachments, and portable exports                                       |
+| `viewer` | Read pages, connections, revisions, attachments, and standard exports                                 |
 | `editor` | Viewer access plus page writes, revision restore, attachments, and recoverable content deletion       |
 | `owner`  | Editor access plus member and role management, ownership transfer, full backup/import, and operations |
 
@@ -71,6 +71,24 @@ Liminal Wiki makes the open web application itself the collaboration surface.
 The page exposes precise, structured WebMCP tools that use its current vault,
 signed-in session, selected page, permissions, and server-side rules. Humans
 stay in the workspace; agents work through the same command layer.
+
+## A task-oriented interface
+
+The human interface names screens by what a person can do there, rather than by
+the underlying data model:
+
+| Screen                | Purpose                                               |
+| --------------------- | ----------------------------------------------------- |
+| **Documents**         | Read and edit one page                                |
+| **Explore topics**    | Browse related pages independently of folder location |
+| **Find**              | Find pages by title or content                        |
+| **Connections**       | See how pages link to one another                     |
+| **Settings & backup** | Manage editing access, backups, people, and storage   |
+
+The navigation panel uses **By topic** and **By folder**. Technical storage,
+request, and AI-tool metrics are kept under a collapsed **Advanced diagnostics**
+section. Stable implementation names such as `vault`, `knowledge-map`, and
+WebMCP tool IDs remain unchanged in APIs and source code.
 
 ## The human-agent collaboration loop
 
@@ -173,9 +191,9 @@ decision, not a missing capability.
 The human interface and WebMCP tools operate on the same product, not parallel
 implementations. The workspace includes:
 
-- multiple vaults with physical folder/page hierarchy and per-user switching;
+- multiple wikis with folder/page hierarchy and per-user switching;
 - Markdown editing with GFM, math, Mermaid, autosave, and conflict handling;
-- full-text search, backlinks, graph exploration, and stable page permalinks;
+- full-text search, backlinks, connection exploration, and stable page permalinks;
 - source pages, structured retrieval metadata, claim-level provenance, and
   knowledge-quality linting;
 - immutable revisions, restore-as-new-version, leaf soft delete, and trash

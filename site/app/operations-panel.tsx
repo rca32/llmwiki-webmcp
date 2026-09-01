@@ -765,7 +765,7 @@ export function OperationsPanel({
     <div className="operations-stage">
       <header>
         <div>
-          <span>WIKI OPERATIONS</span>
+          <span>{t("nav.operations")}</span>
           <h2>{t("ops.title")}</h2>
           <p>{t("ops.description")}</p>
         </div>
@@ -790,7 +790,7 @@ export function OperationsPanel({
       <div className="operations-grid">
         {capabilities.can_manage_members && (
           <section className="operation-card">
-            <span>WRITE SAFETY</span>
+            <span>{t("ops.editingSection")}</span>
             <h3>
               {writeMode === "read_only"
                 ? t("ops.writeReadOnly")
@@ -822,7 +822,7 @@ export function OperationsPanel({
           </section>
         )}
         <section className="operation-card">
-          <span>BACKUP & RESTORE</span>
+          <span>{t("ops.backupSection")}</span>
           <h3>{t("ops.backupTitle")}</h3>
           <p>{t("ops.backupDescription")}</p>
           {capabilities.can_full_backup && (
@@ -870,18 +870,16 @@ export function OperationsPanel({
           </div>
           {acknowledgedDate ? (
             <small className={fullBackupStale ? "warning-text" : undefined}>
-              {fullBackupStale
-                ? "마지막 전체 백업이 7일보다 오래되었습니다: "
-                : "마지막 확인된 전체 백업: "}
+              {fullBackupStale ? t("ops.lastBackupOld") : t("ops.lastBackup")}
               {acknowledgedDate.toLocaleString(language)}
             </small>
           ) : capabilities.can_full_backup ? (
-            <small className="warning-text">확인된 전체 백업이 없습니다.</small>
+            <small className="warning-text">{t("ops.noBackup")}</small>
           ) : null}
         </section>
         {capabilities.can_full_backup && (
           <section className="operation-card">
-            <span>STORAGE HEALTH</span>
+            <span>{t("ops.storageSection")}</span>
             <h3>{t("ops.storageTitle")}</h3>
             <div className="metric-grid">
               <div>
@@ -906,156 +904,198 @@ export function OperationsPanel({
               </div>
             </div>
             <p>
-              페이지 {bytesLabel(operations?.usage?.page_bytes)} · R2 리비전{" "}
-              {bytesLabel(operations?.usage?.r2_ready_revision_bytes)} · 첨부{" "}
-              {bytesLabel(operations?.usage?.r2_ready_attachment_bytes)}
+              {t("ops.storageUsage", {
+                pages: bytesLabel(operations?.usage?.page_bytes),
+                revisions: bytesLabel(
+                  operations?.usage?.r2_ready_revision_bytes,
+                ),
+                attachments: bytesLabel(
+                  operations?.usage?.r2_ready_attachment_bytes,
+                ),
+              })}
             </p>
             <div className="operation-actions">
               <button onClick={() => void runMaintenance()} disabled={busy}>
                 {t("ops.runStorageCheck")}
               </button>
-              <button onClick={() => void runAtomicityProbe()} disabled={busy}>
-                {t("ops.atomicityCheck")}
-              </button>
-              {operations?.search_benchmark_enabled && (
-                <button
-                  onClick={() => void runSearchBenchmark()}
-                  disabled={busy}
-                >
-                  10,000페이지 성능 pilot
-                </button>
+            </div>
+          </section>
+        )}
+        {capabilities.can_full_backup && (
+          <details className="operations-advanced">
+            <summary>
+              <strong>{t("ops.advancedTitle")}</strong>
+              <span>{t("ops.advancedDescription")}</span>
+            </summary>
+            <div className="operations-advanced-grid">
+              <section className="operation-card">
+                <span>{t("ops.storageSection")}</span>
+                <h3>{t("ops.technicalChecksTitle")}</h3>
+                <p>{t("ops.technicalChecksDescription")}</p>
+                <div className="operation-actions">
+                  <button
+                    onClick={() => void runAtomicityProbe()}
+                    disabled={busy}
+                  >
+                    {t("ops.atomicityCheck")}
+                  </button>
+                  {operations?.search_benchmark_enabled && (
+                    <button
+                      onClick={() => void runSearchBenchmark()}
+                      disabled={busy}
+                    >
+                      {t("ops.performanceCheck")}
+                    </button>
+                  )}
+                </div>
+                {operations?.search_benchmark_enabled && (
+                  <small className="warning-text">
+                    {t("ops.performanceHint")}
+                  </small>
+                )}
+              </section>
+              {capabilities.can_full_backup && (
+                <section className="operation-card webmcp-observability-card">
+                  <span>{t("ops.agentSection")}</span>
+                  <h3>{t("ops.agentTitle")}</h3>
+                  <p>{t("ops.agentDescription")}</p>
+                  <div className="metric-grid webmcp-summary">
+                    <div>
+                      <strong>{webmcpCalls}</strong>
+                      <small>{t("ops.totalCalls")}</small>
+                    </div>
+                    <div>
+                      <strong>{webmcpAverageLatency} ms</strong>
+                      <small>{t("ops.averageLatency")}</small>
+                    </div>
+                    <div>
+                      <strong>
+                        {webmcpMetrics.reduce(
+                          (total, metric) =>
+                            total +
+                            (metric.outcome === "success"
+                              ? Number(metric.invocation_count)
+                              : 0),
+                          0,
+                        )}
+                      </strong>
+                      <small>{t("ops.success")}</small>
+                    </div>
+                  </div>
+                  {webmcpMetrics.length ? (
+                    <div
+                      className="webmcp-metric-list"
+                      aria-label={t("ops.agentTitle")}
+                    >
+                      {webmcpMetrics.map((metric) => (
+                        <article
+                          key={`${metric.tool_name}:${metric.outcome}`}
+                          data-outcome={metric.outcome}
+                        >
+                          <div>
+                            <strong>{metric.tool_name}</strong>
+                            <small>
+                              {t("ops.metricDetail", {
+                                outcome: metric.outcome,
+                                average: metric.average_latency_ms,
+                                maximum: metric.max_latency_ms,
+                              })}
+                            </small>
+                          </div>
+                          <b>
+                            {t("ops.callCount", {
+                              count: metric.invocation_count,
+                            })}
+                          </b>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <small>{t("ops.noWebmcp")}</small>
+                  )}
+                </section>
+              )}
+              {capabilities.can_full_backup && (
+                <section className="operation-card webmcp-observability-card">
+                  <span>{t("ops.apiSection")}</span>
+                  <h3>{t("ops.apiTitle")}</h3>
+                  <p>{t("ops.apiDescription")}</p>
+                  <div className="metric-grid webmcp-summary">
+                    <div>
+                      <strong>{apiRequests}</strong>
+                      <small>{t("ops.totalRequests")}</small>
+                    </div>
+                    <div>
+                      <strong>{apiAverageLatency} ms</strong>
+                      <small>{t("ops.averageLatency")}</small>
+                    </div>
+                    <div>
+                      <strong>
+                        {apiMetrics.reduce(
+                          (total, metric) =>
+                            total +
+                            (metric.outcome === "success"
+                              ? Number(metric.request_count)
+                              : 0),
+                          0,
+                        )}
+                      </strong>
+                      <small>{t("ops.success")}</small>
+                    </div>
+                    <div>
+                      <strong>
+                        {Number(searchMeasurement?.average_result_count ?? 0)}
+                      </strong>
+                      <small>{t("ops.averageSearchResults")}</small>
+                    </div>
+                    <div>
+                      <strong>
+                        {bytesLabel(uploadMeasurement?.total_size_bytes)}
+                      </strong>
+                      <small>{t("ops.totalUploads")}</small>
+                    </div>
+                  </div>
+                  {apiMetrics.length ? (
+                    <div
+                      className="webmcp-metric-list"
+                      role="region"
+                      aria-label={t("ops.apiTitle")}
+                      tabIndex={0}
+                    >
+                      {apiMetrics.map((metric) => (
+                        <article
+                          key={`${metric.command_name}:${metric.outcome}`}
+                          data-outcome={metric.outcome}
+                        >
+                          <div>
+                            <strong>{metric.command_name}</strong>
+                            <small>
+                              {t("ops.metricDetail", {
+                                outcome: metric.outcome,
+                                average: metric.average_latency_ms,
+                                maximum: metric.max_latency_ms,
+                              })}
+                            </small>
+                          </div>
+                          <b>
+                            {t("ops.callCount", {
+                              count: metric.request_count,
+                            })}
+                          </b>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <small>{t("ops.noApi")}</small>
+                  )}
+                </section>
               )}
             </div>
-            {operations?.search_benchmark_enabled && (
-              <small className="warning-text">
-                격리된 복구 Site 전용이며, 측정 종료 시 fixture를 자동
-                삭제합니다.
-              </small>
-            )}
-          </section>
-        )}
-        {capabilities.can_full_backup && (
-          <section className="operation-card webmcp-observability-card">
-            <span>WEBMCP OBSERVABILITY</span>
-            <h3>{t("ops.agentTitle")}</h3>
-            <p>{t("ops.agentDescription")}</p>
-            <div className="metric-grid webmcp-summary">
-              <div>
-                <strong>{webmcpCalls}</strong>
-                <small>{t("ops.totalCalls")}</small>
-              </div>
-              <div>
-                <strong>{webmcpAverageLatency} ms</strong>
-                <small>{t("ops.averageLatency")}</small>
-              </div>
-              <div>
-                <strong>
-                  {webmcpMetrics.reduce(
-                    (total, metric) =>
-                      total +
-                      (metric.outcome === "success"
-                        ? Number(metric.invocation_count)
-                        : 0),
-                    0,
-                  )}
-                </strong>
-                <small>{t("ops.success")}</small>
-              </div>
-            </div>
-            {webmcpMetrics.length ? (
-              <div className="webmcp-metric-list" aria-label="WebMCP 호출 지표">
-                {webmcpMetrics.map((metric) => (
-                  <article
-                    key={`${metric.tool_name}:${metric.outcome}`}
-                    data-outcome={metric.outcome}
-                  >
-                    <div>
-                      <strong>{metric.tool_name}</strong>
-                      <small>
-                        {metric.outcome} · 평균 {metric.average_latency_ms} ms ·
-                        최대 {metric.max_latency_ms} ms
-                      </small>
-                    </div>
-                    <b>{metric.invocation_count}회</b>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <small>{t("ops.noWebmcp")}</small>
-            )}
-          </section>
-        )}
-        {capabilities.can_full_backup && (
-          <section className="operation-card webmcp-observability-card">
-            <span>API OBSERVABILITY</span>
-            <h3>{t("ops.apiTitle")}</h3>
-            <p>{t("ops.apiDescription")}</p>
-            <div className="metric-grid webmcp-summary">
-              <div>
-                <strong>{apiRequests}</strong>
-                <small>{t("ops.totalRequests")}</small>
-              </div>
-              <div>
-                <strong>{apiAverageLatency} ms</strong>
-                <small>{t("ops.averageLatency")}</small>
-              </div>
-              <div>
-                <strong>
-                  {apiMetrics.reduce(
-                    (total, metric) =>
-                      total +
-                      (metric.outcome === "success"
-                        ? Number(metric.request_count)
-                        : 0),
-                    0,
-                  )}
-                </strong>
-                <small>{t("ops.success")}</small>
-              </div>
-              <div>
-                <strong>
-                  {Number(searchMeasurement?.average_result_count ?? 0)}
-                </strong>
-                <small>{t("ops.averageSearchResults")}</small>
-              </div>
-              <div>
-                <strong>
-                  {bytesLabel(uploadMeasurement?.total_size_bytes)}
-                </strong>
-                <small>{t("ops.totalUploads")}</small>
-              </div>
-            </div>
-            {apiMetrics.length ? (
-              <div
-                className="webmcp-metric-list"
-                role="region"
-                aria-label="API 요청 지표"
-                tabIndex={0}
-              >
-                {apiMetrics.map((metric) => (
-                  <article
-                    key={`${metric.command_name}:${metric.outcome}`}
-                    data-outcome={metric.outcome}
-                  >
-                    <div>
-                      <strong>{metric.command_name}</strong>
-                      <small>
-                        {metric.outcome} · 평균 {metric.average_latency_ms} ms ·
-                        최대 {metric.max_latency_ms} ms
-                      </small>
-                    </div>
-                    <b>{metric.request_count}회</b>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <small>{t("ops.noApi")}</small>
-            )}
-          </section>
+          </details>
         )}
         {capabilities.can_manage_members && (
           <section className="operation-card members-card">
-            <span>MEMBERS</span>
+            <span>{t("ops.peopleSection")}</span>
             <h3>{t("ops.membersTitle")}</h3>
             <div className="member-form">
               <input
@@ -1072,8 +1112,8 @@ export function OperationsPanel({
                 }
                 aria-label={t("ops.memberRole")}
               >
-                <option value="editor">editor</option>
-                <option value="viewer">viewer</option>
+                <option value="editor">{t("ops.roleEditor")}</option>
+                <option value="viewer">{t("ops.roleViewer")}</option>
               </select>
               <button
                 onClick={() => void saveMember()}
@@ -1087,7 +1127,13 @@ export function OperationsPanel({
                 <div key={member.user_email}>
                   <span>
                     <strong>{member.user_email}</strong>
-                    <small>{member.role}</small>
+                    <small>
+                      {member.role === "owner"
+                        ? t("ops.roleOwner")
+                        : member.role === "editor"
+                          ? t("ops.roleEditor")
+                          : t("ops.roleViewer")}
+                    </small>
                   </span>
                   {member.role !== "owner" && (
                     <span className="member-actions">
@@ -1100,7 +1146,9 @@ export function OperationsPanel({
                         }
                         disabled={busy}
                       >
-                        {member.role === "editor" ? "viewer로" : "editor로"}
+                        {member.role === "editor"
+                          ? t("ops.changeToViewer")
+                          : t("ops.changeToEditor")}
                       </button>
                       <button
                         onClick={() => void transferOwner(member)}
@@ -1123,11 +1171,11 @@ export function OperationsPanel({
           </section>
         )}
       </div>
-      <section className="audit-card">
-        <div>
-          <span>AUDIT TRAIL</span>
+      <details className="audit-card">
+        <summary>
+          <span>{t("ops.auditSection")}</span>
           <h3>{t("ops.recentChanges")}</h3>
-        </div>
+        </summary>
         <div
           className="audit-list"
           role="region"
@@ -1148,7 +1196,7 @@ export function OperationsPanel({
             </article>
           ))}
         </div>
-      </section>
+      </details>
     </div>
   );
 }

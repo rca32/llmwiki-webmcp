@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 
 import { MarkdownPreview } from "@/app/markdown-preview";
-import { useI18n } from "@/components/i18n-provider";
+import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 import { Button } from "@/components/ui/button";
 import {
   buildGraphTopology,
@@ -103,6 +103,18 @@ const TYPE_LABELS: Record<string, string> = {
   methodology: "Methodology",
   note: "Note",
   other: "Other",
+};
+const TYPE_KEYS: Record<string, TranslationKey> = {
+  entity: "type.entity",
+  concept: "type.concept",
+  source: "type.source",
+  query: "type.query",
+  synthesis: "type.synthesis",
+  overview: "type.overview",
+  comparison: "type.comparison",
+  note: "type.note",
+  folder: "type.folder",
+  other: "type.other",
 };
 const BASE_NODE_SIZE = 8;
 const MAX_NODE_SIZE = 28;
@@ -450,6 +462,8 @@ export function GraphView({
   onOpenPage: (pageId: string) => void;
 }) {
   const { t } = useI18n();
+  const typeLabel = (type: string) =>
+    TYPE_KEYS[type] ? t(TYPE_KEYS[type]) : (TYPE_LABELS[type] ?? type);
   const graphData = useMemo(() => graph ?? EMPTY_GRAPH, [graph]);
   const [colorMode, setColorMode] = useState<ColorMode>("type");
   const [scope, setScope] = useState<GraphScope>("global");
@@ -502,8 +516,11 @@ export function GraphView({
 
   useEffect(() => {
     if (selectedNodeId && !nodeById.has(selectedNodeId)) {
-      setSelectedNodeId(null);
-      setPreview(null);
+      const timeout = window.setTimeout(() => {
+        setSelectedNodeId(null);
+        setPreview(null);
+      }, 0);
+      return () => window.clearTimeout(timeout);
     }
   }, [nodeById, selectedNodeId]);
 
@@ -593,7 +610,7 @@ export function GraphView({
     [openPreview],
   );
 
-  const useAsLocalRoot = useCallback((pageId: string) => {
+  const showNearbyPages = useCallback((pageId: string) => {
     setSelectedNodeId(pageId);
     setScope("local");
     setContextMenu(null);
@@ -708,7 +725,7 @@ export function GraphView({
             <option value="all">{t("graph.allTypes")}</option>
             {pageTypes.map((type) => (
               <option key={type} value={type}>
-                {TYPE_LABELS[type] ?? type}
+                {typeLabel(type)}
               </option>
             ))}
           </select>
@@ -855,7 +872,7 @@ export function GraphView({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => useAsLocalRoot(contextMenu.nodeId)}
+                onClick={() => showNearbyPages(contextMenu.nodeId)}
               >
                 {t("graph.localFromHere")}
               </button>
@@ -899,7 +916,7 @@ export function GraphView({
               ? Object.entries(typeCounts).map(([type, count]) => (
                   <div key={type}>
                     <i style={{ backgroundColor: nodeColor(type) }} />
-                    <span>{TYPE_LABELS[type] ?? type}</span>
+                    <span>{typeLabel(type)}</span>
                     <b>{count}</b>
                   </div>
                 ))
@@ -978,7 +995,7 @@ export function GraphView({
                   {preview.title}
                 </span>
                 <small>
-                  {TYPE_LABELS[preview.page_type] ?? preview.page_type} ·{" "}
+                  {typeLabel(preview.page_type)} ·{" "}
                   {t("graph.connections", {
                     count: previewConnections.length,
                   })}
@@ -1061,7 +1078,7 @@ export function GraphView({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => useAsLocalRoot(preview.id)}
+                  onClick={() => showNearbyPages(preview.id)}
                 >
                   {t("graph.localFromHere")}
                 </Button>

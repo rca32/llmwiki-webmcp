@@ -56,10 +56,6 @@ function TooltipContent({
           {...props}
         >
           {children}
-          <TooltipPrimitive.Arrow
-            data-slot="tooltip-arrow"
-            className="z-50 size-2.5 rotate-45 rounded-[2px]"
-          />
         </TooltipPrimitive.Popup>
       </TooltipPrimitive.Positioner>
     </TooltipPrimitive.Portal>

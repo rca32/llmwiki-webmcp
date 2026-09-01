@@ -3,9 +3,22 @@
 import { ArrowUpRight, FileText, Search, X } from "lucide-react";
 
 import type { KnowledgeTreePage } from "@/components/layout/knowledge-tree";
-import { useI18n } from "@/components/i18n-provider";
+import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 
 type SearchPage = KnowledgeTreePage & { markdown: string; updated_at: string };
+
+const pageTypeKeys: Record<string, TranslationKey> = {
+  overview: "type.overview",
+  concept: "type.concept",
+  entity: "type.entity",
+  note: "type.note",
+  source: "type.source",
+  synthesis: "type.synthesis",
+  comparison: "type.comparison",
+  query: "type.query",
+  folder: "type.folder",
+  other: "type.other",
+};
 
 function excerpt(markdown: string, query: string) {
   const plain = markdown
@@ -76,7 +89,8 @@ export function SearchView({
             <span>
               <strong>{page.title}</strong>
               <small>
-                {page.page_type} · v{page.version}
+                {t(pageTypeKeys[page.page_type] ?? "type.other")} ·{" "}
+                {t("common.version", { version: page.version })}
               </small>
               <p>{excerpt(page.markdown, query)}</p>
             </span>

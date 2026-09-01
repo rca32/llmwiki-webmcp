@@ -50,6 +50,12 @@ const typeOrder = [
   "query",
   "other",
 ];
+const placementRoleKeys: Record<KnowledgePlacement["role"], TranslationKey> = {
+  primary: "atlas.rolePrimary",
+  supporting: "atlas.roleSupporting",
+  evidence: "atlas.roleEvidence",
+  question: "atlas.roleQuestion",
+};
 function typeConfig(type: string, t: (key: TranslationKey) => string) {
   const configs: Record<
     string,
@@ -377,7 +383,7 @@ export function KnowledgeTree({
                 <Layers3 />
                 <span>{topic.title}</span>
                 <b>{children.length + placements.length}</b>
-                {topic.is_locked && <Lock aria-label="사용자 고정" />}
+                {topic.is_locked && <Lock aria-label={t("tree.userLocked")} />}
               </button>
             </div>
             {expanded && (
@@ -400,7 +406,7 @@ export function KnowledgeTree({
                   >
                     <FileText />
                     <span>{placement.page.title}</span>
-                    <small>{placement.role}</small>
+                    <small>{t(placementRoleKeys[placement.role])}</small>
                   </button>
                 ))}
                 {semanticRows(topic.id, depth + 1)}
@@ -416,7 +422,7 @@ export function KnowledgeTree({
       <header className="vault-header">
         <Vault aria-hidden="true" />
         <label>
-          <span>VAULT</span>
+          <span>{t("tree.wikiLabel")}</span>
           <select
             value={activeVaultId ?? ""}
             onChange={(event) => onSwitchVault(event.target.value)}
@@ -533,7 +539,7 @@ export function KnowledgeTree({
               >
                 <Vault />
                 <span>{activeVaultTitle}</span>
-                <small>root</small>
+                <small>{t("tree.topLevel")}</small>
               </div>
               {fileRows("root", 0)}
             </div>
@@ -546,13 +552,13 @@ export function KnowledgeTree({
                 onClick={() => onOpenKnowledgeTopic(null)}
               >
                 <Layers3 />
-                <span>Knowledge Atlas</span>
+                <span>{t("tree.allTopics")}</span>
                 <b>{knowledgeMap.topics.length}</b>
               </button>
               {semanticRows(null, 0)}
               {!!knowledgeMap.unmapped_pages.length && (
                 <div className="tree-unmapped">
-                  <strong>정리 필요함</strong>
+                  <strong>{t("tree.needsOrganizing")}</strong>
                   {knowledgeMap.unmapped_pages.map((page) => (
                     <button
                       type="button"
@@ -593,7 +599,7 @@ export function KnowledgeTree({
                           key={page.id}
                           className={`tree-page-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""}`}
                           onClick={() => onOpenPage(page.id)}
-                          title={`${page.path} · physical path`}
+                          title={`${page.path} · ${t("tree.physicalPath")}`}
                           data-page-id={page.id}
                           aria-busy={pendingPageId === page.id}
                           onKeyDown={handleTreeKeyDown}
