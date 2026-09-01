@@ -2159,6 +2159,78 @@ textarea {
   gap: 2px;
 }
 
+.source-link-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 6px;
+  border-radius: 5px;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.source-link-row:hover {
+  background: var(--accent);
+}
+
+.source-link-row > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.source-link-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.source-link-row strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-link-row small {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.source-metadata {
+  display: grid;
+  gap: 5px;
+  margin: 8px 6px 0;
+}
+
+.source-metadata > div {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.source-metadata dt,
+.source-metadata dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.source-metadata dt {
+  color: var(--muted-foreground);
+}
+
+.source-metadata dd {
+  color: var(--foreground);
+  text-align: right;
+}
+
 .context-row,
 .attachment-row {
   display: flex;

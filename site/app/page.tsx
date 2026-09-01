@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  ExternalLink,
   FileText,
   Languages,
   Layers3,
@@ -116,6 +117,33 @@ const pageTypeKeys: Record<string, TranslationKey> = {
   other: "type.other",
 };
 
+const retrievalStatusKeys: Record<string, TranslationKey> = {
+  success: "page.retrievalSuccess",
+  partial: "page.retrievalPartial",
+  failed: "page.retrievalFailed",
+  unavailable: "page.retrievalUnavailable",
+};
+
+function sourceHostname(sourceUrl: string) {
+  try {
+    return new URL(sourceUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return sourceUrl;
+  }
+}
+
+function formatSourceDate(value: string, language: Language) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(language, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function WorkspaceLoading() {
   const { t } = useI18n();
   return (
@@ -135,6 +163,11 @@ type Page = {
   sort_order: number;
   path: string;
   updated_at: string;
+  source_url: string | null;
+  retrieval_status: string | null;
+  retrieved_at: string | null;
+  extraction_method: string | null;
+  confidence: number | null;
   deleted_at?: string | null;
 };
 type Revision = {
@@ -1735,6 +1768,76 @@ export default function Home() {
                       <PanelRightClose />
                     </button>
                   </header>
+
+                  {active?.page_type === "source" && (
+                    <section className="context-section source-section">
+                      <div className="context-section-title">
+                        <span>
+                          <ExternalLink /> {t("page.originalSource")}
+                        </span>
+                      </div>
+                      {active.source_url ? (
+                        <>
+                          <a
+                            className="source-link-row"
+                            href={active.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={active.source_url}
+                          >
+                            <ExternalLink />
+                            <span>
+                              <strong>
+                                {sourceHostname(active.source_url)}
+                              </strong>
+                              <small>{t("page.openOriginalSource")}</small>
+                            </span>
+                          </a>
+                          <dl className="source-metadata">
+                            {active.retrieval_status && (
+                              <div>
+                                <dt>{t("page.retrievalStatus")}</dt>
+                                <dd>
+                                  {t(
+                                    retrievalStatusKeys[
+                                      active.retrieval_status
+                                    ] ?? "page.retrievalUnknown",
+                                  )}
+                                </dd>
+                              </div>
+                            )}
+                            {active.retrieved_at && (
+                              <div>
+                                <dt>{t("page.retrievedAt")}</dt>
+                                <dd>
+                                  {formatSourceDate(
+                                    active.retrieved_at,
+                                    language,
+                                  )}
+                                </dd>
+                              </div>
+                            )}
+                            {active.extraction_method && (
+                              <div>
+                                <dt>{t("page.extractionMethod")}</dt>
+                                <dd>{active.extraction_method}</dd>
+                              </div>
+                            )}
+                            {active.confidence !== null && (
+                              <div>
+                                <dt>{t("page.sourceConfidence")}</dt>
+                                <dd>{Math.round(active.confidence * 100)}%</dd>
+                              </div>
+                            )}
+                          </dl>
+                        </>
+                      ) : (
+                        <p className="context-empty">
+                          {t("page.noOriginalSource")}
+                        </p>
+                      )}
+                    </section>
+                  )}
 
                   <section className="context-section">
                     <div className="context-section-title">

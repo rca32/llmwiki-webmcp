@@ -915,6 +915,30 @@ let activeBrowser;
       );
     return (await response.json()).data;
   };
+  const sourceFixtureUrl = "https://example.com/articles/ui-source-fixture";
+  const sourceFixtureTitle = `Source Fixture ${linkStamp}`;
+  const sourceFixtureResponse = await context.request.post(
+    `${baseUrl}/api/pages`,
+    {
+      data: {
+        title: sourceFixtureTitle,
+        page_type: "source",
+        markdown: `# ${sourceFixtureTitle}\n\nSource detail panel fixture.`,
+        parent_id: null,
+        source_url: sourceFixtureUrl,
+        retrieval_status: "success",
+        retrieved_at: "2026-09-01T12:34:00.000Z",
+        extraction_method: "web article text extraction",
+        confidence: 0.91,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (sourceFixtureResponse.status() !== 201)
+    throw new Error(
+      `Source fixture create failed: ${sourceFixtureResponse.status()} ${await sourceFixtureResponse.text()}`,
+    );
+  const sourceFixture = (await sourceFixtureResponse.json()).data;
   const linkTargetTitle = `Link Target ${linkStamp}`;
   const linkTarget = await createLinkFixture(
     linkTargetTitle,
@@ -1249,6 +1273,8 @@ let activeBrowser;
     ))
   )
     throw new Error("Closing the request dialog did not restore focus.");
+  if ((await page.locator(".source-section").count()) !== 0)
+    throw new Error("A non-source page exposed the original-source section.");
   await page.waitForLoadState("networkidle");
   const pageCount = await page.locator(".tree-page-row:not(.deleted)").count();
   if (pageCount < 1)
@@ -1301,6 +1327,34 @@ let activeBrowser;
     throw new Error(
       "The document must expose exactly one change-request action.",
     );
+
+  await page
+    .locator(`.tree-file-open[data-page-id="${sourceFixture.page_id}"]`)
+    .click();
+  await page.locator(".sync-state").filter({ hasText: "동기화됨" }).waitFor();
+  const sourceSection = page.locator(".source-section");
+  await sourceSection.waitFor();
+  const sourceLink = sourceSection.locator("a.source-link-row");
+  if (
+    (await sourceLink.getAttribute("href")) !== sourceFixtureUrl ||
+    (await sourceLink.getAttribute("target")) !== "_blank" ||
+    !(await sourceLink.getAttribute("rel"))?.includes("noopener") ||
+    !(await sourceLink.getAttribute("rel"))?.includes("noreferrer")
+  )
+    throw new Error("The original-source link is not safe or exact.");
+  const sourceDetails = await sourceSection.innerText();
+  for (const expected of [
+    "원천소스",
+    "example.com",
+    "수집 완료",
+    "수집 시각",
+    "web article text extraction",
+    "신뢰도",
+    "91%",
+  ]) {
+    if (!sourceDetails.includes(expected))
+      throw new Error(`Source details omitted ${expected}.`);
+  }
 
   const currentKnowledgeMap = await context.request
     .get(`${baseUrl}/api/knowledge-map`)
@@ -1653,6 +1707,7 @@ let activeBrowser;
     { ...frontmatterSource, version: frontmatterLinked.version },
     { ...sectionSource, version: sectionLinked.version },
     linkTarget,
+    sourceFixture,
   ]) {
     const response = await context.request.delete(
       `${baseUrl}/api/pages/${fixture.page_id}`,
@@ -1733,6 +1788,7 @@ let activeBrowser;
       lightDarkThemeVerified: true,
       signOutControlVerified: true,
       insightReaderVerified: true,
+      originalSourceDetailsVerified: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",
     }),
