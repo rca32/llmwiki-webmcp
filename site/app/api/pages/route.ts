@@ -251,6 +251,7 @@ export async function POST(request: Request) {
           links_changed: true,
           search_changed: true,
           graph_changed: true,
+          knowledge_changed: false,
         },
       ),
       { status: 201 },

@@ -64,6 +64,20 @@
       "when": 1788090483846,
       "tag": "0008_silly_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788190164478,
+      "tag": "0009_ancient_vulcan",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788191003979,
+      "tag": "0010_uneven_avengers",
+      "breakpoints": true
     }
   ]
 }

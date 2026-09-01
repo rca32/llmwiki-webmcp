@@ -16,6 +16,7 @@ import {
   Copy,
   FileText,
   Languages,
+  Layers3,
   Link2,
   LogOut,
   Moon,
@@ -42,6 +43,11 @@ import {
   type WorkspaceView,
 } from "@/components/layout/icon-sidebar";
 import { KnowledgeTree } from "@/components/layout/knowledge-tree";
+import type {
+  KnowledgeMapData,
+  KnowledgePlacement,
+  KnowledgeTopic,
+} from "@/components/knowledge/knowledge-atlas";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -57,6 +63,8 @@ const loadOperationsPanel = () => import("./operations-panel");
 const loadWikiEditor = () => import("@/components/editor/wiki-editor");
 const loadGraphView = () => import("@/components/graph/graph-view");
 const loadSearchView = () => import("@/components/search/search-view");
+const loadKnowledgeAtlas = () =>
+  import("@/components/knowledge/knowledge-atlas");
 
 const OperationsPanel = lazy(() =>
   loadOperationsPanel().then((module) => ({
@@ -78,6 +86,20 @@ const SearchView = lazy(() =>
     default: module.SearchView,
   })),
 );
+const KnowledgeAtlas = lazy(() =>
+  loadKnowledgeAtlas().then((module) => ({
+    default: module.KnowledgeAtlas,
+  })),
+);
+
+const EMPTY_KNOWLEDGE_MAP: KnowledgeMapData = {
+  exists: false,
+  version: 0,
+  topics: [],
+  placements: [],
+  unmapped_pages: [],
+  warnings: [],
+};
 
 function WorkspaceLoading() {
   const { t } = useI18n();
@@ -284,6 +306,7 @@ function WorkspaceDialog({
   description,
   children,
   confirmLabel,
+  confirmTone = "primary",
   confirmDisabled,
   onConfirm,
   onClose,
@@ -292,6 +315,7 @@ function WorkspaceDialog({
   description: string;
   children: React.ReactNode;
   confirmLabel: string;
+  confirmTone?: "primary" | "destructive";
   confirmDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -331,7 +355,7 @@ function WorkspaceDialog({
           </button>
           <button
             type="button"
-            className="primary"
+            className={confirmTone}
             onClick={onConfirm}
             disabled={confirmDisabled}
           >
@@ -363,6 +387,11 @@ export default function Home() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [graph, setGraph] = useState<Graph | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
+  const [knowledgeMap, setKnowledgeMap] =
+    useState<KnowledgeMapData>(EMPTY_KNOWLEDGE_MAP);
+  const [selectedKnowledgeTopicId, setSelectedKnowledgeTopicId] = useState<
+    string | null
+  >(null);
   const [pendingPageId, setPendingPageId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
@@ -378,6 +407,11 @@ export default function Home() {
   const [newItemTitle, setNewItemTitle] = useState("");
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveParentId, setMoveParentId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteReason, setDeleteReason] = useState("사용자 요청");
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [newVaultTitle, setNewVaultTitle] = useState("");
   const [newVaultTemplate, setNewVaultTemplate] = useState<"empty" | "starter">(
@@ -434,6 +468,7 @@ export default function Home() {
         loadOperationsPanel(),
         loadGraphView(),
         loadSearchView(),
+        loadKnowledgeAtlas(),
       ]);
     };
     const idle = window.requestIdleCallback(preloadSecondaryViews, {
@@ -666,6 +701,8 @@ export default function Home() {
           currentWikiIdRef.current = session.wiki?.id ?? null;
           graphRequestRef.current++;
           setGraph(null);
+          setKnowledgeMap(EMPTY_KNOWLEDGE_MAP);
+          setSelectedKnowledgeTopicId(null);
           openPageRequestRef.current++;
           desiredPageIdRef.current = null;
           activeRef.current = null;
@@ -692,9 +729,13 @@ export default function Home() {
           );
           return;
         }
-        const accessible = await api<{ wikis: WikiSummary[] }>("/api/wikis");
+        const [accessible, map] = await Promise.all([
+          api<{ wikis: WikiSummary[] }>("/api/wikis"),
+          api<KnowledgeMapData>("/api/knowledge-map"),
+        ]);
         if (requestNumber !== workspaceRequestRef.current) return;
         setWikis(accessible.wikis);
+        setKnowledgeMap(map);
         const activePagesRequest = await activePagesPromise;
         if ("error" in activePagesRequest) throw activePagesRequest.error;
         const list = activePagesRequest.data.pages;
@@ -775,6 +816,8 @@ export default function Home() {
           setNeighbors([]);
           setAttachments([]);
           setGraph(null);
+          setKnowledgeMap(EMPTY_KNOWLEDGE_MAP);
+          setSelectedKnowledgeTopicId(null);
           setStatus("로그인 필요");
           setNotice(null);
         } else {
@@ -1174,6 +1217,120 @@ export default function Home() {
     }
   }
 
+  async function updateKnowledgeMapPatch(patch: Record<string, unknown>) {
+    if (!caps.can_write) return;
+    setStatus("Knowledge Atlas 업데이트 중…");
+    try {
+      await api("/api/knowledge-map", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expected_version: knowledgeMap.version,
+          topics: [],
+          placements: [],
+          remove_placement_ids: [],
+          ...patch,
+        }),
+      });
+      const refreshed = await api<KnowledgeMapData>("/api/knowledge-map");
+      setKnowledgeMap(refreshed);
+      setStatus("Knowledge Atlas가 업데이트되었습니다.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Knowledge Atlas를 업데이트하지 못했습니다.",
+      );
+    }
+  }
+
+  function topicPatch(
+    topic: KnowledgeTopic,
+    overrides: Partial<Pick<KnowledgeTopic, "title" | "parent_topic_id">>,
+  ) {
+    return {
+      client_key: `existing-${topic.id}`,
+      topic_id: topic.id,
+      parent:
+        (overrides.parent_topic_id ?? topic.parent_topic_id) === null
+          ? null
+          : {
+              topic_id: overrides.parent_topic_id ?? topic.parent_topic_id,
+            },
+      title: overrides.title ?? topic.title,
+      summary: topic.summary,
+      presentation: topic.presentation,
+      sort_order: topic.sort_order,
+    };
+  }
+
+  async function setKnowledgeTopicLocked(
+    topic: KnowledgeTopic,
+    locked: boolean,
+  ) {
+    if (!caps.can_write) return;
+    try {
+      await api(`/api/knowledge-map/topics/${topic.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expected_version: knowledgeMap.version,
+          is_locked: locked,
+        }),
+      });
+      setKnowledgeMap(await api<KnowledgeMapData>("/api/knowledge-map"));
+      setStatus(locked ? "주제를 고정했습니다." : "주제 고정을 해제했습니다.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "주제 고정 상태를 변경하지 못했습니다.",
+      );
+    }
+  }
+
+  function moveKnowledgePlacement(
+    placement: KnowledgePlacement,
+    topicId: string,
+  ) {
+    void updateKnowledgeMapPatch({
+      placements: [
+        {
+          placement_id: placement.id,
+          topic: { topic_id: topicId },
+          page: { page_id: placement.page_id },
+          role: placement.role,
+          summary: placement.summary,
+          sort_order: placement.sort_order,
+        },
+      ],
+    });
+  }
+
+  function duplicateKnowledgePlacement(
+    placement: KnowledgePlacement,
+    topicId: string,
+  ) {
+    const role =
+      placement.page.page_type === "source"
+        ? "evidence"
+        : placement.page.page_type === "query"
+          ? "question"
+          : "supporting";
+    void updateKnowledgeMapPatch({
+      placements: [
+        {
+          placement_id: null,
+          topic: { topic_id: topicId },
+          page: { page_id: placement.page_id },
+          role,
+          summary: placement.summary,
+          sort_order: 0,
+        },
+      ],
+    });
+  }
+
   async function switchVault(wikiId: string) {
     if (!wikiId || wikiId === currentWiki?.id) return;
     if (
@@ -1249,25 +1406,36 @@ export default function Home() {
     }
   }
 
-  async function deleteActivePage() {
+  function openDeleteActivePageDialog() {
     if (!active || !caps.can_soft_delete || dirty) return;
-    const confirmation = window.prompt(
-      `leaf 페이지만 삭제할 수 있습니다. 계속하려면 DELETE ${active.title} 을 입력하세요.`,
-    );
-    if (confirmation === null) return;
-    const reason = window.prompt("삭제 이유를 입력하세요.", "사용자 요청");
-    if (!reason?.trim()) return;
+    setDeleteConfirmation("");
+    setDeleteReason("사용자 요청");
+    setDeleteError(null);
+    setDeleteDialogOpen(true);
+  }
+
+  async function deleteActivePage() {
+    if (!active || !caps.can_soft_delete || dirty || deletePending) return;
+    const expectedConfirmation = `DELETE ${active.title}`;
+    if (
+      deleteConfirmation !== expectedConfirmation ||
+      !deleteReason.trim()
+    )
+      return;
+    setDeletePending(true);
+    setDeleteError(null);
     try {
       await api(`/api/pages/${active.id}`, {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           expected_version: active.version,
-          confirmation,
-          reason: reason.trim(),
+          confirmation: deleteConfirmation,
+          reason: deleteReason.trim(),
           operation_id: crypto.randomUUID(),
         }),
       });
+      setDeleteDialogOpen(false);
       activeRef.current = null;
       setActive(null);
       setMarkdown("");
@@ -1275,11 +1443,13 @@ export default function Home() {
       await loadWorkspace(true);
       setStatus("페이지를 소프트 삭제했습니다.");
     } catch (error) {
-      setNotice(
+      setDeleteError(
         error instanceof Error
           ? error.message
           : "페이지를 삭제하지 못했습니다.",
       );
+    } finally {
+      setDeletePending(false);
     }
   }
 
@@ -1650,7 +1820,15 @@ export default function Home() {
                   currentFolderId={currentFolderId}
                   canWrite={caps.can_write}
                   canCreateVault={caps.can_create_wiki}
+                  knowledgeMap={knowledgeMap}
+                  selectedKnowledgeTopicId={selectedKnowledgeTopicId}
                   onOpenPage={(pageId) => void openPage(pageId)}
+                  onOpenKnowledgeTopic={(topicId) => {
+                    setSelectedKnowledgeTopicId(topicId);
+                    changeView("knowledge");
+                    setMobileWorkspacePane("content");
+                  }}
+                  onMoveKnowledgePlacement={moveKnowledgePlacement}
                   onCreatePage={startCreateItem}
                   onMovePage={(pageId, parentId) =>
                     void movePageTo(pageId, parentId)
@@ -1728,9 +1906,11 @@ export default function Home() {
                         <strong>
                           {view === "operations"
                             ? t("nav.operations")
-                            : view === "search"
-                              ? t("nav.search")
-                              : t("nav.graph")}
+                            : view === "knowledge"
+                              ? t("nav.knowledge")
+                              : view === "search"
+                                ? t("nav.search")
+                                : t("nav.graph")}
                         </strong>
                       </>
                     )}
@@ -1910,6 +2090,53 @@ export default function Home() {
                       writeModeReason={writeModeReason}
                       onWorkspaceChanged={() => loadWorkspace(true)}
                     />
+                  ) : view === "knowledge" ? (
+                    knowledgeMap.exists ? (
+                      <KnowledgeAtlas
+                        map={knowledgeMap}
+                        selectedTopicId={selectedKnowledgeTopicId}
+                        canWrite={caps.can_write}
+                        onSelectTopic={setSelectedKnowledgeTopicId}
+                        onOpenPage={(pageId) => void openPage(pageId)}
+                        onRenameTopic={(topic, title) =>
+                          void updateKnowledgeMapPatch({
+                            topics: [topicPatch(topic, { title })],
+                          })
+                        }
+                        onMoveTopic={(topic, parentTopicId) =>
+                          void updateKnowledgeMapPatch({
+                            topics: [
+                              {
+                                ...topicPatch(topic, {}),
+                                parent: parentTopicId
+                                  ? { topic_id: parentTopicId }
+                                  : null,
+                              },
+                            ],
+                          })
+                        }
+                        onSetTopicLocked={(topic, locked) =>
+                          void setKnowledgeTopicLocked(topic, locked)
+                        }
+                        onMovePlacement={moveKnowledgePlacement}
+                        onDuplicatePlacement={duplicateKnowledgePlacement}
+                        onRemovePlacement={(placement) =>
+                          void updateKnowledgeMapPatch({
+                            remove_placement_ids: [placement.id],
+                          })
+                        }
+                      />
+                    ) : (
+                      <section className="atlas-fallback">
+                        <Layers3 aria-hidden="true" />
+                        <h1>아직 생성된 Knowledge Atlas가 없습니다</h1>
+                        <p>
+                          기존 시맨틱 그룹은 왼쪽 Knowledge 탭에서 계속 사용할
+                          수 있습니다. 다음 LLM ingest 계획에 의미 구조를
+                          포함하면 이 화면이 점진적으로 채워집니다.
+                        </p>
+                      </section>
+                    )
                   ) : view === "search" ? (
                     <SearchView
                       query={query}
@@ -2000,7 +2227,7 @@ export default function Home() {
                           <button
                             type="button"
                             className="editor-icon-action destructive"
-                            onClick={() => void deleteActivePage()}
+                            onClick={openDeleteActivePageDialog}
                             disabled={!active || dirty || !caps.can_soft_delete}
                             title={t("page.delete")}
                             aria-label={t("page.delete")}
@@ -2384,6 +2611,62 @@ export default function Home() {
                 </label>
               ))}
           </div>
+        </WorkspaceDialog>
+      )}
+      {deleteDialogOpen && active && (
+        <WorkspaceDialog
+          title={`“${active.title}” 삭제`}
+          description="leaf 페이지만 소프트 삭제할 수 있습니다. 삭제된 페이지는 복구 목록에서 다시 복원할 수 있습니다."
+          confirmLabel={deletePending ? "삭제 중…" : "소프트 삭제"}
+          confirmTone="destructive"
+          confirmDisabled={
+            deletePending ||
+            deleteConfirmation !== `DELETE ${active.title}` ||
+            !deleteReason.trim()
+          }
+          onConfirm={() => void deleteActivePage()}
+          onClose={() => {
+            if (deletePending) return;
+            setDeleteDialogOpen(false);
+            setDeleteError(null);
+          }}
+        >
+          <div className="workspace-dialog-confirmation">
+            <span>입력할 확인 문구</span>
+            <code>{`DELETE ${active.title}`}</code>
+          </div>
+          <label className="workspace-dialog-field">
+            <span>확인 문구</span>
+            <input
+              autoFocus
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              placeholder={`DELETE ${active.title}`}
+              autoComplete="off"
+            />
+          </label>
+          <label className="workspace-dialog-field">
+            <span>삭제 이유</span>
+            <input
+              value={deleteReason}
+              onChange={(event) => setDeleteReason(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  deleteConfirmation === `DELETE ${active.title}` &&
+                  deleteReason.trim() &&
+                  !deletePending
+                )
+                  void deleteActivePage();
+              }}
+              placeholder="삭제 이유를 입력하세요"
+            />
+          </label>
+          {deleteError && (
+            <p className="workspace-dialog-error" role="alert">
+              {deleteError}
+            </p>
+          )}
         </WorkspaceDialog>
       )}
       {vaultDialogOpen && (

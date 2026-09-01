@@ -49,6 +49,13 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_page_links_target ON page_links(wiki_id,target_page_id)`,
   `CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,page_id TEXT,object_key TEXT NOT NULL UNIQUE,filename TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,uploaded_by TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_wiki_page ON attachments(wiki_id,page_id,status)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_maps (wiki_id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL DEFAULT 0,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,last_operation_id TEXT)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_topics (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_topic_id TEXT,title TEXT NOT NULL,summary TEXT NOT NULL,presentation TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
+  `CREATE INDEX IF NOT EXISTS idx_knowledge_topics_parent ON knowledge_topics(wiki_id,parent_topic_id,sort_order)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_placements (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,topic_id TEXT NOT NULL,page_id TEXT NOT NULL,role TEXT NOT NULL,summary TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_placements_topic_page ON knowledge_placements(wiki_id,topic_id,page_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_knowledge_placements_page ON knowledge_placements(wiki_id,page_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_knowledge_placements_topic ON knowledge_placements(wiki_id,topic_id,sort_order)`,
   `CREATE TABLE IF NOT EXISTS idempotency_keys (wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,operation_id TEXT NOT NULL,operation_name TEXT NOT NULL,request_hash TEXT NOT NULL,request_id TEXT NOT NULL,status TEXT NOT NULL,lease_expires_at TEXT NOT NULL,failure_retryable INTEGER,attempts INTEGER NOT NULL DEFAULT 1,result_json TEXT,created_at TEXT NOT NULL,completed_at TEXT,expires_at TEXT NOT NULL,PRIMARY KEY(wiki_id,actor_email,operation_name,operation_id))`,
   `CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,origin TEXT NOT NULL,action TEXT NOT NULL,target_type TEXT NOT NULL,target_id TEXT NOT NULL,outcome TEXT NOT NULL,request_id TEXT NOT NULL,metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS wiki_usage (wiki_id TEXT PRIMARY KEY NOT NULL,page_bytes INTEGER NOT NULL DEFAULT 0,revision_inline_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_revision_bytes INTEGER NOT NULL DEFAULT 0,r2_ready_attachment_bytes INTEGER NOT NULL DEFAULT 0,r2_soft_deleted_bytes INTEGER NOT NULL DEFAULT 0,r2_pending_bytes INTEGER NOT NULL DEFAULT 0,r2_staging_import_bytes INTEGER NOT NULL DEFAULT 0,r2_orphan_estimate_bytes INTEGER NOT NULL DEFAULT 0,page_count INTEGER NOT NULL DEFAULT 0,revision_count INTEGER NOT NULL DEFAULT 0,attachment_count INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL)`,
@@ -3594,6 +3601,28 @@ export async function prepareExport(input: {
       )
       .bind(input.wikiId)
       .all(),
+    knowledgeMap = await d
+      .prepare(
+        `SELECT version,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
+      )
+      .bind(input.wikiId)
+      .first<{ version: number; updated_by: string; updated_at: string }>(),
+    knowledgeTopics = knowledgeMap
+      ? await d
+          .prepare(
+            `SELECT id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_by,updated_by,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title`,
+          )
+          .bind(input.wikiId)
+          .all()
+      : { results: [] },
+    knowledgePlacements = knowledgeMap
+      ? await d
+          .prepare(
+            `SELECT id,topic_id,page_id,role,summary,sort_order,is_locked,created_by,updated_by,created_at,updated_at FROM knowledge_placements WHERE wiki_id=? AND deleted_at IS NULL ORDER BY topic_id,sort_order,id`,
+          )
+          .bind(input.wikiId)
+          .all()
+      : { results: [] },
     attachments = await d
       .prepare(
         `SELECT id,page_id,object_key,filename,mime_type,size_bytes,sha256,created_at FROM attachments WHERE wiki_id=? AND status='ready' ORDER BY created_at`,
@@ -3633,6 +3662,13 @@ export async function prepareExport(input: {
     wiki,
     pages: pages.results,
     links: links.results,
+    knowledge_map: knowledgeMap
+      ? {
+          ...knowledgeMap,
+          topics: knowledgeTopics.results,
+          placements: knowledgePlacements.results,
+        }
+      : null,
     attachments: attachments.results.map(({ object_key, ...item }) => {
       void object_key;
       return item;
@@ -4280,6 +4316,180 @@ function importedInteger(value: unknown, field: string, min = 0) {
   return Number(value);
 }
 
+function importedKnowledgeMap(input: {
+  rawMap: Record<string, unknown> | null;
+  rawTopics: Record<string, unknown>[];
+  rawPlacements: Record<string, unknown>[];
+  pageIds: Set<string>;
+  pageTypeById: Map<string, PageType>;
+  actor: string;
+}) {
+  if (!input.rawMap) return null;
+  const presentations = new Set([
+      "cluster",
+      "sequence",
+      "comparison",
+      "questions",
+      "evidence",
+    ]),
+    roles = new Set(["primary", "supporting", "evidence", "question"]),
+    topicIds = new Set<string>();
+  const topics = input.rawTopics.map((topic) => {
+    const id = importedUuid(topic.id, "knowledge_topic.id"),
+      parentId =
+        topic.parent_topic_id === null || topic.parent_topic_id === undefined
+          ? null
+          : importedUuid(
+              topic.parent_topic_id,
+              "knowledge_topic.parent_topic_id",
+            ),
+      presentation = importedString(
+        topic.presentation,
+        "knowledge_topic.presentation",
+        30,
+      );
+    if (topicIds.has(id) || !presentations.has(presentation))
+      throw new AppError(
+        "validation_error",
+        "Imported Knowledge Atlas topic is invalid.",
+        400,
+        { topic_id: id },
+      );
+    topicIds.add(id);
+    return {
+      id,
+      parentId,
+      title: importedString(topic.title, "knowledge_topic.title", 120),
+      summary: importedString(topic.summary, "knowledge_topic.summary", 280),
+      presentation,
+      sortOrder: importedInteger(
+        topic.sort_order ?? 0,
+        "knowledge_topic.sort_order",
+      ),
+      isLocked: Number(topic.is_locked) === 1,
+      createdBy:
+        typeof topic.created_by === "string" ? topic.created_by : input.actor,
+      updatedBy:
+        typeof topic.updated_by === "string" ? topic.updated_by : input.actor,
+      createdAt:
+        typeof topic.created_at === "string" ? topic.created_at : now(),
+      updatedAt:
+        typeof topic.updated_at === "string" ? topic.updated_at : now(),
+    };
+  });
+  for (const topic of topics) {
+    if (topic.parentId && !topicIds.has(topic.parentId))
+      throw new AppError(
+        "validation_error",
+        "Imported Knowledge Atlas parent is missing.",
+        400,
+        { topic_id: topic.id },
+      );
+    const seen = new Set([topic.id]);
+    let parentId = topic.parentId;
+    for (let depth = 1; parentId; depth++) {
+      if (seen.has(parentId) || depth >= 4)
+        throw new AppError(
+          "validation_error",
+          "Imported Knowledge Atlas is cyclic or deeper than four levels.",
+          400,
+          { topic_id: topic.id },
+        );
+      seen.add(parentId);
+      parentId =
+        topics.find((candidate) => candidate.id === parentId)?.parentId ?? null;
+    }
+  }
+  const placementIds = new Set<string>(),
+    pairs = new Set<string>();
+  const placements = input.rawPlacements.map((placement) => {
+    const id = importedUuid(placement.id, "knowledge_placement.id"),
+      topicId = importedUuid(
+        placement.topic_id,
+        "knowledge_placement.topic_id",
+      ),
+      pageId = importedUuid(placement.page_id, "knowledge_placement.page_id"),
+      role = importedString(placement.role, "knowledge_placement.role", 30),
+      pair = `${topicId}:${pageId}`;
+    if (
+      placementIds.has(id) ||
+      pairs.has(pair) ||
+      !topicIds.has(topicId) ||
+      !input.pageIds.has(pageId) ||
+      !roles.has(role)
+    )
+      throw new AppError(
+        "validation_error",
+        "Imported Knowledge Atlas placement is invalid.",
+        400,
+        { placement_id: id },
+      );
+    placementIds.add(id);
+    pairs.add(pair);
+    return {
+      id,
+      topicId,
+      pageId,
+      role,
+      summary: importedString(
+        placement.summary,
+        "knowledge_placement.summary",
+        280,
+      ),
+      sortOrder: importedInteger(
+        placement.sort_order ?? 0,
+        "knowledge_placement.sort_order",
+      ),
+      isLocked: Number(placement.is_locked) === 1,
+      createdBy:
+        typeof placement.created_by === "string"
+          ? placement.created_by
+          : input.actor,
+      updatedBy:
+        typeof placement.updated_by === "string"
+          ? placement.updated_by
+          : input.actor,
+      createdAt:
+        typeof placement.created_at === "string" ? placement.created_at : now(),
+      updatedAt:
+        typeof placement.updated_at === "string" ? placement.updated_at : now(),
+    };
+  });
+  for (const pageId of new Set(placements.map((item) => item.pageId))) {
+    const pagePlacements = placements.filter((item) => item.pageId === pageId),
+      primaryCount = pagePlacements.filter(
+        (item) => item.role === "primary",
+      ).length;
+    if (
+      pagePlacements.length > 3 ||
+      primaryCount > 1 ||
+      (input.pageTypeById.get(pageId) !== "source" && primaryCount !== 1)
+    )
+      throw new AppError(
+        "validation_error",
+        "Imported page violates Knowledge Atlas placement limits.",
+        400,
+        { page_id: pageId },
+      );
+  }
+  return {
+    version: importedInteger(
+      input.rawMap.version ?? 0,
+      "knowledge_map.version",
+    ),
+    updatedBy:
+      typeof input.rawMap.updated_by === "string"
+        ? input.rawMap.updated_by
+        : input.actor,
+    updatedAt:
+      typeof input.rawMap.updated_at === "string"
+        ? input.rawMap.updated_at
+        : now(),
+    topics,
+    placements,
+  };
+}
+
 export async function commitImport(input: {
   email: string;
   sessionId: string;
@@ -4363,6 +4573,18 @@ export async function commitImport(input: {
     rawLinks = Array.isArray(metadata.links)
       ? (metadata.links as Record<string, unknown>[])
       : [],
+    rawKnowledgeMap =
+      metadata.knowledge_map &&
+      typeof metadata.knowledge_map === "object" &&
+      !Array.isArray(metadata.knowledge_map)
+        ? (metadata.knowledge_map as Record<string, unknown>)
+        : null,
+    rawKnowledgeTopics = Array.isArray(rawKnowledgeMap?.topics)
+      ? (rawKnowledgeMap.topics as Record<string, unknown>[])
+      : [],
+    rawKnowledgePlacements = Array.isArray(rawKnowledgeMap?.placements)
+      ? (rawKnowledgeMap.placements as Record<string, unknown>[])
+      : [],
     rawAttachments = Array.isArray(metadata.attachments)
       ? (metadata.attachments as Record<string, unknown>[])
       : [],
@@ -4376,6 +4598,8 @@ export async function commitImport(input: {
     rawPages.length > 200 ||
     rawAttachments.length > 200 ||
     rawLinks.length > 2000 ||
+    rawKnowledgeTopics.length > 50 ||
+    rawKnowledgePlacements.length > 600 ||
     rawRevisions.length > 1000
   )
     throw new AppError(
@@ -4386,6 +4610,8 @@ export async function commitImport(input: {
         pages: rawPages.length,
         attachments: rawAttachments.length,
         links: rawLinks.length,
+        knowledge_topics: rawKnowledgeTopics.length,
+        knowledge_placements: rawKnowledgePlacements.length,
         revisions: rawRevisions.length,
       },
     );
@@ -4500,7 +4726,15 @@ export async function commitImport(input: {
         pages.find((candidate) => candidate.id === parentId)?.parentId ?? null;
     }
   }
-  const timestamp = now(),
+  const knowledgeMapData = importedKnowledgeMap({
+      rawMap: rawKnowledgeMap,
+      rawTopics: rawKnowledgeTopics,
+      rawPlacements: rawKnowledgePlacements,
+      pageIds,
+      pageTypeById: new Map(pages.map((page) => [page.id, page.pageType])),
+      actor: input.email,
+    }),
+    timestamp = now(),
     d = db(),
     leaseExpiresAt = new Date(Date.now() + 300_000).toISOString();
   if (!ownsReservation) {
@@ -4877,6 +5111,60 @@ export async function commitImport(input: {
               page.updatedAt,
             ),
         ),
+        ...(knowledgeMapData
+          ? [
+              d
+                .prepare(
+                  `INSERT INTO knowledge_maps(wiki_id,version,updated_by,updated_at) VALUES(?,?,?,?)`,
+                )
+                .bind(
+                  session.staging_wiki_id,
+                  knowledgeMapData.version,
+                  knowledgeMapData.updatedBy,
+                  knowledgeMapData.updatedAt,
+                ),
+              ...knowledgeMapData.topics.map((topic) =>
+                d
+                  .prepare(
+                    `INSERT INTO knowledge_topics(id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+                  )
+                  .bind(
+                    topic.id,
+                    session.staging_wiki_id,
+                    topic.parentId,
+                    topic.title,
+                    topic.summary,
+                    topic.presentation,
+                    topic.sortOrder,
+                    topic.isLocked ? 1 : 0,
+                    topic.createdBy,
+                    topic.updatedBy,
+                    topic.createdAt,
+                    topic.updatedAt,
+                  ),
+              ),
+              ...knowledgeMapData.placements.map((placement) =>
+                d
+                  .prepare(
+                    `INSERT INTO knowledge_placements(id,wiki_id,topic_id,page_id,role,summary,sort_order,is_locked,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+                  )
+                  .bind(
+                    placement.id,
+                    session.staging_wiki_id,
+                    placement.topicId,
+                    placement.pageId,
+                    placement.role,
+                    placement.summary,
+                    placement.sortOrder,
+                    placement.isLocked ? 1 : 0,
+                    placement.createdBy,
+                    placement.updatedBy,
+                    placement.createdAt,
+                    placement.updatedAt,
+                  ),
+              ),
+            ]
+          : []),
         ...revisionRows.map((row) =>
           d
             .prepare(

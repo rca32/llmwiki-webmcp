@@ -1,5 +1,5 @@
 import { success } from "../../../../../../lib/contracts";
-import { applyIngestPlan } from "../../../../../../db/wiki-repository";
+import { applyKnowledgeMapPlan } from "../../../../../../db/wiki-repository";
 import {
   errorResponse,
   jsonBody,
@@ -15,13 +15,14 @@ import {
 } from "../../../../../../lib/validation";
 
 type Context = { params: Promise<{ planId: string }> };
+
 export async function POST(request: Request, { params }: Context) {
-  const id = requestId("ingest.apply");
+  const id = requestId("knowledge-map.apply");
   try {
     const session = await requireWikiSession("can_write"),
       { planId } = await params,
       body = requireObject(await jsonBody(request)),
-      result = await applyIngestPlan({
+      result = await applyKnowledgeMapPlan({
         wikiId: session.wikiId!,
         email: session.email,
         planId: requiredUuid(planId, "plan_id"),
@@ -31,16 +32,7 @@ export async function POST(request: Request, { params }: Context) {
         requestId: id,
         origin: originFrom(request),
       });
-    return Response.json(
-      success(result, id, {
-        pages_changed: Object.values(result.page_ids_by_title ?? {}),
-        tree_changed: true,
-        links_changed: true,
-        search_changed: true,
-        graph_changed: true,
-        knowledge_changed: true,
-      }),
-    );
+    return Response.json(success(result, id, result.change_set ?? null));
   } catch (error) {
     return errorResponse(error, id);
   }

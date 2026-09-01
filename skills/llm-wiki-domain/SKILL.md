@@ -11,11 +11,12 @@ Maintain a compounding, human-readable wiki rather than a pile of retrieved text
 
 1. Read the active vault context and operating contract before substantial work.
 2. Search before creating. Prefer updating an existing canonical page when it already represents the subject.
-3. Preserve retrieved material in a `source` page with structured retrieval metadata.
-4. Separate evidence from synthesis. Claims and knowledge pages must point back to a source.
-5. Plan before mutating. Review the plan summary and warnings, then apply the exact `plan_id` and `plan_hash` only when the user has authorized the change.
-6. Verify the apply result and run lint after multi-page ingestion or maintenance.
-7. Never cross vault boundaries or work around version conflicts. Re-read, re-plan, and preserve newer edits.
+3. Read the Knowledge Atlas before proposing semantic structure. Reuse existing topics, allow up to three meaningful placements, and preserve every user-locked topic or placement.
+4. Preserve retrieved material in a `source` page with structured retrieval metadata.
+5. Separate evidence from synthesis. Claims and knowledge pages must point back to a source.
+6. Plan before mutating. Review the plan summary and warnings, then apply the exact `plan_id` and `plan_hash` only when the user has authorized the change.
+7. Verify the apply result and run lint after multi-page ingestion or maintenance.
+8. Never cross vault boundaries or work around version conflicts. Re-read, re-plan, and preserve newer edits.
 
 ## Choose a workflow
 

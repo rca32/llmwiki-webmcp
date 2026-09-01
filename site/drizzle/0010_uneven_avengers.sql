@@ -1,0 +1,1 @@
+ALTER TABLE `knowledge_maps` ADD `last_operation_id` text;

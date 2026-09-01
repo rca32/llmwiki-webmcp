@@ -141,6 +141,69 @@ export const idempotencyKeys = sqliteTable(
     }),
   ],
 );
+export const knowledgeMaps = sqliteTable("knowledge_maps", {
+  wikiId: text("wiki_id").primaryKey(),
+  version: integer("version").notNull().default(0),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  lastOperationId: text("last_operation_id"),
+});
+export const knowledgeTopics = sqliteTable(
+  "knowledge_topics",
+  {
+    id: text("id").primaryKey(),
+    wikiId: text("wiki_id").notNull(),
+    parentTopicId: text("parent_topic_id"),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    presentation: text("presentation").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isLocked: integer("is_locked").notNull().default(0),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (t) => [
+    index("idx_knowledge_topics_parent").on(
+      t.wikiId,
+      t.parentTopicId,
+      t.sortOrder,
+    ),
+  ],
+);
+export const knowledgePlacements = sqliteTable(
+  "knowledge_placements",
+  {
+    id: text("id").primaryKey(),
+    wikiId: text("wiki_id").notNull(),
+    topicId: text("topic_id").notNull(),
+    pageId: text("page_id").notNull(),
+    role: text("role").notNull(),
+    summary: text("summary").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isLocked: integer("is_locked").notNull().default(0),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (t) => [
+    uniqueIndex("uq_knowledge_placements_topic_page").on(
+      t.wikiId,
+      t.topicId,
+      t.pageId,
+    ),
+    index("idx_knowledge_placements_page").on(t.wikiId, t.pageId),
+    index("idx_knowledge_placements_topic").on(
+      t.wikiId,
+      t.topicId,
+      t.sortOrder,
+    ),
+  ],
+);
 export const auditEvents = sqliteTable(
   "audit_events",
   {

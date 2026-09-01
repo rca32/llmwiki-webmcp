@@ -80,6 +80,12 @@ export function buildPortableProjection(metadataBytes: Uint8Array) {
   files["metadata/audit-events.json"] = jsonBytes(
     Array.isArray(metadata.audit_events) ? metadata.audit_events : [],
   );
+  if (
+    metadata.knowledge_map &&
+    typeof metadata.knowledge_map === "object" &&
+    !Array.isArray(metadata.knowledge_map)
+  )
+    files["metadata/knowledge-map.json"] = jsonBytes(metadata.knowledge_map);
   files["metadata/backup-policy.json"] = jsonBytes({
     schema_version: metadata.schema_version,
     profile: metadata.profile,
@@ -88,6 +94,7 @@ export function buildPortableProjection(metadataBytes: Uint8Array) {
     includes_current_attachments: true,
     includes_revision_snapshots: metadata.profile === "full",
     includes_audit_events: metadata.profile === "full",
+    includes_knowledge_map: Boolean(metadata.knowledge_map),
     membership_is_reference_only: true,
   });
   files["revisions/manifest.json"] = jsonBytes(

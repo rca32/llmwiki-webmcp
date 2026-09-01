@@ -62,6 +62,14 @@ const PAGE_TYPES = [
   "comparison",
   "query",
 ];
+const KNOWLEDGE_PRESENTATIONS = [
+  "cluster",
+  "sequence",
+  "comparison",
+  "questions",
+  "evidence",
+];
+const KNOWLEDGE_ROLES = ["primary", "supporting", "evidence", "question"];
 const readAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -141,6 +149,38 @@ const contractSchema = closed(
     minimum_source_confidence: { type: "number", minimum: 0, maximum: 1 },
     approval_policy: { type: "string", enum: ["plan_before_apply"] },
     archive_policy: { type: "string", enum: ["soft_delete_only"] },
+    knowledge_map_policy: closed(
+      {
+        max_depth: { type: "integer", minimum: 1, maximum: 4 },
+        max_placements_per_page: {
+          type: "integer",
+          minimum: 1,
+          maximum: 3,
+        },
+        top_level_min: { type: "integer", minimum: 1, maximum: 7 },
+        top_level_max: { type: "integer", minimum: 1, maximum: 12 },
+        core_items_per_topic: { type: "integer", minimum: 1, maximum: 10 },
+        manual_lock_policy: { type: "string", enum: ["preserve"] },
+        evidence_mode: { type: "string", enum: ["collapsed"] },
+        presentations: {
+          type: "array",
+          items: { type: "string", enum: KNOWLEDGE_PRESENTATIONS },
+          minItems: 1,
+          maxItems: 5,
+          uniqueItems: true,
+        },
+      },
+      [
+        "max_depth",
+        "max_placements_per_page",
+        "top_level_min",
+        "top_level_max",
+        "core_items_per_topic",
+        "manual_lock_policy",
+        "evidence_mode",
+        "presentations",
+      ],
+    ),
   },
   [
     "purpose",
@@ -223,6 +263,61 @@ const ingestClaimSchema = closed(
     supersedes_claim_id: { ...pageIdSchema, type: ["string", "null"] },
   },
   ["subject", "predicate", "object", "evidence_fragment", "confidence"],
+);
+const topicReferenceSchema = {
+  ...closed({
+    topic_id: pageIdSchema,
+    client_key: { type: "string", minLength: 1, maxLength: 80 },
+  }),
+  oneOf: [{ required: ["topic_id"] }, { required: ["client_key"] }],
+};
+const knowledgeTopicSchema = closed(
+  {
+    client_key: { type: "string", minLength: 1, maxLength: 80 },
+    topic_id: { ...pageIdSchema, type: ["string", "null"] },
+    parent: { ...topicReferenceSchema, type: ["object", "null"] },
+    title: { type: "string", minLength: 1, maxLength: 80 },
+    summary: { type: "string", minLength: 1, maxLength: 240 },
+    presentation: { type: "string", enum: KNOWLEDGE_PRESENTATIONS },
+    sort_order: { type: "integer", minimum: 0, maximum: 1000000 },
+  },
+  ["client_key", "title", "summary", "presentation"],
+);
+const knowledgePlacementSchema = closed(
+  {
+    placement_id: { ...pageIdSchema, type: ["string", "null"] },
+    topic: topicReferenceSchema,
+    page: claimReferenceSchema,
+    role: { type: "string", enum: KNOWLEDGE_ROLES },
+    summary: { type: "string", minLength: 1, maxLength: 240 },
+    sort_order: { type: "integer", minimum: 0, maximum: 1000000 },
+  },
+  ["topic", "page", "role", "summary"],
+);
+const knowledgeMapPatchSchema = closed(
+  {
+    expected_version: { type: "integer", minimum: 0 },
+    topics: {
+      type: "array",
+      items: knowledgeTopicSchema,
+      maxItems: 50,
+      default: [],
+    },
+    placements: {
+      type: "array",
+      items: knowledgePlacementSchema,
+      maxItems: 100,
+      default: [],
+    },
+    remove_placement_ids: {
+      type: "array",
+      items: pageIdSchema,
+      maxItems: 100,
+      uniqueItems: true,
+      default: [],
+    },
+  },
+  ["expected_version"],
 );
 
 export function readTools(): SiteTool[] {
@@ -464,6 +559,15 @@ export function readTools(): SiteTool[] {
       },
     },
     {
+      name: "wiki_get_knowledge_map",
+      title: "Read the semantic Knowledge Atlas",
+      description:
+        "Read the active vault's LLM-authored semantic outline, multi-placement page roles, evidence summaries, unmapped pages, warnings, and current map version. Use it before proposing Knowledge Atlas changes.",
+      inputSchema: closed({}),
+      annotations: readAnnotations,
+      execute: async () => requestJson("/api/knowledge-map"),
+    },
+    {
       name: "wiki_lint",
       title: "Audit wiki knowledge quality",
       description:
@@ -501,6 +605,10 @@ export function writeTools(): SiteTool[] {
             items: ingestClaimSchema,
             maxItems: 100,
             default: [],
+          },
+          knowledge_map_patch: {
+            ...knowledgeMapPatchSchema,
+            type: ["object", "null"],
           },
         },
         ["source"],
@@ -560,6 +668,54 @@ export function writeTools(): SiteTool[] {
       execute: async (input) =>
         writeRequest(
           `/api/ingest/plans/${encodeURIComponent(requiredUuid(input, "plan_id"))}/apply`,
+          "POST",
+          {
+            plan_hash: requiredHash(input, "plan_hash"),
+            approved: input.approved === true,
+            operation_id: requiredUuid(input, "operation_id"),
+          },
+        ),
+    },
+    {
+      name: "wiki_plan_knowledge_map",
+      title: "Plan a Knowledge Atlas update",
+      description:
+        "Persist an immutable review plan for semantic topics and page placements in the active vault. Read the current map first, preserve user-locked items, reuse existing topics, and apply only after explicit approval.",
+      inputSchema: knowledgeMapPatchSchema,
+      annotations: planAnnotations,
+      execute: async (input) =>
+        requestJson("/api/knowledge-map/plans", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-wiki-origin": "webmcp",
+          },
+          body: JSON.stringify(validatedKnowledgeMapPatch(input)),
+        }),
+    },
+    {
+      name: "wiki_apply_knowledge_map",
+      title: "Apply an approved Knowledge Atlas plan",
+      description:
+        "Apply the exact reviewed Knowledge Atlas plan using its unchanged hash, explicit approved=true, current map version, and a retry-safe operation UUID.",
+      inputSchema: closed(
+        {
+          plan_id: planIdSchema,
+          plan_hash: {
+            type: "string",
+            minLength: 64,
+            maxLength: 64,
+            pattern: "^[0-9a-f]{64}$",
+          },
+          approved: { type: "boolean", const: true },
+          operation_id: operationSchema,
+        },
+        ["plan_id", "plan_hash", "approved", "operation_id"],
+      ),
+      annotations: writeAnnotations,
+      execute: async (input) =>
+        writeRequest(
+          `/api/knowledge-map/plans/${encodeURIComponent(requiredUuid(input, "plan_id"))}/apply`,
           "POST",
           {
             plan_hash: requiredHash(input, "plan_hash"),
@@ -967,7 +1123,49 @@ function validatedOperatingContract(value: unknown) {
     "required_source_metadata",
     5,
   );
+  if (contract.knowledge_map_policy !== undefined) {
+    const policy = requiredObject(
+      contract.knowledge_map_policy,
+      "knowledge_map_policy",
+    );
+    boundedArrayValue(policy.presentations, "presentations", 5);
+  }
   return contract;
+}
+
+function validatedKnowledgeMapPatch(value: unknown) {
+  const patch = requiredObject(value, "knowledge_map_patch"),
+    topics = boundedArrayValue(patch.topics, "topics", 50),
+    placements = boundedArrayValue(patch.placements, "placements", 100),
+    removals = boundedArrayValue(
+      patch.remove_placement_ids,
+      "remove_placement_ids",
+      100,
+    );
+  boundedInteger(patch.expected_version, 0);
+  for (const value of topics) {
+    const topic = requiredObject(value, "topics item");
+    requiredText(topic, "client_key", 80);
+    requiredText(topic, "title", 80);
+    requiredText(topic, "summary", 240);
+    requiredEnum(topic, "presentation", KNOWLEDGE_PRESENTATIONS);
+  }
+  for (const value of placements) {
+    const placement = requiredObject(value, "placements item");
+    requiredObject(placement.topic, "placement topic");
+    requiredObject(placement.page, "placement page");
+    requiredEnum(placement, "role", KNOWLEDGE_ROLES);
+    requiredText(placement, "summary", 240);
+  }
+  for (const value of removals)
+    if (typeof value !== "string" || !/^[0-9a-fA-F-]{36}$/.test(value))
+      throw new Error("remove_placement_ids must contain UUID values.");
+  return {
+    expected_version: boundedInteger(patch.expected_version, 0),
+    topics,
+    placements,
+    remove_placement_ids: removals,
+  };
 }
 function validatedIngestInput(input: JsonObject) {
   const source = requiredObject(input.source, "source"),
@@ -993,6 +1191,11 @@ function validatedIngestInput(input: JsonObject) {
     source,
     pages,
     claims,
+    knowledge_map_patch:
+      input.knowledge_map_patch === undefined ||
+      input.knowledge_map_patch === null
+        ? null
+        : validatedKnowledgeMapPatch(input.knowledge_map_patch),
   };
 }
 function requiredHash(input: JsonObject, key: string) {

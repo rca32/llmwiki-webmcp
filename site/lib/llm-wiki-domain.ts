@@ -1,6 +1,13 @@
 import { AppError, type PageType, type RetrievalStatus } from "./contracts";
 import { LLM_WIKI_CORE_IDEA } from "./llm-wiki-core";
 import {
+  DEFAULT_KNOWLEDGE_MAP_POLICY,
+  KNOWLEDGE_PRESENTATIONS,
+  parseKnowledgeMapPatch,
+  type KnowledgeMapPatch,
+  type KnowledgeMapPolicy,
+} from "./knowledge-map";
+import {
   MAX_MARKDOWN,
   PAGE_TYPES,
   optionalIsoDate,
@@ -9,6 +16,7 @@ import {
   optionalUrl,
   pageType,
   requireObject,
+  requiredInteger,
   requiredString,
   sha256,
   stableJson,
@@ -33,6 +41,7 @@ export type WikiOperatingContract = {
   minimum_source_confidence: number;
   approval_policy: "plan_before_apply";
   archive_policy: "soft_delete_only";
+  knowledge_map_policy: KnowledgeMapPolicy;
 };
 
 export const DEFAULT_OPERATING_CONTRACT: WikiOperatingContract = {
@@ -51,6 +60,7 @@ export const DEFAULT_OPERATING_CONTRACT: WikiOperatingContract = {
   minimum_source_confidence: 0.5,
   approval_policy: "plan_before_apply",
   archive_policy: "soft_delete_only",
+  knowledge_map_policy: DEFAULT_KNOWLEDGE_MAP_POLICY,
 };
 
 export type IngestSourceDraft = {
@@ -89,6 +99,7 @@ export type IngestRequest = {
   source: IngestSourceDraft;
   pages: IngestPageDraft[];
   claims: IngestClaimDraft[];
+  knowledge_map_patch: KnowledgeMapPatch | null;
 };
 
 export type LintPage = {
@@ -218,6 +229,22 @@ export function parseOperatingContract(value: unknown): WikiOperatingContract {
       400,
       { field: "allowed_page_types" },
     );
+  const mapPolicyBody = body.knowledge_map_policy
+      ? requireObject(body.knowledge_map_policy)
+      : null,
+    presentations = mapPolicyBody
+      ? boundedArray(
+          mapPolicyBody.presentations,
+          "knowledge_map_policy.presentations",
+          KNOWLEDGE_PRESENTATIONS.length,
+        ).map((item) =>
+          exactEnum(
+            item,
+            "knowledge_map_policy.presentations",
+            KNOWLEDGE_PRESENTATIONS,
+          ),
+        )
+      : DEFAULT_KNOWLEDGE_MAP_POLICY.presentations;
   return {
     purpose: requiredString(body.purpose, "purpose", 1, 500),
     allowed_page_types: [...new Set(allowedPageTypes)],
@@ -246,6 +273,51 @@ export function parseOperatingContract(value: unknown): WikiOperatingContract {
     archive_policy: exactEnum(body.archive_policy, "archive_policy", [
       "soft_delete_only",
     ]),
+    knowledge_map_policy: mapPolicyBody
+      ? {
+          max_depth: requiredInteger(
+            mapPolicyBody.max_depth,
+            "knowledge_map_policy.max_depth",
+            1,
+            4,
+          ),
+          max_placements_per_page: requiredInteger(
+            mapPolicyBody.max_placements_per_page,
+            "knowledge_map_policy.max_placements_per_page",
+            1,
+            3,
+          ),
+          top_level_min: requiredInteger(
+            mapPolicyBody.top_level_min,
+            "knowledge_map_policy.top_level_min",
+            1,
+            7,
+          ),
+          top_level_max: requiredInteger(
+            mapPolicyBody.top_level_max,
+            "knowledge_map_policy.top_level_max",
+            1,
+            12,
+          ),
+          core_items_per_topic: requiredInteger(
+            mapPolicyBody.core_items_per_topic,
+            "knowledge_map_policy.core_items_per_topic",
+            1,
+            10,
+          ),
+          manual_lock_policy: exactEnum(
+            mapPolicyBody.manual_lock_policy,
+            "knowledge_map_policy.manual_lock_policy",
+            ["preserve"],
+          ),
+          evidence_mode: exactEnum(
+            mapPolicyBody.evidence_mode,
+            "knowledge_map_policy.evidence_mode",
+            ["collapsed"],
+          ),
+          presentations: [...new Set(presentations)],
+        }
+      : { ...DEFAULT_KNOWLEDGE_MAP_POLICY },
   };
 }
 
@@ -393,6 +465,11 @@ export function parseIngestRequest(value: unknown): IngestRequest {
     },
     pages,
     claims,
+    knowledge_map_patch:
+      body.knowledge_map_patch === null ||
+      body.knowledge_map_patch === undefined
+        ? null
+        : parseKnowledgeMapPatch(body.knowledge_map_patch),
   };
 }
 

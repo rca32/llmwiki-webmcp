@@ -40,6 +40,7 @@ export type ChangeSet = {
   links_changed: boolean;
   search_changed: boolean;
   graph_changed: boolean;
+  knowledge_changed: boolean;
 };
 export type SuccessEnvelope<T> = {
   ok: true;

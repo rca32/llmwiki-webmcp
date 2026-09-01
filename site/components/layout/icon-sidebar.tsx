@@ -3,6 +3,7 @@
 import {
   FileText,
   HardDrive,
+  Map,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
@@ -17,7 +18,12 @@ import {
 } from "@/components/ui/tooltip";
 import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 
-export type WorkspaceView = "document" | "search" | "graph" | "operations";
+export type WorkspaceView =
+  | "document"
+  | "knowledge"
+  | "search"
+  | "graph"
+  | "operations";
 
 const navItems: Array<{
   view: WorkspaceView;
@@ -25,6 +31,7 @@ const navItems: Array<{
   labelKey: TranslationKey;
 }> = [
   { view: "document", icon: FileText, labelKey: "nav.document" },
+  { view: "knowledge", icon: Map, labelKey: "nav.knowledge" },
   { view: "search", icon: Search, labelKey: "nav.search" },
   { view: "graph", icon: Network, labelKey: "nav.graph" },
   { view: "operations", icon: HardDrive, labelKey: "nav.operations" },

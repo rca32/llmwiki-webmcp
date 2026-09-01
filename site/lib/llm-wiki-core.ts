@@ -10,6 +10,7 @@ export const LLM_WIKI_CORE_ANTI_PATTERN =
 export const LLM_WIKI_CORE_INVARIANTS = [
   "Read the active vault context and operating contract before substantial work.",
   "Search existing canonical pages before creating a new page.",
+  "Read the Knowledge Atlas before proposing semantic topics; reuse topics and preserve user locks.",
   "Preserve retrieved material as a source page with structured metadata.",
   "Keep evidence separate from synthesis and ground claims in sources.",
   "Integrate new evidence into canonical entity, concept, and synthesis pages.",
@@ -20,6 +21,7 @@ export const LLM_WIKI_CORE_INVARIANTS = [
 export const LLM_WIKI_REQUIRED_WORKFLOW = [
   "wiki_get_context",
   "wiki_get_operating_contract",
+  "wiki_get_knowledge_map",
   "wiki_search",
   "wiki_plan_ingest",
   "review_plan_with_user",

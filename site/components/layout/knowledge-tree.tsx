@@ -15,12 +15,18 @@ import {
   FolderTree,
   Globe,
   Lightbulb,
+  Layers3,
+  Lock,
   Plus,
   Trash2,
   Vault,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useI18n, type TranslationKey } from "@/components/i18n-provider";
+import type {
+  KnowledgeMapData,
+  KnowledgePlacement,
+} from "@/components/knowledge/knowledge-atlas";
 
 export type KnowledgeTreePage = {
   id: string;
@@ -110,6 +116,10 @@ export function KnowledgeTree({
   onOpenPage,
   onCreatePage,
   onMovePage,
+  knowledgeMap,
+  selectedKnowledgeTopicId,
+  onOpenKnowledgeTopic,
+  onMoveKnowledgePlacement,
   onSwitchVault,
   onCreateVault,
   onRestorePage,
@@ -127,6 +137,13 @@ export function KnowledgeTree({
   onOpenPage: (pageId: string) => void;
   onCreatePage: (parentId: string | null, kind: "page" | "folder") => void;
   onMovePage: (pageId: string, parentId: string | null) => void;
+  knowledgeMap: KnowledgeMapData;
+  selectedKnowledgeTopicId: string | null;
+  onOpenKnowledgeTopic: (topicId: string | null) => void;
+  onMoveKnowledgePlacement: (
+    placement: KnowledgePlacement,
+    topicId: string,
+  ) => void;
   onSwitchVault: (wikiId: string) => void;
   onCreateVault: () => void;
   onRestorePage: (page: KnowledgeTreePage) => void;
@@ -137,6 +154,7 @@ export function KnowledgeTree({
   const [expandedFolders, setExpandedFolders] = useState(
     () => new Set<string>(),
   );
+  const [expandedTopics, setExpandedTopics] = useState(() => new Set<string>());
   const [trashOpen, setTrashOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
@@ -296,6 +314,103 @@ export function KnowledgeTree({
     });
   }
 
+  function semanticRows(
+    parentTopicId: string | null,
+    depth: number,
+  ): React.ReactNode {
+    return knowledgeMap.topics
+      .filter((topic) => topic.parent_topic_id === parentTopicId)
+      .map((topic) => {
+        const children = knowledgeMap.topics.filter(
+            (candidate) => candidate.parent_topic_id === topic.id,
+          ),
+          placements = knowledgeMap.placements.filter(
+            (placement) => placement.topic_id === topic.id,
+          ),
+          expanded = expandedTopics.has(topic.id);
+        return (
+          <div className="tree-semantic-node" key={topic.id}>
+            <div
+              className={`tree-group-heading semantic-heading ${selectedKnowledgeTopicId === topic.id ? "active" : ""}`}
+              style={{ paddingLeft: `${6 + depth * 14}px` }}
+              onDragOver={(event) => {
+                if (
+                  event.dataTransfer.types.includes(
+                    "application/x-knowledge-placement",
+                  )
+                )
+                  event.preventDefault();
+              }}
+              onDrop={(event) => {
+                const placementId = event.dataTransfer.getData(
+                  "application/x-knowledge-placement",
+                );
+                const placement = knowledgeMap.placements.find(
+                  (candidate) => candidate.id === placementId,
+                );
+                if (placement && placement.topic_id !== topic.id)
+                  onMoveKnowledgePlacement(placement, topic.id);
+              }}
+            >
+              <button
+                type="button"
+                className="tree-folder-toggle"
+                disabled={!children.length && !placements.length}
+                onClick={() => toggleSet(setExpandedTopics, topic.id)}
+                aria-label={`${topic.title} ${expanded ? t("tree.collapse") : t("tree.expand")}`}
+              >
+                {children.length || placements.length ? (
+                  expanded ? (
+                    <ChevronDown />
+                  ) : (
+                    <ChevronRight />
+                  )
+                ) : (
+                  <span />
+                )}
+              </button>
+              <button
+                type="button"
+                className="tree-semantic-open"
+                onClick={() => onOpenKnowledgeTopic(topic.id)}
+              >
+                <Layers3 />
+                <span>{topic.title}</span>
+                <b>{children.length + placements.length}</b>
+                {topic.is_locked && <Lock aria-label="사용자 고정" />}
+              </button>
+            </div>
+            {expanded && (
+              <div>
+                {placements.map((placement) => (
+                  <button
+                    type="button"
+                    key={placement.id}
+                    className={`tree-page-row semantic-page role-${placement.role} ${activePageId === placement.page_id ? "active" : ""}`}
+                    style={{ paddingLeft: `${28 + (depth + 1) * 14}px` }}
+                    draggable={canWrite}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData(
+                        "application/x-knowledge-placement",
+                        placement.id,
+                      );
+                    }}
+                    onClick={() => onOpenPage(placement.page_id)}
+                  >
+                    <FileText />
+                    <span>{placement.page.title}</span>
+                    <small>{placement.role}</small>
+                  </button>
+                ))}
+                {semanticRows(topic.id, depth + 1)}
+              </div>
+            )}
+          </div>
+        );
+      });
+  }
+
   return (
     <section className="knowledge-tree-shell" aria-label={t("tree.explorer")}>
       <header className="vault-header">
@@ -423,7 +538,36 @@ export function KnowledgeTree({
               {fileRows("root", 0)}
             </div>
           )}
+          {treeMode === "knowledge" && knowledgeMap.exists && (
+            <div className="tree-semantic-list">
+              <button
+                type="button"
+                className={`tree-semantic-root ${selectedKnowledgeTopicId === null ? "active" : ""}`}
+                onClick={() => onOpenKnowledgeTopic(null)}
+              >
+                <Layers3 />
+                <span>Knowledge Atlas</span>
+                <b>{knowledgeMap.topics.length}</b>
+              </button>
+              {semanticRows(null, 0)}
+              {!!knowledgeMap.unmapped_pages.length && (
+                <div className="tree-unmapped">
+                  <strong>정리 필요함</strong>
+                  {knowledgeMap.unmapped_pages.map((page) => (
+                    <button
+                      type="button"
+                      key={page.id}
+                      onClick={() => onOpenPage(page.id)}
+                    >
+                      <FileText /> <span>{page.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {treeMode === "knowledge" &&
+            !knowledgeMap.exists &&
             grouped.map(([type, items]) => {
               const config = typeConfig(type, t),
                 Icon = config.icon,

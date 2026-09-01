@@ -21,10 +21,13 @@ describe("WebMCP descriptor contract", () => {
       "wiki_get_neighbors",
       "wiki_list_revisions",
       "wiki_get_claims",
+      "wiki_get_knowledge_map",
       "wiki_lint",
       "wiki_plan_ingest",
       "wiki_update_operating_contract",
       "wiki_apply_ingest",
+      "wiki_plan_knowledge_map",
+      "wiki_apply_knowledge_map",
       "wiki_create_folder",
       "wiki_create_page",
       "wiki_update_page",
@@ -65,6 +68,8 @@ describe("WebMCP descriptor contract", () => {
           "wiki_create_folder",
           "wiki_plan_ingest",
           "wiki_apply_ingest",
+          "wiki_plan_knowledge_map",
+          "wiki_apply_knowledge_map",
         ].includes(item.name),
     )) {
       const required = tool.inputSchema.required as string[];
@@ -159,6 +164,7 @@ describe("WebMCP descriptor contract", () => {
     expect(result.data.llm_wiki_core.required_workflow).toEqual([
       "wiki_get_context",
       "wiki_get_operating_contract",
+      "wiki_get_knowledge_map",
       "wiki_search",
       "wiki_plan_ingest",
       "review_plan_with_user",
@@ -178,7 +184,7 @@ describe("WebMCP descriptor contract", () => {
     ).toEqual(readTools().map((tool) => tool.name));
     expect(
       toolsForCapabilities({ can_read: true, can_write: true }),
-    ).toHaveLength(21);
+    ).toHaveLength(24);
     expect(
       toolsForCapabilities({
         can_read: true,
