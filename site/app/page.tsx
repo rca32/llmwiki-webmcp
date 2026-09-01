@@ -387,6 +387,7 @@ export default function Home() {
   const { language, setLanguage, t } = useI18n();
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [view, setView] = useState<WorkspaceView>("document");
+  const [treeMode, setTreeMode] = useState<"knowledge" | "files">("files");
   const [mobileWorkspacePane, setMobileWorkspacePane] = useState<
     "navigation" | "content" | "details"
   >("content");
@@ -471,6 +472,8 @@ export default function Home() {
     // after the user has already navigated elsewhere in the same event turn.
     viewRef.current = nextView;
     setView(nextView);
+    if (nextView === "document") setTreeMode("files");
+    if (nextView === "knowledge") setTreeMode("knowledge");
   }, []);
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("liminal-wiki:theme-v2");
@@ -1724,6 +1727,7 @@ export default function Home() {
                 maxSize="34%"
               >
                 <KnowledgeTree
+                  treeMode={treeMode}
                   pages={pages}
                   deletedPages={deletedPages}
                   vaults={wikis}

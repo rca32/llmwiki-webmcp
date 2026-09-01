@@ -1093,12 +1093,15 @@ let activeBrowser;
   if (!unfilteredTreePage)
     throw new Error("Search isolation fixture needs one unrelated page.");
   await page.getByRole("button", { name: "문서" }).click();
-  await page.getByRole("button", { name: "폴더별" }).click();
+  await page.locator(".tree-label", { hasText: /^폴더$/ }).waitFor();
+  if ((await page.locator(".tree-tabs").count()) !== 0)
+    throw new Error("The redundant topic/folder tabs are still visible.");
   await page
     .locator(".tree-file-open")
     .filter({ hasText: unfilteredTreePage.title })
     .waitFor();
   await page.getByRole("button", { name: "찾기" }).click();
+  await page.locator(".tree-label", { hasText: /^폴더$/ }).waitFor();
   await searchInput.fill("");
   await page.getByRole("button", { name: "문서" }).click();
   const keyboardTreeRows = page.locator(".tree-page-row:not(.deleted)");
@@ -1374,6 +1377,7 @@ let activeBrowser;
     );
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "주제 둘러보기" }).click();
+  await page.locator(".tree-label", { hasText: /^주제$/ }).waitFor();
   await page.locator(".insight-reader").waitFor();
   await page.getByText("핵심 결론", { exact: true }).waitFor();
   const forbiddenExploreControls = await page
@@ -1405,6 +1409,7 @@ let activeBrowser;
 
   await page.getByRole("button", { name: "그래프" }).click();
   await page.locator(".graph-view").waitFor();
+  await page.locator(".tree-label", { hasText: /^주제$/ }).waitFor();
   const graphKnowledgeTreeWidth = await page
     .locator(".knowledge-tree-shell")
     .evaluate((element) => element.getBoundingClientRect().width);

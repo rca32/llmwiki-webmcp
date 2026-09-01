@@ -99,6 +99,7 @@ function typeConfig(type: string, t: (key: TranslationKey) => string) {
 }
 
 export function KnowledgeTree({
+  treeMode,
   pages,
   deletedPages,
   vaults,
@@ -119,6 +120,7 @@ export function KnowledgeTree({
   onCreateVault,
   onRestorePage,
 }: {
+  treeMode: "knowledge" | "files";
   pages: KnowledgeTreePage[];
   deletedPages: KnowledgeTreePage[];
   vaults: VaultSummary[];
@@ -140,7 +142,6 @@ export function KnowledgeTree({
   onRestorePage: (page: KnowledgeTreePage) => void;
 }) {
   const { language, t } = useI18n();
-  const [treeMode, setTreeMode] = useState<"knowledge" | "files">("knowledge");
   const [expandedTypes, setExpandedTypes] = useState(() => new Set(typeOrder));
   const [expandedFolders, setExpandedFolders] = useState(
     () => new Set<string>(),
@@ -384,22 +385,6 @@ export function KnowledgeTree({
           <Plus />
         </button>
       </header>
-      <nav className="tree-tabs" aria-label={t("tree.sidebarView")}>
-        <button
-          type="button"
-          className={treeMode === "knowledge" ? "active" : ""}
-          onClick={() => setTreeMode("knowledge")}
-        >
-          {t("tree.knowledge")}
-        </button>
-        <button
-          type="button"
-          className={treeMode === "files" ? "active" : ""}
-          onClick={() => setTreeMode("files")}
-        >
-          {t("tree.files")}
-        </button>
-      </nav>
       <header className="tree-header">
         <div>
           <strong>{activeVaultTitle}</strong>

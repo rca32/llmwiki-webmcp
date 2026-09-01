@@ -85,15 +85,26 @@ the underlying data model:
 | **Connections**       | See how pages link to one another                                                 |
 | **Settings & backup** | Manage editing access, backups, people, and storage                               |
 
-The navigation panel uses **By topic** for a topic-only outline and **By folder**
-for physical page organization. Explore is intentionally read-only: it presents
+The left rail makes that choice directly: **Explore topics** opens the
+topic-only outline and insight reader, while **Documents** opens the physical
+folder tree and page editor. Find, Connections, and Settings & backup preserve
+the most recently used outline. Explore is intentionally read-only: it presents
 the last approved all-topics or per-topic insight brief in a single reading
 flow, with sentence-level evidence collapsed beneath each conclusion. Topic and
 brief changes are proposed through WebMCP plans and applied only after review;
-the site never refreshes insight prose on its own. Technical storage, request,
-and AI-tool metrics are kept under a collapsed **Advanced diagnostics** section.
-Stable implementation names such as `vault`, `knowledge-map`, and WebMCP tool
-IDs remain unchanged in APIs and source code.
+the site never refreshes insight prose on its own. If no approved brief exists,
+Explore falls back to one non-duplicated topic list with each topic's summary
+and up to three representative pages.
+
+**Find** filters only its own result view; leaving Find never hides pages from
+the topic or folder outline. **Connections** follows the workspace's light or dark
+theme and exposes a visible page list when keyboard focus enters the graph, so
+nodes can be previewed without a pointer. Sync, save, and other live workspace
+statuses update in English, Korean, Japanese, or Chinese when the interface
+language changes. Technical storage, request, and AI-tool metrics are kept
+under a collapsed **Advanced diagnostics** section. Stable implementation names
+such as `vault`, `knowledge-map`, and WebMCP tool IDs remain unchanged in APIs
+and source code.
 
 ## The human-agent collaboration loop
 
@@ -198,7 +209,10 @@ implementations. The workspace includes:
 
 - multiple wikis with folder/page hierarchy and per-user switching;
 - Markdown editing with GFM, math, Mermaid, autosave, and conflict handling;
-- full-text search, backlinks, connection exploration, and stable page permalinks;
+- isolated full-text search, backlinks, theme-aware keyboard-accessible
+  connection exploration, and stable page permalinks;
+- English, Korean, Japanese, and Chinese interface copy, including live save
+  and synchronization status;
 - source pages, structured retrieval metadata, claim-level provenance, and
   knowledge-quality linting;
 - immutable revisions, restore-as-new-version, leaf soft delete, and trash
