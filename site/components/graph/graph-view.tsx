@@ -231,11 +231,13 @@ function GraphLoader({
   colorMode,
   communityByNode,
   showArrows,
+  isDark,
 }: {
   graphData: WikiGraph;
   colorMode: ColorMode;
   communityByNode: Map<string, number>;
   showArrows: boolean;
+  isDark: boolean;
 }) {
   const loadGraph = useLoadGraph();
   useEffect(() => {
@@ -274,7 +276,7 @@ function GraphLoader({
         edge.source,
         edge.target,
         {
-          color: "rgba(100,116,139,.34)",
+          color: isDark ? "rgba(148,163,184,.46)" : "rgba(100,116,139,.34)",
           size: 1.2,
           type: showArrows ? "arrow" : "line",
           label: edge.target_text,
@@ -297,7 +299,7 @@ function GraphLoader({
       });
     }
     loadGraph(graph);
-  }, [colorMode, communityByNode, graphData, loadGraph, showArrows]);
+  }, [colorMode, communityByNode, graphData, isDark, loadGraph, showArrows]);
   return null;
 }
 
@@ -820,6 +822,7 @@ export function GraphView({
                 colorMode={colorMode}
                 communityByNode={communityByNode}
                 showArrows={showArrows}
+                isDark={isDark}
               />
               <GraphRenderSettings
                 focusState={focusState}
@@ -890,6 +893,9 @@ export function GraphView({
             className="graph-accessible-nodes"
             aria-label={t("graph.pageList")}
           >
+            <span className="graph-accessible-title">
+              {t("graph.pageList")}
+            </span>
             {visibleGraph.nodes.map((node) => (
               <button
                 key={node.id}

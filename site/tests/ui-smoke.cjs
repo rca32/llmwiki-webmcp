@@ -1086,6 +1086,19 @@ let activeBrowser;
     .locator(".search-results")
     .getByRole("button", { name: new RegExp(securityTitle) })
     .waitFor();
+  const unfilteredTreePage = baselinePages.find(
+    (candidate) =>
+      candidate.page_type !== "folder" && candidate.title !== securityTitle,
+  );
+  if (!unfilteredTreePage)
+    throw new Error("Search isolation fixture needs one unrelated page.");
+  await page.getByRole("button", { name: "문서" }).click();
+  await page.getByRole("button", { name: "폴더별" }).click();
+  await page
+    .locator(".tree-file-open")
+    .filter({ hasText: unfilteredTreePage.title })
+    .waitFor();
+  await page.getByRole("button", { name: "찾기" }).click();
   await searchInput.fill("");
   await page.getByRole("button", { name: "문서" }).click();
   const keyboardTreeRows = page.locator(".tree-page-row:not(.deleted)");
@@ -1416,6 +1429,47 @@ let activeBrowser;
     (await page.getByText("노드 유형", { exact: true }).count()) !== 1
   )
     throw new Error("The Sigma graph visual contract is not active.");
+  const graphThemeBefore = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  if (!graphThemeBefore) {
+    await page.locator("summary.topbar-icon-button").click();
+    await page.getByRole("button", { name: /테마$/ }).click();
+    await page.waitForFunction(() =>
+      document.documentElement.classList.contains("dark"),
+    );
+  }
+  const graphDarkTheme = await page.evaluate(() => {
+    const graphCanvas = document.querySelector(".graph-canvas");
+    const sigmaCanvas = document.querySelector(".react-sigma");
+    return {
+      graphBackground: graphCanvas
+        ? getComputedStyle(graphCanvas).backgroundColor
+        : null,
+      sigmaBackground: sigmaCanvas
+        ? getComputedStyle(sigmaCanvas).backgroundColor
+        : null,
+      sigmaThemeBackground: sigmaCanvas
+        ? getComputedStyle(sigmaCanvas)
+            .getPropertyValue("--sigma-background-color")
+            .trim()
+        : null,
+    };
+  });
+  if (
+    !graphDarkTheme.graphBackground ||
+    graphDarkTheme.sigmaBackground !== graphDarkTheme.graphBackground
+  )
+    throw new Error(
+      `The Sigma graph did not inherit the dark workspace background: ${JSON.stringify(graphDarkTheme)}`,
+    );
+  if (!graphThemeBefore) {
+    await page.locator("summary.topbar-icon-button").click();
+    await page.getByRole("button", { name: /테마$/ }).click();
+    await page.waitForFunction(
+      () => !document.documentElement.classList.contains("dark"),
+    );
+  }
   for (const controlName of ["전체", "로컬", "미연결", "방향", "링크 이름"]) {
     if (
       (await page
@@ -1431,12 +1485,24 @@ let activeBrowser;
     (await page.getByLabel("페이지 유형").count()) !== 1
   )
     throw new Error("The graph search and type filters are missing.");
-  await page
-    .locator(".graph-accessible-node")
-    .first()
-    .evaluate((element) => {
-      element.click();
-    });
+  const graphKeyboardNode = page.locator(".graph-accessible-node").first();
+  await graphKeyboardNode.focus();
+  const graphKeyboardList = await page
+    .locator(".graph-accessible-nodes")
+    .evaluate((element) => ({
+      width: element.getBoundingClientRect().width,
+      height: element.getBoundingClientRect().height,
+      focused: element.contains(document.activeElement),
+    }));
+  if (
+    !graphKeyboardList.focused ||
+    graphKeyboardList.width <= 1 ||
+    graphKeyboardList.height <= 1
+  )
+    throw new Error(
+      `The graph keyboard page list did not become visible: ${JSON.stringify(graphKeyboardList)}`,
+    );
+  await page.keyboard.press("Enter");
   await page.locator(".graph-preview-panel").waitFor();
   await page.getByText("연결된 페이지", { exact: true }).waitFor();
   await page.getByRole("button", { name: "로컬", exact: true }).click();

@@ -282,13 +282,13 @@ export function KnowledgeAtlas({
             onSelectTopic={onSelectTopic}
           />
         )
-      ) : (
+      ) : brief ? (
         <TopicList
           title={t("atlas.topicGuide")}
           topics={map.topics.filter((topic) => !topic.parent_topic_id)}
           onSelectTopic={onSelectTopic}
         />
-      )}
+      ) : null}
     </article>
   );
 }

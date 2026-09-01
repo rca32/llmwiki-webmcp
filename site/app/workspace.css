@@ -2490,6 +2490,16 @@ button.context-row {
   height: 100%;
 }
 
+.graph-canvas .react-sigma {
+  --sigma-background-color: var(--background);
+  --sigma-controls-background-color: var(--background);
+  --sigma-controls-background-color-hover: var(--accent);
+  --sigma-controls-border-color: var(--border);
+  --sigma-controls-color: var(--foreground);
+  background: var(--background);
+  color: var(--foreground);
+}
+
 .graph-zoom-controls {
   position: absolute;
   z-index: 4;
@@ -2615,6 +2625,55 @@ button.context-row {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.graph-accessible-nodes:focus-within {
+  z-index: 7;
+  top: 14px;
+  right: 58px;
+  width: min(320px, calc(100% - 86px));
+  height: auto;
+  max-height: min(420px, calc(100% - 28px));
+  display: grid;
+  gap: 3px;
+  overflow: auto;
+  padding: 8px;
+  clip: auto;
+  clip-path: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--background) 96%, transparent);
+  box-shadow: 0 10px 30px
+    color-mix(in oklch, var(--foreground) 16%, transparent);
+  backdrop-filter: blur(10px);
+  white-space: normal;
+}
+
+.graph-accessible-title {
+  padding: 4px 6px 6px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.graph-accessible-node {
+  min-width: 0;
+  padding: 7px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  color: var(--foreground);
+  background: transparent;
+  font-size: 10px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.graph-accessible-node:hover,
+.graph-accessible-node[aria-pressed="true"] {
+  background: var(--accent);
 }
 
 .graph-preview-panel,

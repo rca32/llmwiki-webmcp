@@ -162,6 +162,10 @@ type PageDetails = {
   neighbors: Neighbor[];
   attachments: Attachment[];
 };
+type StatusMessage = {
+  key: TranslationKey;
+  values?: Record<string, string | number>;
+};
 type Graph = {
   wiki_id: string;
   nodes: Array<{
@@ -407,7 +411,15 @@ export default function Home() {
   const [pendingPageId, setPendingPageId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
-  const [status, setStatus] = useState("연결 중…");
+  const [statusMessage, setStatusMessage] = useState<StatusMessage>({
+    key: "status.connecting",
+  });
+  const setStatus = useCallback(
+    (key: TranslationKey, values?: Record<string, string | number>) =>
+      setStatusMessage({ key, values }),
+    [],
+  );
+  const status = t(statusMessage.key, statusMessage.values);
   const [caps, setCaps] = useState<Caps>(EMPTY_CAPABILITIES);
   const [identity, setIdentity] = useState<SessionIdentity | null>(null);
   const [currentWiki, setCurrentWiki] = useState<WikiSummary | null>(null);
@@ -544,7 +556,9 @@ export default function Home() {
           setRevisions(validCache?.revisions ?? []);
           setNeighbors(validCache?.neighbors ?? []);
           setAttachments(validCache?.attachments ?? []);
-          setStatus(validCache ? "최신 정보 확인 중…" : "세부 정보 동기화 중…");
+          setStatus(
+            validCache ? "status.verifyingLatest" : "status.syncingDetails",
+          );
           setNotice(null);
           setEditConflict(null);
           updateAutosavePaused(false);
@@ -599,14 +613,16 @@ export default function Home() {
         setRevisions(history);
         setNeighbors(linked);
         setAttachments(files);
-        setStatus("동기화됨");
+        setStatus("status.synced");
         setNotice(null);
         setEditConflict(null);
         updateAutosavePaused(false);
       } catch (error) {
         if (requestNumber !== openPageRequestRef.current) return;
         setStatus(
-          snapshot || validCache ? "본문 표시됨 · 동기화 지연" : "연결 실패",
+          snapshot || validCache
+            ? "status.cachedContent"
+            : "status.connectionFailed",
         );
         setNotice(
           error instanceof Error
@@ -618,7 +634,7 @@ export default function Home() {
           setPendingPageId(null);
       }
     },
-    [changeView, replacePageSnapshot, updateAutosavePaused],
+    [changeView, replacePageSnapshot, setStatus, updateAutosavePaused],
   );
 
   const openBreadcrumbPage = useCallback(
@@ -643,10 +659,10 @@ export default function Home() {
         diff: lineDiff(page.markdown, draft),
       });
       updateAutosavePaused(true);
-      setStatus("병합 필요");
+      setStatus("status.mergeRequired");
       setNotice(null);
     },
-    [updateAutosavePaused],
+    [setStatus, updateAutosavePaused],
   );
 
   const loadWorkspace = useCallback(
@@ -736,8 +752,8 @@ export default function Home() {
           setDeletedPages([]);
           setStatus(
             session.capabilities.can_bootstrap
-              ? "초기 설정 필요"
-              : "읽기 권한 없음",
+              ? "status.setupRequired"
+              : "status.readDenied",
           );
           return;
         }
@@ -803,7 +819,7 @@ export default function Home() {
             );
           initialPermalinkRef.current = null;
           if (target) void openPage(target, true);
-        } else setStatus("목록 갱신됨");
+        } else setStatus("status.listRefreshed");
       } catch (error) {
         if (requestNumber !== workspaceRequestRef.current) return;
         setSessionLoaded(true);
@@ -830,10 +846,10 @@ export default function Home() {
           setGraph(null);
           setKnowledgeMap(EMPTY_KNOWLEDGE_MAP);
           setSelectedKnowledgeTopicId(null);
-          setStatus("로그인 필요");
+          setStatus("status.signInRequired");
           setNotice(null);
         } else {
-          setStatus("연결 실패");
+          setStatus("status.connectionFailed");
           setNotice(
             error instanceof Error
               ? error.message
@@ -842,7 +858,7 @@ export default function Home() {
         }
       }
     },
-    [openPage],
+    [openPage, setStatus],
   );
 
   useEffect(() => {
@@ -905,7 +921,7 @@ export default function Home() {
       expectedVersion = active.version,
       draft = markdown,
       timer = window.setTimeout(() => {
-        setStatus("자동 저장 중…");
+        setStatus("status.autosaving");
         void api<{ page_id: string; version: number }>(`/api/pages/${pageId}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
@@ -930,7 +946,9 @@ export default function Home() {
             pageDetailsCacheRef.current.delete(pageId);
             setSavedMarkdown(draft);
             setStatus(
-              markdownRef.current === draft ? "자동 저장됨" : "추가 변경 있음",
+              markdownRef.current === draft
+                ? "status.autosaved"
+                : "status.moreChanges",
             );
             setRevisions(
               (
@@ -941,7 +959,7 @@ export default function Home() {
             );
           })
           .catch((error: unknown) => {
-            setStatus("자동 저장 중단");
+            setStatus("status.autosaveStopped");
             if (
               error instanceof Error &&
               (error as Error & { code?: string }).code === "version_conflict"
@@ -970,6 +988,7 @@ export default function Home() {
     markdown,
     replacePageSnapshot,
     savedMarkdown,
+    setStatus,
   ]);
   useEffect(() => {
     if (active) {
@@ -1023,7 +1042,7 @@ export default function Home() {
 
   async function save() {
     if (!active || !dirty || !caps.can_write) return;
-    setStatus("저장 중…");
+    setStatus("status.saving");
     setNotice(null);
     try {
       let expectedVersion = active.version;
@@ -1055,7 +1074,7 @@ export default function Home() {
       pageDetailsCacheRef.current.delete(active.id);
       setSavedMarkdown(markdown);
       updateAutosavePaused(false);
-      setStatus("방금 저장됨");
+      setStatus("status.savedNow");
       setRevisions(
         (
           await api<{ revisions: Revision[] }>(
@@ -1064,7 +1083,7 @@ export default function Home() {
         ).revisions,
       );
     } catch (error) {
-      setStatus("저장 중단");
+      setStatus("status.saveStopped");
       if (
         error instanceof Error &&
         (error as Error & { code?: string }).code === "version_conflict"
@@ -1092,7 +1111,7 @@ export default function Home() {
     setMarkdown(mergeDraft(editConflict.latest.markdown, editConflict.draft));
     setEditConflict(null);
     updateAutosavePaused(true);
-    setStatus("병합 초안 검토 중");
+    setStatus("status.reviewingMerge");
   }
 
   async function saveConflictAsNewPage() {
@@ -1153,7 +1172,7 @@ export default function Home() {
       await loadWorkspace(false);
       await openPage(created.page_id);
       setStatus(
-        kind === "folder" ? "폴더를 만들었습니다." : "페이지를 만들었습니다.",
+        kind === "folder" ? "status.folderCreated" : "status.pageCreated",
       );
     } catch (error) {
       setNotice(
@@ -1181,7 +1200,7 @@ export default function Home() {
         }),
       });
       await openPage(active.id);
-      setStatus(`v${version}에서 복구됨`);
+      setStatus("status.restoredVersion", { version });
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -1196,14 +1215,14 @@ export default function Home() {
     if (!page || !caps.can_write) return;
     if (page.parent_id === parentId) {
       setMoveDialogOpen(false);
-      setStatus("이미 선택한 위치에 있습니다.");
+      setStatus("status.alreadyThere");
       return;
     }
     if (activeRef.current?.id === pageId && dirtyRef.current) {
       setNotice("저장되지 않은 변경을 먼저 저장한 뒤 이동하세요.");
       return;
     }
-    setStatus("페이지 이동 중…");
+    setStatus("status.movingPage");
     try {
       await api(`/api/pages/${page.id}/move`, {
         method: "POST",
@@ -1219,7 +1238,7 @@ export default function Home() {
       pageDetailsCacheRef.current.delete(page.id);
       await loadWorkspace(false);
       if (activeRef.current?.id === page.id) await openPage(page.id, true);
-      setStatus("페이지를 이동했습니다.");
+      setStatus("status.pageMoved");
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -1237,7 +1256,7 @@ export default function Home() {
     )
       return;
     try {
-      setStatus("Vault 전환 중…");
+      setStatus("status.switchingWiki");
       graphRequestRef.current++;
       openPageRequestRef.current++;
       desiredPageIdRef.current = null;
@@ -1270,7 +1289,7 @@ export default function Home() {
     )
       return;
     try {
-      setStatus("Vault 만드는 중…");
+      setStatus("status.creatingWiki");
       graphRequestRef.current++;
       openPageRequestRef.current++;
       desiredPageIdRef.current = null;
@@ -1295,7 +1314,7 @@ export default function Home() {
       setNewVaultTitle("");
       setNewVaultTemplate("empty");
       await loadWorkspace(true);
-      setStatus("새 Vault를 만들었습니다.");
+      setStatus("status.wikiCreated");
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "Vault를 만들지 못했습니다.",
@@ -1336,7 +1355,7 @@ export default function Home() {
       setMarkdown("");
       setSavedMarkdown("");
       await loadWorkspace(true);
-      setStatus("페이지를 소프트 삭제했습니다.");
+      setStatus("status.pageDeleted");
     } catch (error) {
       setDeleteError(
         error instanceof Error
@@ -1462,7 +1481,7 @@ export default function Home() {
     form.set("page_id", active.id);
     form.set("operation_id", crypto.randomUUID());
     try {
-      setStatus("첨부 업로드 중…");
+      setStatus("status.uploadingAttachment");
       await api("/api/attachments", { method: "POST", body: form });
       setAttachments(
         (
@@ -1471,7 +1490,7 @@ export default function Home() {
           )
         ).attachments,
       );
-      setStatus("첨부 업로드됨");
+      setStatus("status.attachmentUploaded");
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -1705,7 +1724,7 @@ export default function Home() {
                 maxSize="34%"
               >
                 <KnowledgeTree
-                  pages={filtered}
+                  pages={pages}
                   deletedPages={deletedPages}
                   vaults={wikis}
                   activeVaultId={currentWiki?.id ?? null}
