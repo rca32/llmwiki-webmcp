@@ -425,11 +425,6 @@ export default function Home() {
   const [identity, setIdentity] = useState<SessionIdentity | null>(null);
   const [currentWiki, setCurrentWiki] = useState<WikiSummary | null>(null);
   const [wikis, setWikis] = useState<WikiSummary[]>([]);
-  const [createTarget, setCreateTarget] = useState<{
-    parentId: string | null;
-    kind: "page" | "folder";
-  } | null>(null);
-  const [newItemTitle, setNewItemTitle] = useState("");
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveParentId, setMoveParentId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -439,9 +434,12 @@ export default function Home() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [newVaultTitle, setNewVaultTitle] = useState("");
-  const [newVaultTemplate, setNewVaultTemplate] = useState<"empty" | "starter">(
-    "empty",
-  );
+  const [deleteWikiDialogOpen, setDeleteWikiDialogOpen] = useState(false);
+  const [deleteWikiConfirmation, setDeleteWikiConfirmation] = useState("");
+  const [deleteWikiBackupAcknowledged, setDeleteWikiBackupAcknowledged] =
+    useState(false);
+  const [deleteWikiPending, setDeleteWikiPending] = useState(false);
+  const [deleteWikiError, setDeleteWikiError] = useState<string | null>(null);
   const [siteVersion, setSiteVersion] = useState(1);
   const [writeMode, setWriteMode] = useState<"read_write" | "read_only">(
     "read_write",
@@ -1145,45 +1143,6 @@ export default function Home() {
     }
   }
 
-  function startCreateItem(parentId: string | null, kind: "page" | "folder") {
-    if (!caps.can_write) return;
-    setNewItemTitle("");
-    setCreateTarget({ parentId, kind });
-  }
-
-  async function createNewPage() {
-    if (!caps.can_write || !createTarget || !newItemTitle.trim()) return;
-    const title = newItemTitle.trim();
-    const kind = createTarget.kind;
-    try {
-      const created = await api<{ page_id: string }>("/api/pages", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title,
-          page_type: kind === "folder" ? "folder" : "note",
-          markdown:
-            kind === "folder"
-              ? `# ${title}\n\n이 폴더의 인덱스 페이지입니다. 하위 페이지의 맥락과 탐색 기준을 기록하세요.\n`
-              : `# ${title}\n\n`,
-          parent_id: createTarget.parentId,
-          operation_id: crypto.randomUUID(),
-        }),
-      });
-      setCreateTarget(null);
-      setNewItemTitle("");
-      await loadWorkspace(false);
-      await openPage(created.page_id);
-      setStatus(
-        kind === "folder" ? "status.folderCreated" : "status.pageCreated",
-      );
-    } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : "페이지를 만들지 못했습니다.",
-      );
-    }
-  }
-
   async function restoreRevision(version: number) {
     if (!active || !caps.can_restore || dirty) return;
     if (
@@ -1309,13 +1268,12 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           title: newVaultTitle.trim(),
-          template: newVaultTemplate,
+          template: "empty",
           operation_id: crypto.randomUUID(),
         }),
       });
       setVaultDialogOpen(false);
       setNewVaultTitle("");
-      setNewVaultTemplate("empty");
       await loadWorkspace(true);
       setStatus("status.wikiCreated");
     } catch (error) {
@@ -1323,6 +1281,51 @@ export default function Home() {
         error instanceof Error ? error.message : "Vault를 만들지 못했습니다.",
       );
       await loadWorkspace(true);
+    }
+  }
+
+  function openDeleteWikiDialog() {
+    if (!currentWiki || !caps.can_create_wiki || wikis.length < 2) return;
+    setDeleteWikiConfirmation("");
+    setDeleteWikiBackupAcknowledged(false);
+    setDeleteWikiError(null);
+    setDeleteWikiDialogOpen(true);
+  }
+
+  async function deleteCurrentWiki() {
+    if (
+      !currentWiki ||
+      !caps.can_create_wiki ||
+      wikis.length < 2 ||
+      deleteWikiPending ||
+      !deleteWikiBackupAcknowledged ||
+      deleteWikiConfirmation !== `DELETE ${currentWiki.title}`
+    )
+      return;
+    const deletedTitle = currentWiki.title;
+    setDeleteWikiPending(true);
+    setDeleteWikiError(null);
+    try {
+      await api(`/api/wikis/${currentWiki.id}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confirmation: deleteWikiConfirmation,
+          backup_acknowledged: deleteWikiBackupAcknowledged,
+          operation_id: crypto.randomUUID(),
+        }),
+      });
+      setDeleteWikiDialogOpen(false);
+      setDeleteWikiConfirmation("");
+      setDeleteWikiBackupAcknowledged(false);
+      await loadWorkspace(true);
+      setStatus("status.wikiDeleted", { title: deletedTitle });
+    } catch (error) {
+      setDeleteWikiError(
+        error instanceof Error ? error.message : t("dialog.deleteWikiFailed"),
+      );
+    } finally {
+      setDeleteWikiPending(false);
     }
   }
 
@@ -1580,8 +1583,6 @@ export default function Home() {
     [neighbors, active],
   );
 
-  const currentFolderId =
-    active?.page_type === "folder" ? active.id : (active?.parent_id ?? null);
   const breadcrumbPages = useMemo(() => {
     if (!active) return [];
     const byId = new Map(pages.map((page) => [page.id, page]));
@@ -1650,6 +1651,9 @@ export default function Home() {
             hasWiki={false}
             writeMode={writeMode}
             writeModeReason={writeModeReason}
+            currentWikiId={null}
+            currentWikiTitle=""
+            canDeleteWiki={false}
             onWorkspaceChanged={() => loadWorkspace(true)}
           />
         </Suspense>
@@ -1735,9 +1739,7 @@ export default function Home() {
                   activeVaultTitle={currentWiki?.title ?? "Liminal Wiki"}
                   activePageId={pendingPageId ?? active?.id ?? null}
                   pendingPageId={pendingPageId}
-                  currentFolderId={currentFolderId}
                   canWrite={caps.can_write}
-                  canCreateVault={caps.can_create_wiki}
                   knowledgeMap={knowledgeMap}
                   selectedKnowledgeTopicId={selectedKnowledgeTopicId}
                   onOpenPage={(pageId) => void openPage(pageId)}
@@ -1746,16 +1748,10 @@ export default function Home() {
                     changeView("knowledge");
                     setMobileWorkspacePane("content");
                   }}
-                  onCreatePage={startCreateItem}
                   onMovePage={(pageId, parentId) =>
                     void movePageTo(pageId, parentId)
                   }
                   onSwitchVault={(wikiId) => void switchVault(wikiId)}
-                  onCreateVault={() => {
-                    setNewVaultTitle("");
-                    setNewVaultTemplate("empty");
-                    setVaultDialogOpen(true);
-                  }}
                   onRestorePage={(page) => {
                     const original = deletedPages.find(
                       (candidate) => candidate.id === page.id,
@@ -2005,6 +2001,14 @@ export default function Home() {
                       hasWiki
                       writeMode={writeMode}
                       writeModeReason={writeModeReason}
+                      currentWikiId={currentWiki?.id ?? null}
+                      currentWikiTitle={currentWiki?.title ?? ""}
+                      canDeleteWiki={wikis.length > 1}
+                      onCreateWiki={() => {
+                        setNewVaultTitle("");
+                        setVaultDialogOpen(true);
+                      }}
+                      onDeleteWiki={openDeleteWikiDialog}
                       onWorkspaceChanged={() => loadWorkspace(true)}
                     />
                   ) : view === "knowledge" ? (
@@ -2411,54 +2415,6 @@ export default function Home() {
           )}
         </ResizablePanelGroup>
       </div>
-      {createTarget && (
-        <WorkspaceDialog
-          title={
-            createTarget.kind === "folder"
-              ? t("tree.newFolder")
-              : t("tree.newPage")
-          }
-          description={
-            createTarget.parentId
-              ? t("dialog.createFolderDescription")
-              : t("dialog.createRootDescription")
-          }
-          confirmLabel={t("common.create")}
-          confirmDisabled={!newItemTitle.trim()}
-          onConfirm={() => void createNewPage()}
-          onClose={() => setCreateTarget(null)}
-        >
-          <label className="workspace-dialog-field">
-            <span>{t("dialog.title")}</span>
-            <input
-              autoFocus
-              value={newItemTitle}
-              onChange={(event) => setNewItemTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && newItemTitle.trim())
-                  void createNewPage();
-              }}
-              placeholder={
-                createTarget.kind === "folder"
-                  ? t("dialog.folderExample")
-                  : t("dialog.pageExample")
-              }
-            />
-          </label>
-          <label className="workspace-dialog-field">
-            <span>{t("dialog.startMethod")}</span>
-            <select
-              value={newVaultTemplate}
-              onChange={(event) =>
-                setNewVaultTemplate(event.target.value as "empty" | "starter")
-              }
-            >
-              <option value="empty">{t("dialog.emptyVault")}</option>
-              <option value="starter">{t("dialog.starterVault")}</option>
-            </select>
-          </label>
-        </WorkspaceDialog>
-      )}
       {moveDialogOpen && active && (
         <WorkspaceDialog
           title={t("dialog.moveTitle", { title: active.title })}
@@ -2584,6 +2540,73 @@ export default function Home() {
               placeholder={t("dialog.vaultExample")}
             />
           </label>
+        </WorkspaceDialog>
+      )}
+      {deleteWikiDialogOpen && currentWiki && (
+        <WorkspaceDialog
+          title={t("dialog.deleteWikiTitle", { title: currentWiki.title })}
+          description={t("dialog.deleteWikiDescription")}
+          confirmLabel={
+            deleteWikiPending
+              ? t("dialog.deleteWikiPending")
+              : t("dialog.deleteWikiConfirm")
+          }
+          confirmTone="destructive"
+          confirmDisabled={
+            deleteWikiPending ||
+            !deleteWikiBackupAcknowledged ||
+            deleteWikiConfirmation !== `DELETE ${currentWiki.title}`
+          }
+          onConfirm={() => void deleteCurrentWiki()}
+          onClose={() => {
+            if (deleteWikiPending) return;
+            setDeleteWikiDialogOpen(false);
+            setDeleteWikiError(null);
+          }}
+        >
+          <p className="workspace-dialog-warning">
+            {t("dialog.deleteWikiBackupNotice")}
+          </p>
+          <label className="workspace-dialog-checkbox">
+            <input
+              type="checkbox"
+              checked={deleteWikiBackupAcknowledged}
+              onChange={(event) =>
+                setDeleteWikiBackupAcknowledged(event.target.checked)
+              }
+            />
+            <span>{t("dialog.deleteWikiBackupAcknowledgement")}</span>
+          </label>
+          <div className="workspace-dialog-confirmation">
+            <span>{t("dialog.confirmationPhrase")}</span>
+            <code>{`DELETE ${currentWiki.title}`}</code>
+          </div>
+          <label className="workspace-dialog-field">
+            <span>{t("dialog.confirmation")}</span>
+            <input
+              autoFocus
+              value={deleteWikiConfirmation}
+              onChange={(event) =>
+                setDeleteWikiConfirmation(event.target.value)
+              }
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  deleteWikiBackupAcknowledged &&
+                  deleteWikiConfirmation === `DELETE ${currentWiki.title}` &&
+                  !deleteWikiPending
+                )
+                  void deleteCurrentWiki();
+              }}
+              placeholder={`DELETE ${currentWiki.title}`}
+              autoComplete="off"
+            />
+          </label>
+          {deleteWikiError && (
+            <p className="workspace-dialog-error" role="alert">
+              {deleteWikiError}
+            </p>
+          )}
         </WorkspaceDialog>
       )}
     </main>

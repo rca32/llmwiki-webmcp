@@ -11,6 +11,7 @@ import {
   createWiki,
   createPage,
   listAccessibleWikis,
+  listRecoverableWikis,
 } from "../../../db/wiki-repository";
 import {
   requireObject,
@@ -24,7 +25,13 @@ export async function GET() {
   try {
     const session = await getWikiSession();
     return Response.json(
-      success({ wikis: await listAccessibleWikis(session.email) }, id),
+      success(
+        {
+          wikis: await listAccessibleWikis(session.email),
+          recoverable_wikis: await listRecoverableWikis(session.email),
+        },
+        id,
+      ),
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {

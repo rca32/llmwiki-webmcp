@@ -279,17 +279,17 @@ Commit activates the verified staging vault and makes the current restore user i
 
 The API exposes these route groups:
 
-| Group          | Representative routes                                                                 | Role                                                |
-| -------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Session/Vault  | `/api/session/capabilities`, `/api/session/active-wiki`, `/api/wikis`                 | Identity, capability, vault list/create/switch      |
-| Page/Revision  | `/api/pages`, `/api/pages/:id`, `/append`, `/move`, `/link`, `/revisions`, `/restore` | Page lifecycle, CAS, revisions                      |
-| Search/Graph   | `/api/search`, `/api/graph`, `/api/pages/:id/neighbors`                               | Bounded discovery and graph                         |
-| Knowledge      | `/api/wiki-contract`, `/api/ingest/plans`, `/apply`, `/api/claims`, `/api/wiki-lint`  | Operating policy, ingest, provenance, quality       |
-| Attachment     | `/api/attachments`, `/api/attachments/:id`, `/restore`                                | R2 upload/download/soft delete/restore              |
-| Portability    | `/api/export/prepare`, `/stream`, `/ack`, `/api/import/sessions`                      | Multipart backup and resumable restore              |
-| Administration | `/api/members`, `/transfer-ownership`, `/api/operations`, `/api/audit`                | Owner controls and audit                            |
-| Maintenance    | `/api/maintenance/write-mode`, `/storage`, `/diagnostics`, `/search-benchmark`        | Read-only mode, repair, isolated verification       |
-| Telemetry      | `/api/telemetry/webmcp`                                                               | Content-free WebMCP outcome and latency aggregation |
+| Group          | Representative routes                                                                                                     | Role                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Session/Vault  | `/api/session/capabilities`, `/api/session/active-wiki`, `/api/wikis`, `/api/wikis/:wikiId`, `/api/wikis/:wikiId/restore` | Identity, capability, vault list/create/switch, owner-only 30-day soft delete/restore |
+| Page/Revision  | `/api/pages`, `/api/pages/:id`, `/append`, `/move`, `/link`, `/revisions`, `/restore`                                     | Page lifecycle, CAS, revisions                                                        |
+| Search/Graph   | `/api/search`, `/api/graph`, `/api/pages/:id/neighbors`                                                                   | Bounded discovery and graph                                                           |
+| Knowledge      | `/api/wiki-contract`, `/api/ingest/plans`, `/apply`, `/api/claims`, `/api/wiki-lint`                                      | Operating policy, ingest, provenance, quality                                         |
+| Attachment     | `/api/attachments`, `/api/attachments/:id`, `/restore`                                                                    | R2 upload/download/soft delete/restore                                                |
+| Portability    | `/api/export/prepare`, `/stream`, `/ack`, `/api/import/sessions`                                                          | Multipart backup and resumable restore                                                |
+| Administration | `/api/members`, `/transfer-ownership`, `/api/operations`, `/api/audit`                                                    | Owner controls and audit                                                              |
+| Maintenance    | `/api/maintenance/write-mode`, `/storage`, `/diagnostics`, `/search-benchmark`                                            | Read-only mode, repair, isolated verification                                         |
+| Telemetry      | `/api/telemetry/webmcp`                                                                                                   | Content-free WebMCP outcome and latency aggregation                                   |
 
 A successful response uses this envelope:
 

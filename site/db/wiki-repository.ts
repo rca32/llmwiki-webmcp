@@ -31,6 +31,12 @@ import {
   personalWikiIdentifiers,
 } from "../lib/personal-wiki";
 import {
+  WIKI_RECOVERY_WINDOW_MS,
+  isWikiRecoverable,
+  wikiDeletionConfirmation,
+  wikiRecoveryUntil,
+} from "../lib/wiki-lifecycle";
+import {
   DEFAULT_OPERATING_CONTRACT,
   buildWikiLintReport,
   canonicalIngestPlanHash,
@@ -291,11 +297,194 @@ export async function setSiteWriteMode(input: {
 export async function listAccessibleWikis(email: string) {
   const rows = await db()
     .prepare(
-      `SELECT w.id,w.slug,w.title,w.status,m.role,w.created_at,w.updated_at FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id WHERE m.user_email=? AND w.deleted_at IS NULL ORDER BY w.updated_at DESC`,
+      `SELECT w.id,w.slug,w.title,w.status,m.role,w.created_at,w.updated_at FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id WHERE m.user_email=? AND w.status='active' AND w.deleted_at IS NULL ORDER BY w.updated_at DESC`,
     )
     .bind(email)
     .all();
   return rows.results;
+}
+
+export async function listRecoverableWikis(email: string) {
+  const cutoff = new Date(Date.now() - WIKI_RECOVERY_WINDOW_MS).toISOString(),
+    rows = await db()
+      .prepare(
+        `SELECT w.id,w.slug,w.title,w.deleted_at,w.created_at,w.updated_at FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id WHERE m.user_email=? AND m.role='owner' AND w.status='deleted' AND w.deleted_at>=? ORDER BY w.deleted_at DESC`,
+      )
+      .bind(email, cutoff)
+      .all<Record<string, unknown>>();
+  return rows.results.map((row) => ({
+    ...row,
+    recoverable_until: wikiRecoveryUntil(String(row.deleted_at)),
+  }));
+}
+
+export async function softDeleteWiki(input: {
+  wikiId: string;
+  email: string;
+  confirmation: string;
+  backupAcknowledged: boolean;
+  operationId: string;
+  requestId: string;
+}) {
+  const d = db(),
+    wiki = await d
+      .prepare(
+        `SELECT w.id,w.title,w.status,w.deleted_at,m.role FROM wikis w JOIN wiki_members m ON m.wiki_id=w.id WHERE w.id=? AND m.user_email=?`,
+      )
+      .bind(input.wikiId, input.email)
+      .first<Record<string, unknown>>();
+  if (!wiki || wiki.status !== "active" || wiki.deleted_at)
+    throw new AppError("not_found", "The current wiki was not found.", 404);
+  if (wiki.role !== "owner")
+    throw new AppError(
+      "forbidden",
+      "Only the current wiki owner can delete it.",
+      403,
+    );
+  if (!input.backupAcknowledged)
+    throw new AppError(
+      "validation_error",
+      "Acknowledge the backup notice before deleting this wiki.",
+      400,
+      { field: "backup_acknowledged" },
+    );
+  const expectedConfirmation = wikiDeletionConfirmation(String(wiki.title));
+  if (input.confirmation !== expectedConfirmation)
+    throw new AppError(
+      "validation_error",
+      `Type ${expectedConfirmation} to confirm wiki deletion.`,
+      400,
+      { field: "confirmation" },
+    );
+  const nextWiki = await d
+    .prepare(
+      `SELECT w.id,w.title FROM wiki_members m JOIN wikis w ON w.id=m.wiki_id WHERE m.user_email=? AND w.id<>? AND w.status='active' AND w.deleted_at IS NULL ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,w.updated_at DESC,w.id LIMIT 1`,
+    )
+    .bind(input.email, input.wikiId)
+    .first<Record<string, unknown>>();
+  if (!nextWiki)
+    throw new AppError(
+      "validation_error",
+      "Create another wiki before deleting your only active wiki.",
+      409,
+      { reason: "last_active_wiki" },
+    );
+  const timestamp = now(),
+    recoverableUntil = wikiRecoveryUntil(timestamp),
+    results = await d.batch([
+      d
+        .prepare(
+          `UPDATE wikis SET status='deleted',deleted_at=?,updated_at=? WHERE id=? AND status='active' AND deleted_at IS NULL`,
+        )
+        .bind(timestamp, timestamp, input.wikiId),
+      d
+        .prepare(`DELETE FROM wiki_user_preferences WHERE active_wiki_id=?`)
+        .bind(input.wikiId),
+      d
+        .prepare(
+          `INSERT INTO wiki_user_preferences(user_email,active_wiki_id,updated_at) VALUES(?,?,?) ON CONFLICT(user_email) DO UPDATE SET active_wiki_id=excluded.active_wiki_id,updated_at=excluded.updated_at`,
+        )
+        .bind(input.email, nextWiki.id, timestamp),
+      d
+        .prepare(
+          `UPDATE site_state SET active_wiki_id=?,version=version+1,updated_at=? WHERE id=1 AND active_wiki_id=?`,
+        )
+        .bind(nextWiki.id, timestamp, input.wikiId),
+      d
+        .prepare(
+          `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','wiki.soft_delete','wiki',?,'success',?,?,?)`,
+        )
+        .bind(
+          uuid(),
+          input.wikiId,
+          input.email,
+          input.wikiId,
+          input.requestId,
+          JSON.stringify({
+            operation_id: input.operationId,
+            next_wiki_id: nextWiki.id,
+            recoverable_until: recoverableUntil,
+          }),
+          timestamp,
+        ),
+    ]);
+  if ((results[0].meta.changes ?? 0) !== 1)
+    throw new AppError(
+      "version_conflict",
+      "The wiki changed before deletion could complete.",
+      409,
+    );
+  return {
+    wiki_id: input.wikiId,
+    title: String(wiki.title),
+    deleted_at: timestamp,
+    recoverable_until: recoverableUntil,
+    next_wiki_id: String(nextWiki.id),
+  };
+}
+
+export async function restoreDeletedWiki(input: {
+  wikiId: string;
+  email: string;
+  operationId: string;
+  requestId: string;
+}) {
+  const d = db(),
+    wiki = await d
+      .prepare(
+        `SELECT w.id,w.slug,w.title,w.status,w.deleted_at,m.role FROM wikis w JOIN wiki_members m ON m.wiki_id=w.id WHERE w.id=? AND m.user_email=?`,
+      )
+      .bind(input.wikiId, input.email)
+      .first<Record<string, unknown>>();
+  if (!wiki || wiki.status !== "deleted" || !wiki.deleted_at)
+    throw new AppError("not_found", "The deleted wiki was not found.", 404);
+  if (wiki.role !== "owner")
+    throw new AppError("forbidden", "Only the wiki owner can restore it.", 403);
+  if (!isWikiRecoverable(String(wiki.deleted_at)))
+    throw new AppError(
+      "validation_error",
+      "The 30-day wiki recovery window has expired.",
+      410,
+      { reason: "recovery_expired" },
+    );
+  const timestamp = now(),
+    results = await d.batch([
+      d
+        .prepare(
+          `UPDATE wikis SET status='active',deleted_at=NULL,updated_at=? WHERE id=? AND status='deleted' AND deleted_at=?`,
+        )
+        .bind(timestamp, input.wikiId, wiki.deleted_at),
+      d
+        .prepare(
+          `INSERT INTO wiki_user_preferences(user_email,active_wiki_id,updated_at) VALUES(?,?,?) ON CONFLICT(user_email) DO UPDATE SET active_wiki_id=excluded.active_wiki_id,updated_at=excluded.updated_at`,
+        )
+        .bind(input.email, input.wikiId, timestamp),
+      d
+        .prepare(
+          `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) VALUES(?,?,?,'human','wiki.restore','wiki',?,'success',?,?,?)`,
+        )
+        .bind(
+          uuid(),
+          input.wikiId,
+          input.email,
+          input.wikiId,
+          input.requestId,
+          JSON.stringify({ operation_id: input.operationId }),
+          timestamp,
+        ),
+    ]);
+  if ((results[0].meta.changes ?? 0) !== 1)
+    throw new AppError(
+      "version_conflict",
+      "The wiki changed before restoration could complete.",
+      409,
+    );
+  return {
+    wiki_id: input.wikiId,
+    slug: String(wiki.slug),
+    title: String(wiki.title),
+    restored_at: timestamp,
+  };
 }
 
 export async function listWikiMembers(wikiId: string) {

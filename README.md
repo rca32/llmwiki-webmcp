@@ -88,10 +88,15 @@ the underlying data model:
 The left rail makes that choice directly: **Explore topics** opens the
 topic-only outline and insight reader, while **Documents** opens the physical
 folder tree and page editor. Find, Connections, and Settings & backup preserve
-the most recently used outline. Explore is intentionally read-only: it presents
-the last approved all-topics or per-topic insight brief in a single reading
-flow, with sentence-level evidence collapsed beneath each conclusion. Topic and
-brief changes are proposed through WebMCP plans and applied only after review;
+the most recently used outline. Direct page and folder creation is intentionally
+absent from the document tree; approved WebMCP work grows the wiki, while new
+wiki creation lives under Settings & backup. Owners can also soft-delete the
+current wiki there after acknowledging the backup guidance and typing its exact
+name. Deletion switches to another active wiki and remains reversible for 30
+days. Explore is intentionally read-only: it presents the last approved
+all-topics or per-topic insight brief in a single reading flow, with
+sentence-level evidence collapsed beneath each conclusion. Topic and brief
+changes are proposed through WebMCP plans and applied only after review;
 the site never refreshes insight prose on its own. If no approved brief exists,
 Explore falls back to one non-duplicated topic list with each topic's summary
 and up to three representative pages.

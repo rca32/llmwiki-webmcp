@@ -378,8 +378,8 @@ let activeBrowser;
       throw new Error("Read-only mode did not block direct API execution.");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByText("읽기 전용", { exact: true }).waitFor();
-    if (!(await page.getByRole("button", { name: "새 항목" }).isDisabled()))
-      throw new Error("Read-only UI left the create control enabled.");
+    if ((await page.getByRole("button", { name: "새 항목" }).count()) !== 0)
+      throw new Error("The document tree still exposes direct creation.");
   } finally {
     const resumeWrites = await context.request.put(
       `${baseUrl}/api/maintenance/write-mode`,
@@ -448,6 +448,93 @@ let activeBrowser;
   );
   if (deniedCrossVaultRead.status() !== 404)
     throw new Error("A personal wiki could read another account's page.");
+  const rejectedOnlyWikiDelete = await outsiderContext.request.delete(
+    `${baseUrl}/api/wikis/${outsiderIsolationSession.data.wiki.id}`,
+    {
+      data: {
+        confirmation: `DELETE ${outsiderIsolationSession.data.wiki.title}`,
+        backup_acknowledged: true,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (rejectedOnlyWikiDelete.status() !== 409)
+    throw new Error(
+      "The last active wiki could be deleted without a fallback.",
+    );
+
+  const lifecycleTitle = `Lifecycle recovery ${roleStamp}`,
+    lifecycleCreate = await context.request.post(`${baseUrl}/api/wikis`, {
+      data: {
+        title: lifecycleTitle,
+        template: "empty",
+        operation_id: crypto.randomUUID(),
+      },
+    });
+  if (lifecycleCreate.status() !== 201)
+    throw new Error("Could not create the wiki lifecycle fixture.");
+  const lifecycleWiki = (await lifecycleCreate.json()).data.wiki;
+  const rejectedWithoutBackup = await context.request.delete(
+    `${baseUrl}/api/wikis/${lifecycleWiki.id}`,
+    {
+      data: {
+        confirmation: `DELETE ${lifecycleTitle}`,
+        backup_acknowledged: false,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (rejectedWithoutBackup.status() !== 400)
+    throw new Error("Wiki deletion did not require backup acknowledgement.");
+  const lifecycleDelete = await context.request.delete(
+    `${baseUrl}/api/wikis/${lifecycleWiki.id}`,
+    {
+      data: {
+        confirmation: `DELETE ${lifecycleTitle}`,
+        backup_acknowledged: true,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!lifecycleDelete.ok())
+    throw new Error("The owner could not soft-delete a wiki.");
+  const deletedWikiList = await context.request
+    .get(`${baseUrl}/api/wikis`)
+    .then((response) => response.json());
+  if (
+    deletedWikiList.data.wikis.some((wiki) => wiki.id === lifecycleWiki.id) ||
+    !deletedWikiList.data.recoverable_wikis.some(
+      (wiki) => wiki.id === lifecycleWiki.id,
+    )
+  )
+    throw new Error("Deleted wiki visibility or recovery listing is wrong.");
+  const lifecycleRestore = await context.request.post(
+    `${baseUrl}/api/wikis/${lifecycleWiki.id}/restore`,
+    { data: { operation_id: crypto.randomUUID() } },
+  );
+  if (!lifecycleRestore.ok())
+    throw new Error("The owner could not restore a deleted wiki.");
+  const lifecycleCleanup = await context.request.delete(
+    `${baseUrl}/api/wikis/${lifecycleWiki.id}`,
+    {
+      data: {
+        confirmation: `DELETE ${lifecycleTitle}`,
+        backup_acknowledged: true,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!lifecycleCleanup.ok())
+    throw new Error("The lifecycle fixture could not be soft-deleted again.");
+  const lifecycleCleanupResult = await lifecycleCleanup.json();
+  const restoredOwnerSession = await context.request
+    .get(`${baseUrl}/api/session/capabilities`)
+    .then((response) => response.json());
+  if (
+    restoredOwnerSession.data.wiki.id !==
+    lifecycleCleanupResult.data.next_wiki_id
+  )
+    throw new Error("Wiki deletion did not switch back to an active wiki.");
   const telemetryCorrelation = `ui-smoke-${roleStamp}`;
   const telemetryRecord = await viewerContext.request.post(
     `${baseUrl}/api/telemetry/webmcp`,
@@ -1538,6 +1625,27 @@ let activeBrowser;
 
   await page.getByRole("button", { name: "운영과 복구" }).click();
   await page.locator(".operations-stage").waitFor();
+  await page.getByRole("button", { name: "새 위키", exact: true }).waitFor();
+  const deleteWikiButton = page.getByRole("button", {
+    name: "현재 위키 삭제",
+    exact: true,
+  });
+  await deleteWikiButton.waitFor();
+  if (await deleteWikiButton.isDisabled())
+    throw new Error("Wiki deletion stayed disabled with a fallback wiki.");
+  await page.getByText("최근 삭제한 위키", { exact: true }).waitFor();
+  await deleteWikiButton.click();
+  const deleteWikiDialog = page.getByRole("dialog");
+  await deleteWikiDialog.waitFor();
+  if (
+    !(await deleteWikiDialog
+      .getByRole("button", { name: "위키 삭제", exact: true })
+      .isDisabled())
+  )
+    throw new Error("Wiki deletion did not start with confirmation disabled.");
+  await deleteWikiDialog
+    .getByRole("button", { name: "취소", exact: true })
+    .click();
   await page.getByText("에이전트 도구 호출 상태").waitFor();
   await page.getByText("공통 명령 처리 상태").waitFor();
   await page.getByText("검색 평균 결과").waitFor();

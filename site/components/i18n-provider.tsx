@@ -66,6 +66,7 @@ const en = {
   "status.switchingWiki": "Switching wiki…",
   "status.creatingWiki": "Creating wiki…",
   "status.wikiCreated": "Wiki created",
+  "status.wikiDeleted": "{{title}} deleted · recoverable for 30 days",
   "status.pageDeleted": "Page deleted",
   "status.uploadingAttachment": "Uploading attachment…",
   "status.attachmentUploaded": "Attachment uploaded",
@@ -157,6 +158,21 @@ const en = {
   "ops.title": "Settings & backup",
   "ops.description":
     "Manage editing access, backups, people, and storage in one place.",
+  "ops.wikiSection": "WIKIS",
+  "ops.wikiTitle": "Manage wikis",
+  "ops.wikiDescription":
+    "Create an empty knowledge space here, then let approved AI work add and organize its content.",
+  "ops.currentWiki": "Current wiki: {{title}}.",
+  "ops.deleteWiki": "Delete current wiki",
+  "ops.deleteWikiDisabled":
+    "Create another wiki first. Your only active wiki cannot be deleted.",
+  "ops.recoverableWikis": "Recently deleted wikis",
+  "ops.recoverableDescription":
+    "Deleted wikis keep their pages, evidence, members, and files for 30 days.",
+  "ops.recoverableUntil": "Recoverable until {{date}}",
+  "ops.restoreWiki": "Restore",
+  "ops.wikiRestored": "{{title}} was restored.",
+  "ops.wikiRestoreFailed": "The wiki could not be restored.",
   "ops.refresh": "Refresh",
   "ops.writeReadOnly": "Editing locked",
   "ops.writeEnabled": "Editing available",
@@ -387,6 +403,18 @@ const en = {
   "dialog.createVault": "Create wiki",
   "dialog.vaultName": "Wiki name",
   "dialog.vaultExample": "e.g. Product Research",
+  "dialog.deleteWikiTitle": "Delete “{{title}}”?",
+  "dialog.deleteWikiDescription":
+    "This wiki will disappear for every member and switch you to another wiki. It can be restored for 30 days.",
+  "dialog.deleteWikiBackupNotice":
+    "Download a standard or full backup before continuing if you need an independent copy.",
+  "dialog.deleteWikiBackupAcknowledgement":
+    "I understand the backup recommendation and want to continue.",
+  "dialog.confirmationPhrase": "Confirmation phrase",
+  "dialog.confirmation": "Type the phrase exactly",
+  "dialog.deleteWikiConfirm": "Delete wiki",
+  "dialog.deleteWikiPending": "Deleting…",
+  "dialog.deleteWikiFailed": "The wiki could not be deleted.",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -445,6 +473,7 @@ const ko: Dictionary = {
   "status.switchingWiki": "Wiki 전환 중…",
   "status.creatingWiki": "Wiki 만드는 중…",
   "status.wikiCreated": "새 Wiki를 만들었습니다.",
+  "status.wikiDeleted": "{{title}} 삭제됨 · 30일 동안 복구 가능",
   "status.pageDeleted": "페이지를 삭제했습니다.",
   "status.uploadingAttachment": "첨부 업로드 중…",
   "status.attachmentUploaded": "첨부 업로드됨",
@@ -530,6 +559,21 @@ const ko: Dictionary = {
   "ops.title": "설정 및 백업",
   "ops.description":
     "편집 권한, 백업, 사용자와 저장 상태를 한곳에서 관리합니다.",
+  "ops.wikiSection": "위키",
+  "ops.wikiTitle": "위키 관리",
+  "ops.wikiDescription":
+    "여기에서 빈 지식 공간을 만든 뒤 승인된 AI 작업으로 콘텐츠를 추가하고 정리합니다.",
+  "ops.currentWiki": "현재 위키: {{title}}.",
+  "ops.deleteWiki": "현재 위키 삭제",
+  "ops.deleteWikiDisabled":
+    "먼저 다른 위키를 만드세요. 유일한 활성 위키는 삭제할 수 없습니다.",
+  "ops.recoverableWikis": "최근 삭제한 위키",
+  "ops.recoverableDescription":
+    "삭제한 위키의 문서, 근거, 사용자와 파일은 30일 동안 보존됩니다.",
+  "ops.recoverableUntil": "{{date}}까지 복구 가능",
+  "ops.restoreWiki": "복구",
+  "ops.wikiRestored": "{{title}} 위키를 복구했습니다.",
+  "ops.wikiRestoreFailed": "위키를 복구하지 못했습니다.",
   "ops.refresh": "새로 고침",
   "ops.writeReadOnly": "편집 잠김",
   "ops.writeEnabled": "편집 가능",
@@ -746,6 +790,18 @@ const ko: Dictionary = {
   "dialog.createVault": "위키 만들기",
   "dialog.vaultName": "위키 이름",
   "dialog.vaultExample": "예: Product Research",
+  "dialog.deleteWikiTitle": "“{{title}}” 위키를 삭제할까요?",
+  "dialog.deleteWikiDescription":
+    "모든 사용자에게서 이 위키가 숨겨지고 다른 위키로 전환됩니다. 30일 동안 복구할 수 있습니다.",
+  "dialog.deleteWikiBackupNotice":
+    "독립된 사본이 필요하다면 계속하기 전에 일반 또는 전체 백업을 내려받으세요.",
+  "dialog.deleteWikiBackupAcknowledgement":
+    "백업 권장 사항을 확인했으며 계속 진행하겠습니다.",
+  "dialog.confirmationPhrase": "입력할 확인 문구",
+  "dialog.confirmation": "확인 문구를 정확히 입력",
+  "dialog.deleteWikiConfirm": "위키 삭제",
+  "dialog.deleteWikiPending": "삭제 중…",
+  "dialog.deleteWikiFailed": "위키를 삭제하지 못했습니다.",
 };
 
 const ja: Dictionary = {
@@ -801,6 +857,7 @@ const ja: Dictionary = {
   "status.switchingWiki": "Wikiを切り替え中…",
   "status.creatingWiki": "Wikiを作成中…",
   "status.wikiCreated": "Wikiを作成しました",
+  "status.wikiDeleted": "{{title}}を削除しました · 30日間復元可能",
   "status.pageDeleted": "ページを削除しました",
   "status.uploadingAttachment": "添付ファイルをアップロード中…",
   "status.attachmentUploaded": "添付ファイルをアップロードしました",
@@ -885,6 +942,21 @@ const ja: Dictionary = {
   "ops.title": "設定とバックアップ",
   "ops.description":
     "権限、バックアップ、ストレージ状態、最近の変更を一か所で確認します。",
+  "ops.wikiSection": "WIKI",
+  "ops.wikiTitle": "Wikiを管理",
+  "ops.wikiDescription":
+    "ここで空の知識空間を作成し、承認されたAI作業で内容を追加・整理します。",
+  "ops.currentWiki": "現在のWiki：{{title}}。",
+  "ops.deleteWiki": "現在のWikiを削除",
+  "ops.deleteWikiDisabled":
+    "先に別のWikiを作成してください。唯一の有効なWikiは削除できません。",
+  "ops.recoverableWikis": "最近削除したWiki",
+  "ops.recoverableDescription":
+    "削除したWikiの文書、根拠、メンバー、ファイルは30日間保持されます。",
+  "ops.recoverableUntil": "{{date}}まで復元可能",
+  "ops.restoreWiki": "復元",
+  "ops.wikiRestored": "{{title}}を復元しました。",
+  "ops.wikiRestoreFailed": "Wikiを復元できませんでした。",
   "ops.refresh": "更新",
   "ops.writeReadOnly": "編集をロック中",
   "ops.writeEnabled": "編集可能",
@@ -1055,6 +1127,18 @@ const ja: Dictionary = {
   "dialog.createVault": "Wikiを作成",
   "dialog.vaultName": "Wiki名",
   "dialog.vaultExample": "例：Product Research",
+  "dialog.deleteWikiTitle": "「{{title}}」を削除しますか？",
+  "dialog.deleteWikiDescription":
+    "このWikiはすべてのメンバーから非表示になり、別のWikiへ切り替わります。30日間復元できます。",
+  "dialog.deleteWikiBackupNotice":
+    "独立したコピーが必要な場合は、続行前に標準または完全バックアップを保存してください。",
+  "dialog.deleteWikiBackupAcknowledgement":
+    "バックアップの推奨事項を確認し、続行します。",
+  "dialog.confirmationPhrase": "確認フレーズ",
+  "dialog.confirmation": "フレーズを正確に入力",
+  "dialog.deleteWikiConfirm": "Wikiを削除",
+  "dialog.deleteWikiPending": "削除中…",
+  "dialog.deleteWikiFailed": "Wikiを削除できませんでした。",
 };
 
 const zh: Dictionary = {
@@ -1110,6 +1194,7 @@ const zh: Dictionary = {
   "status.switchingWiki": "正在切换 Wiki…",
   "status.creatingWiki": "正在创建 Wiki…",
   "status.wikiCreated": "Wiki 已创建",
+  "status.wikiDeleted": "已删除 {{title}} · 30 天内可恢复",
   "status.pageDeleted": "页面已删除",
   "status.uploadingAttachment": "正在上传附件…",
   "status.attachmentUploaded": "附件已上传",
@@ -1193,6 +1278,20 @@ const zh: Dictionary = {
   "ops.restoreBackup": "从备份恢复",
   "ops.title": "设置与备份",
   "ops.description": "集中查看权限、备份、存储状态和最近更改。",
+  "ops.wikiSection": "WIKI",
+  "ops.wikiTitle": "管理Wiki",
+  "ops.wikiDescription":
+    "在此创建空白知识空间，再通过已批准的AI工作添加和整理内容。",
+  "ops.currentWiki": "当前 Wiki：{{title}}。",
+  "ops.deleteWiki": "删除当前 Wiki",
+  "ops.deleteWikiDisabled": "请先创建另一个 Wiki。唯一的活动 Wiki 无法删除。",
+  "ops.recoverableWikis": "最近删除的 Wiki",
+  "ops.recoverableDescription":
+    "已删除 Wiki 的文档、依据、成员和文件将保留 30 天。",
+  "ops.recoverableUntil": "可恢复至 {{date}}",
+  "ops.restoreWiki": "恢复",
+  "ops.wikiRestored": "已恢复 {{title}}。",
+  "ops.wikiRestoreFailed": "无法恢复 Wiki。",
   "ops.refresh": "刷新",
   "ops.writeReadOnly": "已锁定编辑",
   "ops.writeEnabled": "可以编辑",
@@ -1361,6 +1460,17 @@ const zh: Dictionary = {
   "dialog.createVault": "创建Wiki",
   "dialog.vaultName": "Wiki名称",
   "dialog.vaultExample": "例如：Product Research",
+  "dialog.deleteWikiTitle": "删除“{{title}}”？",
+  "dialog.deleteWikiDescription":
+    "此 Wiki 将对所有成员隐藏，并切换到另一个 Wiki。30 天内可以恢复。",
+  "dialog.deleteWikiBackupNotice":
+    "如果需要独立副本，请在继续前下载标准或完整备份。",
+  "dialog.deleteWikiBackupAcknowledgement": "我已了解备份建议并希望继续。",
+  "dialog.confirmationPhrase": "确认短语",
+  "dialog.confirmation": "准确输入确认短语",
+  "dialog.deleteWikiConfirm": "删除 Wiki",
+  "dialog.deleteWikiPending": "正在删除…",
+  "dialog.deleteWikiFailed": "无法删除 Wiki。",
 };
 
 const dictionaries: Record<Language, Dictionary> = { en, ko, ja, zh };

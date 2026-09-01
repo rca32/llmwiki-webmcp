@@ -284,7 +284,7 @@ textarea {
 
 .vault-header {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) 30px;
+  grid-template-columns: 26px minmax(0, 1fr);
   min-height: 52px;
   align-items: center;
   gap: 7px;
@@ -351,47 +351,6 @@ textarea {
   gap: 1px;
 }
 
-.tree-header > .tree-create-wrap {
-  position: relative;
-  display: block;
-  overflow: visible;
-}
-
-.tree-create-menu {
-  position: absolute;
-  z-index: 30;
-  top: 32px;
-  right: 0;
-  width: 142px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--popover, var(--background));
-  box-shadow: 0 10px 30px color-mix(in oklch, black 14%, transparent);
-}
-
-.tree-create-menu button {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 5px;
-  color: var(--foreground);
-  background: transparent;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tree-create-menu button:hover {
-  background: var(--accent);
-}
-.tree-create-menu svg {
-  width: 14px;
-  height: 14px;
-}
-
 .tree-header strong {
   overflow: hidden;
   color: var(--muted-foreground);
@@ -407,7 +366,6 @@ textarea {
   font-size: 9px;
 }
 
-.tree-action,
 .topbar-icon-button,
 .editor-icon-action,
 .context-panel-header button,
@@ -424,7 +382,6 @@ textarea {
   cursor: pointer;
 }
 
-.tree-action:hover,
 .topbar-icon-button:hover,
 .editor-icon-action:hover,
 .context-panel-header button:hover,
@@ -433,13 +390,11 @@ textarea {
   background: var(--accent);
 }
 
-.tree-action:disabled,
 .editor-icon-action:disabled {
   cursor: not-allowed;
   opacity: 0.35;
 }
 
-.tree-action svg,
 .topbar-icon-button svg,
 .editor-icon-action svg,
 .context-panel-header button svg,
@@ -969,6 +924,26 @@ textarea {
   border-radius: 6px;
   color: var(--destructive) !important;
   background: color-mix(in oklch, var(--destructive) 9%, transparent);
+}
+.workspace-dialog-warning {
+  margin: 0 0 12px !important;
+  padding: 10px;
+  border: 1px solid color-mix(in oklch, var(--destructive) 30%, var(--border));
+  border-radius: 6px;
+  color: var(--foreground) !important;
+  background: color-mix(in oklch, var(--destructive) 7%, transparent);
+}
+.workspace-dialog-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--foreground);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.workspace-dialog-checkbox input {
+  margin-top: 2px;
 }
 .workspace-dialog-field {
   display: grid;
@@ -3164,6 +3139,75 @@ button.context-row {
   border-color: var(--primary);
   color: var(--primary-foreground);
   background: var(--primary);
+}
+
+.wiki-app .operation-actions button.destructive-action {
+  border-color: color-mix(in oklch, var(--destructive) 45%, var(--border));
+  color: var(--destructive);
+  background: var(--background);
+}
+
+.recoverable-wiki-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.recoverable-wiki-list > strong {
+  font-size: 11px;
+}
+
+.recoverable-wiki-list > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.recoverable-wiki-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+}
+
+.recoverable-wiki-list article > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.recoverable-wiki-list article b,
+.recoverable-wiki-list article small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recoverable-wiki-list article b {
+  font-size: 11px;
+}
+
+.recoverable-wiki-list article small {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.recoverable-wiki-list article button {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--background);
+  font-size: 10px;
+  cursor: pointer;
 }
 
 .wiki-app .webmcp-metric-list article,

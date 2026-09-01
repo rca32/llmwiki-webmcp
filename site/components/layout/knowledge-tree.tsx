@@ -7,16 +7,13 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  FilePlus2,
   FileText,
   Folder,
   FolderOpen,
-  FolderPlus,
   FolderTree,
   Globe,
   Lightbulb,
   Layers3,
-  Plus,
   Trash2,
   Vault,
 } from "lucide-react";
@@ -107,17 +104,13 @@ export function KnowledgeTree({
   activeVaultTitle,
   activePageId,
   pendingPageId,
-  currentFolderId,
   canWrite,
-  canCreateVault,
   onOpenPage,
-  onCreatePage,
   onMovePage,
   knowledgeMap,
   selectedKnowledgeTopicId,
   onOpenKnowledgeTopic,
   onSwitchVault,
-  onCreateVault,
   onRestorePage,
 }: {
   treeMode: "knowledge" | "files";
@@ -128,17 +121,13 @@ export function KnowledgeTree({
   activeVaultTitle: string;
   activePageId: string | null;
   pendingPageId: string | null;
-  currentFolderId: string | null;
   canWrite: boolean;
-  canCreateVault: boolean;
   onOpenPage: (pageId: string) => void;
-  onCreatePage: (parentId: string | null, kind: "page" | "folder") => void;
   onMovePage: (pageId: string, parentId: string | null) => void;
   knowledgeMap: KnowledgeMapData;
   selectedKnowledgeTopicId: string | null;
   onOpenKnowledgeTopic: (topicId: string | null) => void;
   onSwitchVault: (wikiId: string) => void;
-  onCreateVault: () => void;
   onRestorePage: (page: KnowledgeTreePage) => void;
 }) {
   const { language, t } = useI18n();
@@ -148,7 +137,6 @@ export function KnowledgeTree({
   );
   const [expandedTopics, setExpandedTopics] = useState(() => new Set<string>());
   const [trashOpen, setTrashOpen] = useState(false);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | "root" | null>(
     null,
@@ -374,16 +362,6 @@ export function KnowledgeTree({
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          className="tree-action"
-          onClick={onCreateVault}
-          disabled={!canCreateVault}
-          title={t("tree.newVault")}
-          aria-label={t("tree.newVault")}
-        >
-          <Plus />
-        </button>
       </header>
       <header className="tree-header">
         <div>
@@ -394,43 +372,6 @@ export function KnowledgeTree({
               count: pages.filter((page) => page.page_type === "folder").length,
             })}
           </span>
-        </div>
-        <div className="tree-create-wrap">
-          <button
-            type="button"
-            className="tree-action"
-            onClick={() => setCreateMenuOpen((open) => !open)}
-            disabled={!canWrite}
-            aria-label={t("tree.newItem")}
-            title={t("tree.newPageOrFolder")}
-            aria-expanded={createMenuOpen}
-          >
-            <Plus />
-          </button>
-          {createMenuOpen && (
-            <div className="tree-create-menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCreateMenuOpen(false);
-                  onCreatePage(currentFolderId, "page");
-                }}
-              >
-                <FilePlus2 /> {t("tree.newPage")}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCreateMenuOpen(false);
-                  onCreatePage(currentFolderId, "folder");
-                }}
-              >
-                <FolderPlus /> {t("tree.newFolder")}
-              </button>
-            </div>
-          )}
         </div>
       </header>
       <ScrollArea className="tree-scroll-area">

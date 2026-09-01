@@ -7,6 +7,7 @@ import { useI18n } from "@/components/i18n-provider";
 
 type Capabilities = {
   can_bootstrap: boolean;
+  can_create_wiki: boolean;
   can_read: boolean;
   can_export_portable: boolean;
   can_manage_members: boolean;
@@ -59,6 +60,12 @@ type BackupManifest = {
   revision_count: number;
   parts: BackupPart[];
   manifest_hash: string;
+};
+type RecoverableWiki = {
+  id: string;
+  title: string;
+  deleted_at: string;
+  recoverable_until: string;
 };
 type Operations = {
   usage: Record<string, number | string> | null;
@@ -151,6 +158,11 @@ export function OperationsPanel({
   hasWiki,
   writeMode,
   writeModeReason,
+  currentWikiId,
+  currentWikiTitle,
+  canDeleteWiki,
+  onCreateWiki,
+  onDeleteWiki,
   onWorkspaceChanged,
 }: {
   capabilities: Capabilities;
@@ -158,12 +170,18 @@ export function OperationsPanel({
   hasWiki: boolean;
   writeMode: "read_write" | "read_only";
   writeModeReason: string | null;
+  currentWikiId: string | null;
+  currentWikiTitle: string;
+  canDeleteWiki: boolean;
+  onCreateWiki?: () => void;
+  onDeleteWiki?: () => void;
   onWorkspaceChanged: () => Promise<void>;
 }) {
   const { language, t } = useI18n();
   const [members, setMembers] = useState<Member[]>([]),
     [events, setEvents] = useState<AuditEvent[]>([]),
     [operations, setOperations] = useState<Operations | null>(null),
+    [recoverableWikis, setRecoverableWikis] = useState<RecoverableWiki[]>([]),
     [fullBackupStale, setFullBackupStale] = useState(false),
     [busy, setBusy] = useState(false),
     [progress, setProgress] = useState(""),
@@ -174,10 +192,13 @@ export function OperationsPanel({
     [memberRole, setMemberRole] = useState<"editor" | "viewer">("editor");
   const importRef = useRef<HTMLInputElement>(null);
   const refresh = useCallback(async () => {
-    if (!hasWiki) return;
+    if (!hasWiki || !currentWikiId) return;
     const tasks: Promise<unknown>[] = [
       api<{ events: AuditEvent[] }>("/api/audit?limit=50").then((data) =>
         setEvents(data.events),
+      ),
+      api<{ recoverable_wikis: RecoverableWiki[] }>("/api/wikis").then((data) =>
+        setRecoverableWikis(data.recoverable_wikis ?? []),
       ),
     ];
     if (capabilities.can_manage_members)
@@ -202,7 +223,12 @@ export function OperationsPanel({
         }),
       );
     await Promise.allSettled(tasks);
-  }, [capabilities.can_full_backup, capabilities.can_manage_members, hasWiki]);
+  }, [
+    capabilities.can_full_backup,
+    capabilities.can_manage_members,
+    currentWikiId,
+    hasWiki,
+  ]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -223,6 +249,27 @@ export function OperationsPanel({
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "빈 위키를 만들지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreWiki(wiki: RecoverableWiki) {
+    if (busy || writeMode === "read_only") return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api(`/api/wikis/${wiki.id}/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operation_id: crypto.randomUUID() }),
+      });
+      await onWorkspaceChanged();
+      setMessage(t("ops.wikiRestored", { title: wiki.title }));
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : t("ops.wikiRestoreFailed"),
       );
     } finally {
       setBusy(false);
@@ -788,6 +835,68 @@ export function OperationsPanel({
         </p>
       )}
       <div className="operations-grid">
+        {((capabilities.can_create_wiki && onCreateWiki) ||
+          recoverableWikis.length > 0) && (
+          <section className="operation-card">
+            <span>{t("ops.wikiSection")}</span>
+            <h3>{t("ops.wikiTitle")}</h3>
+            <p>
+              {t("ops.wikiDescription")}
+              {currentWikiTitle
+                ? ` ${t("ops.currentWiki", { title: currentWikiTitle })}`
+                : ""}
+            </p>
+            {capabilities.can_create_wiki && onCreateWiki && (
+              <>
+                <div className="operation-actions">
+                  <button onClick={onCreateWiki} disabled={busy}>
+                    {t("tree.newVault")}
+                  </button>
+                  {onDeleteWiki && (
+                    <button
+                      className="destructive-action"
+                      onClick={onDeleteWiki}
+                      disabled={busy || !canDeleteWiki}
+                    >
+                      {t("ops.deleteWiki")}
+                    </button>
+                  )}
+                </div>
+                {!canDeleteWiki && (
+                  <small className="warning-text">
+                    {t("ops.deleteWikiDisabled")}
+                  </small>
+                )}
+              </>
+            )}
+            {recoverableWikis.length > 0 && (
+              <div className="recoverable-wiki-list">
+                <strong>{t("ops.recoverableWikis")}</strong>
+                <p>{t("ops.recoverableDescription")}</p>
+                {recoverableWikis.map((wiki) => (
+                  <article key={wiki.id}>
+                    <span>
+                      <b>{wiki.title}</b>
+                      <small>
+                        {t("ops.recoverableUntil", {
+                          date: new Date(wiki.recoverable_until).toLocaleString(
+                            language,
+                          ),
+                        })}
+                      </small>
+                    </span>
+                    <button
+                      onClick={() => void restoreWiki(wiki)}
+                      disabled={busy || writeMode === "read_only"}
+                    >
+                      {t("ops.restoreWiki")}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
         {capabilities.can_manage_members && (
           <section className="operation-card">
             <span>{t("ops.editingSection")}</span>
