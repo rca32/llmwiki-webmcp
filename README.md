@@ -1,384 +1,202 @@
 # Liminal Wiki
 
-**A source-grounded knowledge workspace where humans and AI agents share the
-same tools, permissions, revisions, and provenance through WebMCP.**
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) ·
+[简体中文](README.zh-CN.md)
 
-[System design](docs/SYSTEM_DESIGN.md) ·
-[WebMCP Challenge](https://webmcp.devpost.com/)
+## The wiki you update by asking—not editing.
 
-> Live app: <https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>.
-> The URL is publicly reachable, but every workspace and API requires ChatGPT
-> sign-in. Wiki data is private to the signed-in account's memberships.
+**People decide. Agents maintain.**
 
-![Liminal Wiki workspace showing topic navigation, a research article, connected pages, and change history](docs/assets/liminal-wiki-workspace.png)
+Liminal Wiki is a private, agent-maintained wiki. Read a page, tell it what
+should be different, and let an AI agent inspect the live wiki, check the
+evidence, and make a scoped, version-aware change.
 
-## Account access and ownership
+**The result lives in the wiki—not in another chat transcript.**
 
-ChatGPT sign-in is mandatory. On the first signed-in visit, an account that has
-no existing membership receives its own deterministic, isolated `Liminal Wiki`
-and becomes its owner. Returning with the same account reopens that wiki;
-another account receives a different wiki and cannot discover the first
-account's content.
+[Try the live demo](https://liminal-wiki-webmcp.epinfomax.chatgpt.site/) ·
+[See the core interaction](#see-the-core-interaction) ·
+[Technical guide](docs/TECHNICAL_GUIDE.md)
 
-Every account uses the production wiki product with persistent storage, the
-normal role model, the full owner WebMCP catalog, revisions, provenance,
-backups, and recovery features. There is no separate trial mode or temporary
-workspace. Existing memberships and vaults are preserved. Restricted isolated
-workspaces created under the earlier policy are upgraded in place to personal
-owner vaults on their next signed-in session, retaining their pages and history.
+> A private personal wiki is created automatically on first ChatGPT sign-in.
 
-In short, **public** describes who may reach the ChatGPT sign-in boundary. Data
-access still comes from the signed-in account's isolated membership; it never
-grants anonymous or cross-vault access.
+<!-- Replace this screenshot with docs/assets/liminal-wiki-demo.gif after recording the 12–20 second walkthrough. -->
 
-### Shared wikis and roles
+![Liminal Wiki: request an outcome and review maintained knowledge in the live wiki](docs/assets/liminal-wiki-workspace.png)
 
-A personal wiki stays private until its owner explicitly adds another
-ChatGPT account under **Settings & backup → People & access**. Enter the
-email address used by that person's ChatGPT account and assign either
-`editor` or `viewer`. This creates a membership for that one wiki; it does not
-publish the wiki, expose any other wiki, or replace either person's personal
-wiki.
+_Ask for an outcome. Review a maintained source of truth._
 
-No separate invitation email is sent. The added person opens the public Site
-URL, signs in with the matching ChatGPT account, and selects the shared wiki
-from the wiki switcher. Their own wikis remain available alongside it. An
-incorrect email address creates an unused membership, so the account email must
-match exactly.
+## One request. A maintained source of truth.
 
-| Role     | Wiki access                                                                                           |
-| -------- | ----------------------------------------------------------------------------------------------------- |
-| `viewer` | Read pages, connections, revisions, attachments, and standard exports                                 |
-| `editor` | Viewer access plus page writes, revision restore, attachments, and recoverable content deletion       |
-| `owner`  | Editor access plus member and role management, ownership transfer, full backup/import, and operations |
+Imagine opening a thin page for Project Aurora's launch review. Its decision,
+launch conditions, and supporting evidence have not yet been integrated.
 
-Only the current owner can add or remove members, change roles, or transfer
-ownership. The owner cannot be removed directly; ownership must first be
-transferred to an existing member, after which the previous owner becomes an
-editor. Member administration is intentionally available through the human UI
-and same-origin API, not through the page-scoped WebMCP tool catalog.
+Instead of opening an editor, request the result you want:
 
-## The problem
+```text
+Turn the attached launch-review notes into the canonical decision page for
+Project Aurora. Reuse this existing page. Separate the decision, launch
+conditions, current evidence, and open questions. Link the source, preserve
+uncertainty, and do not describe unmet conditions as completed.
+```
 
-Knowledge tools usually make people choose between two weak forms of AI
-assistance: an agent guesses its way through a visual interface, or a separate
-automation backend bypasses the application's permissions and state. Both
-approaches make collaboration brittle. The agent can act on stale content,
-overwrite a teammate's work, lose source attribution, or perform operations the
-current user cannot safely review.
+The agent then:
 
-Liminal Wiki makes the open web application itself the collaboration surface.
-The page exposes precise, structured WebMCP tools that use its current vault,
-signed-in session, selected page, permissions, and server-side rules. Humans
-stay in the workspace; agents work through the same command layer.
+- inspects the current page, version, and authorized scope;
+- searches the wiki before creating or duplicating knowledge;
+- checks related pages, sources, and connections;
+- applies the change through the live page's WebMCP tools;
+- returns the result to the same wiki with evidence and revision history.
 
-## A task-oriented interface
+You review maintained knowledge—not a block of text waiting to be copied out of
+chat.
 
-The human interface names screens by what a person can do there, rather than by
-the underlying data model:
+## Not an AI editor. A wiki redesigned around agents.
 
-| Screen                | Purpose                                                                           |
-| --------------------- | --------------------------------------------------------------------------------- |
-| **Documents**         | Read one page and create a contextual change request                              |
-| **Explore topics**    | Read approved conclusions, tradeoffs, implications, questions, and their evidence |
-| **Find**              | Find pages by title or content                                                    |
-| **Connections**       | See how pages link to one another                                                 |
-| **Settings & backup** | Manage content access, backups, people, and storage                               |
+Most AI knowledge tools add an assistant to an existing editor. The assistant
+may draft text, but people still have to maintain the source of truth.
 
-The left rail makes that choice directly: **Explore topics** opens the
-topic-only outline and insight reader, while **Documents** opens the physical
-folder tree and Markdown reader. Find, Connections, and Settings & backup preserve
-the most recently used outline. Direct page and folder creation is intentionally
-absent from the document tree; approved WebMCP work grows the wiki, while new
-wiki creation lives under Settings & backup. Owners can also soft-delete the
-current wiki there after acknowledging the backup guidance and typing its exact
-name. Deletion switches to another active wiki and remains reversible for 30
-days. Explore is intentionally read-only: it presents the last approved
-all-topics or per-topic insight brief in a single reading flow, with
-sentence-level evidence collapsed beneath each conclusion. Topic and brief
-changes are proposed through WebMCP plans and applied only after review;
-the site never refreshes insight prose on its own. If no approved brief exists,
-Explore falls back to one non-duplicated topic list with each topic's summary
-and up to three representative pages.
+Liminal Wiki changes the primary interaction.
 
-**Find** filters only its own result view; leaving Find never hides pages from
-the topic or folder outline. **Connections** follows the workspace's light or dark
-theme and exposes a visible page list when keyboard focus enters the graph, so
-nodes can be previewed without a pointer. Sync and other live workspace
-statuses update in English, Korean, Japanese, or Chinese when the interface
-language changes. Technical storage, request, and AI-tool metrics are kept
-under a collapsed **Advanced diagnostics** section. Stable implementation names
-such as `vault`, `knowledge-map`, and WebMCP tool IDs remain unchanged in APIs
-and source code.
+| Approach         | Where the result ends up          | Who maintains the source of truth       |
+| ---------------- | --------------------------------- | --------------------------------------- |
+| Chat with docs   | A chat response                   | A person                                |
+| AI in an editor  | A draft inside the editor         | A person                                |
+| **Liminal Wiki** | **The live wiki and its history** | **An agent, within the approved scope** |
 
-## The human-agent collaboration loop
+There is no general-purpose Edit button in the reading interface. For routine
+knowledge work, the request is the write interface.
+
+## See the core interaction
+
+1. Open the [live demo](https://liminal-wiki-webmcp.epinfomax.chatgpt.site/) in
+   a host with WebMCP support and sign in with ChatGPT.
+2. Open a page—or target the whole wiki—then select **Request change** and
+   describe what should be different.
+3. Send the prepared request to your AI agent, attaching a source file when
+   needed.
+4. Return to the wiki and review the updated page, linked evidence,
+   connections, and revision history.
+
+You do not need to edit Markdown, remember tool names, or manually repair the
+knowledge structure.
+
+## Try one of these requests
+
+### Turn notes into durable knowledge
+
+```text
+Turn these meeting notes into a decision page. Reuse existing project context,
+separate decisions from unresolved questions, and link the supporting sources.
+```
+
+### Repair an outdated page
+
+```text
+Check whether this page is still accurate. Update confirmed information,
+preserve relevant decision history, and flag claims that cannot be verified.
+```
+
+### Connect scattered knowledge
+
+```text
+Find pages related to this topic, add the missing connections, and summarize
+the conclusions, tensions, and open questions supported by the evidence.
+```
+
+### Consolidate duplicates
+
+```text
+Find duplicate pages about this subject, merge the useful knowledge into one
+canonical page, repair incoming links, and keep the old content recoverable.
+```
+
+### Research without hiding uncertainty
+
+```text
+Research and expand this page. Add only claims supported by visible evidence
+and clearly identify anything that remains uncertain or contested.
+```
+
+## How it works
 
 ```mermaid
 sequenceDiagram
-    actor Human
-    participant Agent
-    participant Page as Liminal Wiki page
-    participant Data as D1 / R2
+    participant H as Human
+    participant W as Liminal Wiki
+    participant A as AI agent
 
-    Human->>Page: Read knowledge and copy a scoped change request
-    Human->>Agent: Paste the request and attach source files if needed
-    Agent->>Page: Discover session-authorized WebMCP tools
-    Agent->>Page: Read context and policy, then search before creating
-    Page->>Data: Read current pages, versions, and claims
-    Agent->>Page: Prepare a source-grounded ingest or insight plan
-    Page-->>Agent: Return the exact plan, hash, and warnings
-    Agent-->>Human: Verify that the plan matches the authorized request
-    Agent->>Page: Apply the exact approved plan and hash
-    Page->>Data: Commit pages, claims, approved briefs, revisions, and audit events
-    Human->>Page: Read the result, insights, evidence, and immutable history
+    H->>W: Read knowledge
+    H->>W: Describe the desired outcome and scope
+    W-->>H: Prepare a structured request
+    H->>A: Send the request
+    A->>W: Inspect live state, version, and permissions
+    A->>W: Search, verify, plan, and apply
+    W-->>H: Show updated knowledge, evidence, and history
 ```
 
-The generated request contains the wiki and target IDs, current version,
-permalink, request type, user notes, and explicit authorization for exactly
-that scope. Codex must stop instead of applying when the target or impact is
-ambiguous or the required scope expands. A representative grounded flow is:
+The human remains responsible for intent and judgment. The agent handles the
+maintenance work required to turn that intent into a safe change.
 
-1. The agent calls `wiki_get_context` and `wiki_get_operating_contract` to
-   understand the active vault and its policy.
-2. It uses `wiki_search`, `wiki_get_page`, and `wiki_get_claims` to avoid
-   duplicates and preserve existing knowledge.
-3. It creates an expiring source-grounded plan with `wiki_plan_ingest`.
-4. The agent checks that the proposed source, pages, claims, confidence, and
-   warnings remain within the user's structured request.
-5. The agent calls `wiki_apply_ingest` with the unchanged plan hash and the
-   apply authorization carried by that request.
-6. Both participants inspect the committed revisions and run `wiki_lint` to
-   find missing provenance, unresolved links, or stale claims.
+## Safe enough for real knowledge
 
-This is not a remote MCP server. The tools are page-scoped: they exist while
-the Site is open and intentionally reuse the page's origin, state, and current
-login session.
+Liminal Wiki treats control and recovery as part of the normal interaction:
 
-## Why WebMCP matters here
+- every request identifies its target and authorized scope;
+- the agent inspects the live state before changing it;
+- write operations check the current version;
+- unsupported or conflicting claims are not silently rewritten as fact;
+- changes remain visible in revision history and can be recovered;
+- wiki membership, access, and backups remain under direct human control.
 
-| Without structured page tools                | With Liminal Wiki WebMCP                           |
-| -------------------------------------------- | -------------------------------------------------- |
-| Infer actions from screenshots and DOM state | Discover explicit tools with closed JSON Schemas   |
-| Maintain a separate automation identity      | Use the signed-in page session and role            |
-| Risk writing against stale content           | Require the latest `expected_version`              |
-| Retry mutations and create duplicates        | Replay safe operations with `operation_id`         |
-| Generate prose without durable evidence      | Store source metadata and claim-level provenance   |
-| Hide changes behind an agent transcript      | Create immutable revisions and audit events        |
-| Expose every action to every caller          | Project the tool catalog from current capabilities |
+Each signed-in account starts with an isolated private wiki. Owners can later
+add other ChatGPT accounts as viewers or editors without exposing anyone's
+separate personal workspace.
 
-The result is a coherent product experience for both participants rather than
-a UI with an automation layer bolted on afterward.
+## Read the result, not the maintenance work
 
-## WebMCP surface
+After an agent completes a change, the same knowledge can be reviewed through:
 
-The exact catalog changes with the current session's capabilities and active
-vault. Viewer and operational read-only sessions discover no content-changing
-tools.
+- **Documents** for the folder tree and canonical Markdown pages;
+- **Explore topics** for conclusions, tensions, implications, and questions;
+- **Find** for title and content search;
+- **Connections** for relationships between pages;
+- **Settings & backup** for people, access, wikis, and recovery.
 
-| Area                 | Tools                                                                                                                                    | What they enable                                                                       |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Context and vaults   | `wiki_get_context`, `wiki_list_vaults`, `wiki_switch_vault`, `wiki_create_vault`                                                         | Discover and change the page-scoped working context                                    |
-| Policy and grounding | `wiki_get_operating_contract`, `wiki_update_operating_contract`, `wiki_get_claims`, `wiki_lint`, `wiki_plan_ingest`, `wiki_apply_ingest` | Define knowledge policy, review grounded changes, preserve evidence, and audit quality |
-| Browse               | `wiki_list_pages`, `wiki_search`, `wiki_get_page`, `wiki_get_neighbors`, `wiki_list_revisions`                                           | Traverse hierarchy, search bounded content, follow links, and inspect history          |
-| Author               | `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`                    | Maintain Markdown knowledge without bypassing domain rules                             |
-| Recover              | `wiki_restore_revision`, `wiki_soft_delete_page`, `wiki_restore_deleted_page`                                                            | Restore immutable history or perform explicitly requested recoverable deletion         |
+The interface is available in English, Korean, Japanese, and Simplified
+Chinese.
 
-`wiki_soft_delete_page` is exposed only with `can_soft_delete`. It requires the
-current page version, a reason, a retry-safe operation ID, and the exact
-`DELETE {title}` confirmation after children and evidence impact are checked.
+## Why WebMCP changes the product
 
-## Safety by construction
+Without WebMCP, an agent can suggest text, guess from screenshots, or operate a
+separate automation account. The result often remains disconnected from the
+signed-in source of truth.
 
-- **Capability-aware discovery.** The page fetches trusted same-origin session
-  capabilities and registers only the tools the current user may invoke.
-- **Server-side authorization.** Conditional registration improves discovery;
-  every API handler independently enforces the same permission.
-- **Closed, bounded inputs.** Tool schemas reject unknown top-level fields and
-  set explicit bounds. Executors validate inputs again before calling an API.
-- **Optimistic concurrency.** Existing-page writes require
-  `expected_version`, so a stale agent cannot silently overwrite newer work.
-- **Safe retries.** Mutations use client-generated operation UUIDs where the
-  contract promises idempotency.
-- **Review before apply.** Source-grounded ingest separates planning from an
-  explicitly approved, hash-matched application step.
-- **Recoverable history.** Successful changes create immutable revisions;
-  restoration creates another revision rather than rewriting history.
-- **Untrusted content boundaries.** Returned Markdown and evidence fragments
-  are labeled as user content, not agent instructions.
-- **Content-free telemetry.** WebMCP observability records bounded outcome,
-  latency, tool name, and safe correlation data—not prompts, page bodies,
-  credentials, or tool results.
-- **Operational containment.** Owner-controlled read-only mode hides WebMCP
-  mutations, disables change requests, and rejects direct mutation APIs.
+With WebMCP, Liminal Wiki exposes session-aware, page-scoped operations to the
+agent working with the open product. The agent can inspect the current wiki,
+respect its permissions and versions, and apply the requested change directly
+to the same workspace the person is reading.
 
-## A complete knowledge workspace
+WebMCP is not an AI button added to a conventional wiki. It enables the request
+itself to become the normal maintenance interface.
 
-The human interface and WebMCP tools operate on the same product, not parallel
-implementations. The workspace includes:
+The product is not tied to one agent. Any compatible host with the required
+page-scoped WebMCP support can discover and call the tools available to its
+signed-in session.
 
-- multiple wikis with folder/page hierarchy and per-user switching;
-- read-only Markdown rendering with GFM, math, Mermaid, wikilinks, and
-  contextual change-request prompts in four languages;
-- isolated full-text search, backlinks, theme-aware keyboard-accessible
-  connection exploration, and stable page permalinks;
-- English, Korean, Japanese, and Chinese interface and request copy, including
-  synchronization status;
-- source pages, structured retrieval metadata, claim-level provenance, and
-  knowledge-quality linting;
-- immutable revisions, requested restore-as-new-version, requested leaf soft
-  delete, and trash recovery;
-- attachment viewing and download in the human UI, plus agent-grounded source
-  ingestion from files attached to the Codex conversation;
-- portable and full multipart backups with per-part SHA-256 and resumable
-  empty-Site restore;
-- member roles, ownership transfer, audit history, repair diagnostics, storage
-  maintenance, and operational read-only mode.
+## For builders and judges
 
-## Architecture
+- [Technical guide](docs/TECHNICAL_GUIDE.md): access, WebMCP behavior, safety,
+  architecture, local setup, and validation
+- [System design](docs/SYSTEM_DESIGN.md): contracts, operations, recovery, and
+  acceptance evidence
+- [Challenge submission and demo script](docs/WEBMCP_CHALLENGE.md)
+- [Production Site guide](site/README.md)
+- [Recovery runbook](site/RECOVERY_RUNBOOK.md)
+- [Source provenance](docs/SOURCE_PROVENANCE.md)
 
-```mermaid
-flowchart LR
-    Human[Human collaborator] --> UI[React workspace UI]
-    Agent[ChatGPT / Codex] --> Host[WebMCP-capable host]
-    Host --> Tools[Page-scoped WebMCP tools]
-    UI --> API[Same-origin API handlers]
-    Tools --> API
-    API --> Session[Session and capability policy]
-    Session --> Domain[Wiki repository and domain rules]
-    Domain --> D1[(D1 metadata and content)]
-    Domain --> R2[(R2 attachments and tiered revisions)]
-    Domain --> Audit[Revisions, audit, and bounded telemetry]
-```
+## License
 
-The client registers tools after mount with
-`document.modelContext.registerTool()`, guards browsers without WebMCP, and
-uses an abort signal to clean up registrations. Tool executors remain thin and
-delegate persistence to ordinary testable same-origin handlers.
-
-## Technology
-
-| Layer             | Choice                                                        |
-| ----------------- | ------------------------------------------------------------- |
-| Hosting           | ChatGPT Sites                                                 |
-| Web runtime       | Next.js-compatible vinext on Vite and Cloudflare Workers      |
-| UI                | React 19, Base UI, Sigma/Graphology, Mermaid, KaTeX           |
-| Data              | Cloudflare D1 through Drizzle ORM                             |
-| Objects           | Cloudflare R2                                                 |
-| Agent integration | Page-scoped WebMCP via `document.modelContext.registerTool()` |
-| Validation        | TypeScript, ESLint, Prettier, Vitest, Playwright, axe-core    |
-
-## Run locally
-
-Requirements:
-
-- Node.js 22.13 or newer
-- npm
-
-```bash
-git clone https://github.com/rca32/llmwiki-webmcp.git
-cd llmwiki-webmcp/site
-npm ci
-npm run dev
-```
-
-The ChatGPT Sites development runtime supplies local D1/R2 bindings and a test
-identity. Production does not accept the local identity adapter. See
-[`site/.env.example`](site/.env.example) for the small local configuration
-surface.
-
-## Validate the application
-
-Static contracts and the production build:
-
-```bash
-cd site
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run test:notices
-npm run db:check
-npm run build
-npm run test:bundle
-```
-
-Browser, scale, and recovery gates:
-
-```bash
-npm run test:ui:ci
-npm run test:performance:ci
-npm run test:backup-roundtrip
-npm run test:backup-spike
-```
-
-WebMCP acceptance is a separate host-level step. A successful build or the
-presence of registration code is not enough:
-
-1. Copy the URL generated for the current ChatGPT Sites deployment and open it
-   in a supported ChatGPT/Codex browser host.
-2. Acquire the host's WebMCP capability and run `fetchTools()`.
-3. Inspect the discovered names, descriptions, schemas, and annotations.
-4. Call a harmless read tool such as `wiki_get_context`.
-5. Re-discover after a role, vault, login, or operational mode change.
-
-The production acceptance discovered the full capability-projected catalog for
-the signed-in personal-vault owner role and completed the scripted
-context → contract → search → plan → apply → claims/revisions/lint flow. It
-created one source page, one entity page, and one grounded claim; the resulting
-quality check reported no issues. Destructive owner operations were discovered
-but deliberately not exercised. A hosted viewer-only comparison remains a
-separate acceptance gate.
-
-## Repository map
-
-```text
-.
-├── site/                         # Production ChatGPT Site
-│   ├── app/site-tools.tsx        # WebMCP descriptors and executors
-│   ├── app/api/                  # Shared same-origin command/query surface
-│   ├── db/                       # D1 schema and repository invariants
-│   ├── lib/                      # Contracts, validation, safety, and packaging
-│   └── tests/                    # Browser, performance, bundle, and DR gates
-├── recovery-site/                # Isolated recovery validation Site
-├── skills/llm-wiki-domain/       # Source-grounded wiki Agent Skill
-└── docs/SYSTEM_DESIGN.md         # Architecture and acceptance evidence
-```
-
-## Built for the WebMCP Challenge
-
-Liminal Wiki was created during the 2026 WebMCP Challenge submission period.
-Its submission focuses on the four judging dimensions:
-
-- **WebMCP leverage:** a non-trivial, session-aware 27-tool catalog grounded in
-  real page state and application permissions;
-- **execution:** one complete UI/API/WebMCP product with persistence,
-  observability, tests, backup, and recovery;
-- **potential impact:** safer research and knowledge maintenance for teams that
-  need durable sources and accountable changes;
-- **creativity and ambition:** an operating contract and plan-review-apply
-  workflow that make human judgment part of the agent protocol.
-
-Official challenge information is available from the
-[OpenAI WebMCP Challenge](https://openai.com/ko-KR/webmcp-challenge/) and
-[Devpost](https://webmcp.devpost.com/).
-
-## Documentation
-
-- [System design](docs/SYSTEM_DESIGN.md): architecture, security, contracts,
-  operations, performance, recovery, and acceptance evidence
-- [Production Site guide](site/README.md): detailed local and operational test
-  commands
-- [Recovery runbook](site/RECOVERY_RUNBOOK.md): rollback, revision recovery,
-  and full-Site restoration
-- [Source provenance](docs/SOURCE_PROVENANCE.md): pinned origins,
-  file-by-file adaptation records, exclusions, and license handling
-
-## License and provenance
-
-Except where a file or third-party notice states otherwise, all original
-Liminal Wiki source code and repository-owned modifications are licensed under
-[`GPL-3.0-only`](LICENSE). Third-party dependencies and separately attributed
-works retain their respective licenses. Pinned origins, adapted files,
-modifications, exclusions, and non-import declarations are consolidated in
-[source provenance](docs/SOURCE_PROVENANCE.md). Direct dependency licenses are
-listed in [third-party notices](site/THIRD_PARTY_NOTICES.md).
+Original Liminal Wiki code and repository-owned modifications are licensed
+under [GPL-3.0-only](LICENSE). Third-party works retain their respective
+licenses; see [source provenance](docs/SOURCE_PROVENANCE.md) and
+[third-party notices](site/THIRD_PARTY_NOTICES.md).
