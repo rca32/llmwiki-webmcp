@@ -1094,7 +1094,9 @@ export function OperationsPanel({
                   {webmcpMetrics.length ? (
                     <div
                       className="webmcp-metric-list"
+                      role="region"
                       aria-label={t("ops.agentTitle")}
+                      tabIndex={0}
                     >
                       {webmcpMetrics.map((metric) => (
                         <article

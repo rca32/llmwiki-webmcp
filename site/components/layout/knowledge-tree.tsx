@@ -104,14 +104,12 @@ export function KnowledgeTree({
   activeVaultTitle,
   activePageId,
   pendingPageId,
-  canWrite,
   onOpenPage,
-  onMovePage,
   knowledgeMap,
   selectedKnowledgeTopicId,
   onOpenKnowledgeTopic,
   onSwitchVault,
-  onRestorePage,
+  onRequestRestore,
 }: {
   treeMode: "knowledge" | "files";
   pages: KnowledgeTreePage[];
@@ -121,14 +119,12 @@ export function KnowledgeTree({
   activeVaultTitle: string;
   activePageId: string | null;
   pendingPageId: string | null;
-  canWrite: boolean;
   onOpenPage: (pageId: string) => void;
-  onMovePage: (pageId: string, parentId: string | null) => void;
   knowledgeMap: KnowledgeMapData;
   selectedKnowledgeTopicId: string | null;
   onOpenKnowledgeTopic: (topicId: string | null) => void;
   onSwitchVault: (wikiId: string) => void;
-  onRestorePage: (page: KnowledgeTreePage) => void;
+  onRequestRestore: (page: KnowledgeTreePage) => void;
 }) {
   const { language, t } = useI18n();
   const [expandedTypes, setExpandedTypes] = useState(() => new Set(typeOrder));
@@ -137,10 +133,6 @@ export function KnowledgeTree({
   );
   const [expandedTopics, setExpandedTopics] = useState(() => new Set<string>());
   const [trashOpen, setTrashOpen] = useState(false);
-  const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | "root" | null>(
-    null,
-  );
 
   const grouped = useMemo(() => {
     const result = new Map<string, KnowledgeTreePage[]>();
@@ -192,11 +184,6 @@ export function KnowledgeTree({
       return next;
     });
   }
-  function completeDrop(pageId: string, parentId: string | null) {
-    setDraggedPageId(null);
-    setDropTargetId(null);
-    if (pageId !== parentId) onMovePage(pageId, parentId);
-  }
   function handleTreeKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -204,7 +191,7 @@ export function KnowledgeTree({
       event.currentTarget
         .closest(".tree-content")
         ?.querySelectorAll<HTMLButtonElement>(
-          ".tree-page-row:not(.deleted), .tree-file-open",
+          "button.tree-page-row:not(.deleted), .tree-file-open",
         ) ?? [],
     );
     const index = rows.indexOf(event.currentTarget);
@@ -227,35 +214,8 @@ export function KnowledgeTree({
       return (
         <div className="tree-file-node" key={page.id}>
           <div
-            className={`tree-page-row file-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""} ${dropTargetId === page.id ? "drop-target" : ""}`}
+            className={`tree-page-row file-row ${activePageId === page.id ? "active" : ""} ${pendingPageId === page.id ? "loading" : ""}`}
             style={{ paddingLeft: `${8 + depth * 15}px` }}
-            draggable={canWrite}
-            onDragStart={(event) => {
-              setDraggedPageId(page.id);
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", page.id);
-            }}
-            onDragEnd={() => {
-              setDraggedPageId(null);
-              setDropTargetId(null);
-            }}
-            onDragOver={(event) => {
-              if (!isFolder || !draggedPageId || draggedPageId === page.id)
-                return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setDropTargetId(page.id);
-            }}
-            onDrop={(event) => {
-              if (!isFolder) return;
-              event.preventDefault();
-              const dragged =
-                event.dataTransfer.getData("text/plain") || draggedPageId;
-              if (dragged) {
-                setExpandedFolders((current) => new Set(current).add(page.id));
-                completeDrop(dragged, page.id);
-              }
-            }}
           >
             <button
               type="button"
@@ -386,21 +346,7 @@ export function KnowledgeTree({
           )}
           {treeMode === "files" && (
             <div className="tree-file-list">
-              <div
-                className={`tree-root-drop ${dropTargetId === "root" ? "drop-target" : ""}`}
-                onDragOver={(event) => {
-                  if (draggedPageId) {
-                    event.preventDefault();
-                    setDropTargetId("root");
-                  }
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const dragged =
-                    event.dataTransfer.getData("text/plain") || draggedPageId;
-                  if (dragged) completeDrop(dragged, null);
-                }}
-              >
+              <div className="tree-root-drop">
                 <Vault />
                 <span>{activeVaultTitle}</span>
                 <small>{t("tree.topLevel")}</small>
@@ -484,11 +430,11 @@ export function KnowledgeTree({
                       type="button"
                       key={page.id}
                       className="tree-page-row deleted"
-                      onClick={() => onRestorePage(page)}
+                      onClick={() => onRequestRestore(page)}
                     >
                       <Trash2 />
                       <span>{page.title}</span>
-                      <small>{t("tree.restore")}</small>
+                      <small>{t("request.restoreDeleted")}</small>
                     </button>
                   ))}
                 </div>

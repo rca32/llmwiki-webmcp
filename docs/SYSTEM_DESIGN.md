@@ -20,7 +20,7 @@ Command-level operational procedures live in [`site/RECOVERY_RUNBOOK.md`](../sit
 
 ## 2. Product Definition and Scope
 
-Liminal Wiki is a source-grounded Markdown knowledge workspace hosted on ChatGPT Sites. People manage vaults, folders, pages, revisions, attachments, and claims through the browser UI. Codex and ChatGPT Work use the same data and commands through WebMCP tools registered by the open Site.
+Liminal Wiki is a source-grounded Markdown knowledge workspace hosted on ChatGPT Sites. People read pages, evidence, topics, connections, and immutable history through the browser UI, then copy a structured change request to Codex. Codex and ChatGPT Work maintain content through WebMCP tools registered by the open Site. People continue to manage vault lifecycle, members, backups, and operational settings directly.
 
 The system is responsible for:
 
@@ -45,7 +45,7 @@ The following are intentionally outside the system:
 
 ## 3. Core Design Principles
 
-1. **The UI and agents use the same command layer.** UI actions and WebMCP executors use the same same-origin APIs and repository rules.
+1. **People request; agents maintain.** The product Site is a read-only knowledge surface whose structured request identifies and authorizes an exact scope. WebMCP executors use same-origin APIs and repository rules; administrative UI actions use those APIs only for vault, member, backup, and operational controls.
 2. **The server is the final authorization boundary.** Hiding tools or disabling buttons is a UX measure; every API rechecks the session, capability, and vault membership.
 3. **Every write makes conflicts and retries explicit.** Updates to existing objects use `expected_version`; replayable commands use `operation_id` and a canonical request hash.
 4. **Markdown is the portable source of truth.** Link and frontmatter indexes are derived data. Source metadata and claims are preserved as separate structured data.
@@ -88,16 +88,16 @@ The production and recovery Sites use separate data resources. A benchmark flag 
 
 ## 5. Components and Responsibilities
 
-| Component               | Responsibilities                                                                                          | Not responsible for                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Workspace UI            | Vault switching, tree/search/editor/preview/graph, revision, attachment and operations views, conflict UI | Final authorization, direct D1/R2 access   |
-| `SiteTools` adapter     | Capability lookup, conditional registration of 22 tools, input revalidation, same-origin calls, metrics   | Domain rules and persistence               |
-| API routes              | Request envelope, session/capability checks, command invocation, HTTP status mapping                      | UI state and agent workflow decisions      |
-| Wiki repository/domain  | Vault isolation, CAS, idempotency, and revision/link/claim/ingest/backup invariants                       | WebMCP lifecycle                           |
-| D1                      | Relational metadata, current Markdown, inline revisions, plans, claims, audit, metrics, state machines    | Large binaries and large revision bodies   |
-| R2                      | Attachments, large revision snapshots, import staging objects                                             | Final authorization and referential checks |
-| `llm-wiki-domain` Skill | Search-before-create, source preservation, plan-before-apply, provenance, post-apply verification         | Security boundaries and server permissions |
-| Operations center       | Read-only mode, members, audit, usage, repair, diagnostics, and benchmark execution                       | Automatic external-backup scheduling       |
+| Component               | Responsibilities                                                                                                     | Not responsible for                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Workspace UI            | Vault switching, read-only tree/search/preview/graph, revision/attachment views, contextual requests, and operations | Content mutation, final server authorization, direct D1/R2 access |
+| `SiteTools` adapter     | Capability lookup, conditional registration of 27 tools, input revalidation, same-origin calls, metrics              | Domain rules and persistence                                      |
+| API routes              | Request envelope, session/capability checks, command invocation, HTTP status mapping                                 | UI state and agent workflow decisions                             |
+| Wiki repository/domain  | Vault isolation, CAS, idempotency, and revision/link/claim/ingest/backup invariants                                  | WebMCP lifecycle                                                  |
+| D1                      | Relational metadata, current Markdown, inline revisions, plans, claims, audit, metrics, state machines               | Large binaries and large revision bodies                          |
+| R2                      | Attachments, large revision snapshots, import staging objects                                                        | Final authorization and referential checks                        |
+| `llm-wiki-domain` Skill | Search-before-create, source preservation, plan-before-apply, provenance, post-apply verification                    | Security boundaries and server permissions                        |
+| Operations center       | Read-only mode, members, audit, usage, repair, diagnostics, and benchmark execution                                  | Automatic external-backup scheduling                              |
 
 ## 6. Data Design
 
@@ -334,7 +334,7 @@ Error responses use the closed error-code set `unauthenticated`, `forbidden`, `n
 
 ### 9.2 Tool Catalog
 
-The current catalog contains at most 22 tools. The number actually discovered depends on session capabilities.
+The current catalog contains at most 27 tools. The number actually discovered depends on session capabilities.
 
 | Area       | Tool                             | Required capability | Meaning                                                     |
 | ---------- | -------------------------------- | ------------------- | ----------------------------------------------------------- |
@@ -350,9 +350,12 @@ The current catalog contains at most 22 tools. The number actually discovered de
 | Browse     | `wiki_get_neighbors`             | `can_read`          | Traverse nearby inbound/outbound links                      |
 | Browse     | `wiki_list_revisions`            | `can_read`          | Revision metadata without snapshot bodies                   |
 | Provenance | `wiki_get_claims`                | `can_read`          | List claims by subject/source                               |
+| Insight    | `wiki_get_knowledge_map`         | `can_read`          | Read approved briefs, topics, evidence, and stale state     |
 | Quality    | `wiki_lint`                      | `can_read`          | Bounded read-only quality audit                             |
-| Ingest     | `wiki_plan_ingest`               | `can_read`          | Save an immutable review plan without changing wiki content |
+| Ingest     | `wiki_plan_ingest`               | `can_write`         | Save an immutable review plan without changing wiki content |
 | Ingest     | `wiki_apply_ingest`              | `can_write`         | Resume an approved plan whose hash matches                  |
+| Insight    | `wiki_plan_knowledge_map`        | `can_write`         | Plan topic organization or approved insight briefs          |
+| Insight    | `wiki_apply_knowledge_map`       | `can_write`         | Apply an unchanged authorized topic/insight plan            |
 | Authoring  | `wiki_create_folder`             | `can_write`         | Create a Markdown index folder                              |
 | Authoring  | `wiki_create_page`               | `can_write`         | Create page/source metadata                                 |
 | Authoring  | `wiki_update_page`               | `can_write`         | Replace content using version CAS                           |
@@ -360,8 +363,10 @@ The current catalog contains at most 22 tools. The number actually discovered de
 | Authoring  | `wiki_move_page`                 | `can_write`         | Move after cycle/slug checks                                |
 | Authoring  | `wiki_link_pages`                | `can_write`         | Create a link through Markdown                              |
 | Recovery   | `wiki_restore_revision`          | `can_write`         | Restore an old snapshot as a new revision                   |
+| Recovery   | `wiki_soft_delete_page`          | `can_soft_delete`   | Typed-confirmed, versioned leaf soft deletion               |
+| Recovery   | `wiki_restore_deleted_page`      | `can_soft_delete`   | Recover a soft-deleted page with optional replacement slug  |
 
-`wiki_plan_ingest` does not change pages or claims, but it does persist a review-plan row. Callers must therefore treat it as durable state in the analysis phase. Page/attachment soft deletion remains available only through the UI/API until a separately designed typed-confirmation tool exists; it is not in the WebMCP catalog.
+`wiki_plan_ingest` does not change pages or claims, but it does persist a review-plan row. Callers must therefore treat it as durable state in the analysis phase. `wiki_soft_delete_page` is registered only for a session with `can_soft_delete`, is annotated destructive and idempotent, and still rechecks that capability at the API boundary. It requires the current version, deletion reason, fresh operation UUID, and exact `DELETE {title}` confirmation.
 
 ### 9.3 Runtime Acceptance
 
@@ -398,7 +403,7 @@ Every resource lookup combines `wiki_id` with a membership condition. Page, atta
 | Threat                     | Design response                                                                               |
 | -------------------------- | --------------------------------------------------------------------------------------------- |
 | Cross-vault IDOR           | Server-derived active vault; vault condition on every repository query                        |
-| Overwriting newer edits    | `expected_version` CAS, 409 conflict, UI diff/merge                                           |
+| Overwriting newer edits    | `expected_version` CAS, 409 conflict, agent re-read and scoped re-plan                        |
 | Duplicate network retries  | Operation ID, request hash, lease, and stored replay result                                   |
 | Markdown/KaTeX/Mermaid XSS | Restricted raw HTML, URL-scheme allowlist, sanitization, strict renderer settings             |
 | Active file content        | MIME/extension/size limits; active SVG rejected                                               |
@@ -414,9 +419,8 @@ Responses apply CSP, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissio
 
 ## 12. Revision, Quota, and Retention Policy
 
-- Autosave uses a 1.5-second debounce and content-hash comparison to eliminate no-ops.
-- Each successful autosave, explicit save, WebMCP write, import, and restore creates an immutable revision.
-- Autosave revisions retain all versions for 24 hours, the last version per hour through 30 days, and the last version per day through 180 days.
+- Each successful WebMCP write, import, and restore creates an immutable revision. Legacy API autosave revisions remain readable and retain their existing classification.
+- Legacy autosave revisions retain all versions for 24 hours, the last version per hour through 30 days, and the last version per day through 180 days.
 - Explicit/WebMCP/import/restore revisions are retained for 180 days.
 - Regardless of policy, retain the latest 100 revisions per page and all pinned revisions.
 - Keep no more than the latest 10 D1 inline snapshots per page; tier the remaining retained snapshots to R2.
@@ -428,9 +432,11 @@ Responses apply CSP, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissio
 
 ## 13. UI and Provenance Boundaries
 
-The UI consists of a left icon rail; a vault/folder/page tree and search; a central source/preview editor; a graph; and operations surfaces. Panels become drawers on narrow screens. It provides keyboard navigation, accessible names, visible focus, reduced motion, and a list alternative to the graph.
+The product UI consists of a left icon rail; a read-only vault/folder/page tree and search; a central Markdown reader; topic insights; a graph; attachment downloads and history; a contextual change-request dialog; and operations surfaces. Panels become drawers on narrow screens. It provides keyboard navigation, accessible names, visible focus, reduced motion, and a list alternative to the graph.
 
-When a save is stale, the editor presents the latest version, the local draft, a diff, and choices to merge or preserve the draft as a new page. Periodic refresh on a non-document surface must not arbitrarily return the user's current view to a document. For overlapping workspace requests, only the latest response is applied.
+The request dialog defaults to the current document, topic, revision, deleted page, or whole wiki and copies a localized prompt containing stable IDs, path, version, permalink, request type, user details, workflow rules, and exact-scope authorization. It never embeds the page body or persists a request row. Direct document editing, saving, moving, deletion, attachment upload, revision restoration, trash restoration, and folder drag/drop are absent from `site/`. Periodic refresh on a non-document surface must not arbitrarily return the user's current view to a document. For overlapping workspace requests, only the latest response is applied.
+
+`recovery-site/` is an explicit operational exception. It retains direct disaster-recovery and verification controls and does not adopt the human-facing request workflow.
 
 Pinned origins, file-level mappings, changes, exclusions, and license treatment for externally ported or adapted UI code and interaction patterns are managed solely in [`docs/SOURCE_PROVENANCE.md`](SOURCE_PROVENANCE.md). Validation covers `LICENSE`, each Site's `THIRD_PARTY_NOTICES.md`, and that provenance record together.
 
@@ -516,7 +522,7 @@ This section records acceptance evidence as of 2026-08-30, not design requiremen
 - The Sites source artifact `bde05e9ede88353ee4043f03d6c0d2e0e5ebb15a`, including the source-grounded workflow, was recorded as deployed to production in saved version 36.
 - The accepted deployment used a custom owner-only access policy. Its generated Site URL is intentionally not part of the reusable source or design contract.
 - Production retained custom owner-only access, and WebMCP capability, tool discovery, and real calls to `wiki_get_operating_contract`, `wiki_lint`, and `wiki_get_context` succeeded in the owner session.
-- The current tool catalog contains at most 22 tools. A historical 12-tool verification predates source-grounded and multi-vault tools and must not be used as the baseline for the current catalog.
+- The current tool catalog contains at most 27 tools. Historical 12- and 22-tool verifications predate the current insight and recoverable-delete tools and must not be used as the baseline for the current catalog.
 - For the source-grounded change baseline, formatting, lint, typecheck, database checks, build, notices, bundle gates, and 12 Vitest files with 63 tests were recorded as passing.
 - UI smoke/lifecycle, backup round trip, blank-Site import, contract update, a three-action ingest plan/apply, idempotent replay, claims, and negative plan checks passed.
 - The isolated recovery Site's 10,000-page measurements were search p95 190 ms, page-read p95 175 ms, and initial-tree p95 1,180 ms for 200 nodes; only the original page remained after fixture cleanup.
@@ -535,7 +541,7 @@ These files are acceptance evidence, not a claim that they are the latest full b
 ### 16.3 Open Gates
 
 - Verify the discovery and execution permission matrix with actual hosted editor and viewer accounts
-- Verify the current 22-tool catalog's search/create/update flow in a ChatGPT Work host
+- Verify the current 27-tool catalog's search/create/update and capability-gated deletion flow in a ChatGPT Work host
 - Obtain an independent security reviewer's sign-off
 - Backfill 30 source-metadata records in the existing production vault
 - Resolve the three currently known unresolved wiki links: `[[아키텍처]]`, `[[도구 계약]]`, `[[운영과 복구]]`
@@ -555,7 +561,7 @@ The following decisions are system defaults. Any change to them must update both
 - Source ingest follows search → immutable plan → explicit approval → resumable apply → verification.
 - Mutations never bypass CAS or idempotency.
 - Recovery from total Site loss assumes a full backup stored outside Sites.
-- Destructive WebMCP tools are not exposed until their target, impact, recoverability, and typed-confirmation contracts are ready.
+- Destructive WebMCP tools are exposed only when target, impact, recoverability, capability gating, idempotency, and typed-confirmation contracts are enforced by both schema and server.
 
 A pull request that changes the design must answer at least:
 

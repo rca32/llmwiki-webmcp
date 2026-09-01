@@ -82,6 +82,12 @@ const writeAnnotations = {
   idempotentHint: true,
   openWorldHint: false,
 };
+const destructiveAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 const planAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
@@ -802,7 +808,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_create_folder",
       title: "Create a wiki folder",
       description:
-        "Create an indexable folder node under the vault root or another folder. The folder is also a Markdown index page and can contain child folders and pages.",
+        "After an explicit user change request, inspect the current context and existing hierarchy, then create an indexable Markdown folder node under the vault root or another folder.",
       inputSchema: closed(
         {
           parent_id: { ...pageIdSchema, type: ["string", "null"] },
@@ -975,7 +981,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_move_page",
       title: "Move a wiki page",
       description:
-        "Move a page to a new parent and sort position. The operation rejects self-parenting, descendant cycles, stale versions, and sibling path conflicts.",
+        "After an explicit user move request, read the page and destination context, then move the page to a new physical parent and sort position without changing semantic topic placement. Rejects cycles, stale versions, and path conflicts.",
       inputSchema: closed(
         {
           page_id: pageIdSchema,
@@ -1009,7 +1015,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_link_pages",
       title: "Link two wiki pages",
       description:
-        "Add a wiki link from one existing page to another. Read both pages first and pass the current source version.",
+        "After an explicit user connection request, read both pages, their neighbors, and relevant claims, then add a wiki link using the current source version.",
       inputSchema: closed(
         {
           source_page_id: pageIdSchema,
@@ -1048,7 +1054,7 @@ export function writeTools(): SiteTool[] {
       name: "wiki_restore_revision",
       title: "Restore a wiki revision",
       description:
-        "Restore an immutable historical snapshot as a new latest revision. This never rewinds version history and requires the current page version.",
+        "After an explicit user restore request, read the current page and requested revision, then restore the immutable snapshot as a new latest revision without rewinding history.",
       inputSchema: closed(
         {
           page_id: pageIdSchema,
@@ -1073,11 +1079,81 @@ export function writeTools(): SiteTool[] {
   ];
 }
 
+export function softDeleteTools(): SiteTool[] {
+  return [
+    {
+      name: "wiki_soft_delete_page",
+      title: "Soft-delete a wiki page",
+      description:
+        "After an explicit user deletion request, read the current page, children, neighbors, claims, and evidence impact. Soft-delete only a leaf page using its current version, the exact DELETE {title} confirmation, a reason, and a retry-safe operation UUID.",
+      inputSchema: closed(
+        {
+          page_id: pageIdSchema,
+          expected_version: { type: "integer", minimum: 1 },
+          confirmation: { type: "string", minLength: 1, maxLength: 300 },
+          reason: { type: "string", minLength: 1, maxLength: 500 },
+          operation_id: operationSchema,
+        },
+        [
+          "page_id",
+          "expected_version",
+          "confirmation",
+          "reason",
+          "operation_id",
+        ],
+      ),
+      annotations: destructiveAnnotations,
+      execute: async (input) =>
+        writeRequest(
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}`,
+          "DELETE",
+          {
+            expected_version: boundedInteger(input.expected_version, 1),
+            confirmation: requiredText(input, "confirmation", 300),
+            reason: requiredText(input, "reason", 500),
+            operation_id: requiredUuid(input, "operation_id"),
+          },
+        ),
+    },
+    {
+      name: "wiki_restore_deleted_page",
+      title: "Restore a deleted wiki page",
+      description:
+        "After an explicit user restore request, inspect the deleted page and current path conflicts, then recover it with its current deleted version and an optional replacement slug. Preserves revision history and is retry-safe.",
+      inputSchema: closed(
+        {
+          page_id: pageIdSchema,
+          expected_version: { type: "integer", minimum: 1 },
+          replacement_slug: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 200,
+          },
+          operation_id: operationSchema,
+        },
+        ["page_id", "expected_version", "operation_id"],
+      ),
+      annotations: writeAnnotations,
+      execute: async (input) =>
+        writeRequest(
+          `/api/pages/${encodeURIComponent(requiredUuid(input, "page_id"))}/restore-deleted`,
+          "POST",
+          {
+            expected_version: boundedInteger(input.expected_version, 1),
+            replacement_slug: nullableText(input, "replacement_slug", 200),
+            operation_id: requiredUuid(input, "operation_id"),
+          },
+        ),
+    },
+  ];
+}
+
 export function toolsForCapabilities(capabilities: {
   can_read?: boolean;
   can_write?: boolean;
   can_create_wiki?: boolean;
   can_restore?: boolean;
+  can_soft_delete?: boolean;
 }) {
   const tools: SiteTool[] = [];
   if (capabilities.can_read) tools.push(...readTools());
@@ -1089,6 +1165,8 @@ export function toolsForCapabilities(capabilities: {
           capabilities.can_restore !== false,
       ),
     );
+  if (capabilities.can_write && capabilities.can_soft_delete)
+    tools.push(...softDeleteTools());
   if (capabilities.can_create_wiki)
     tools.push({
       name: "wiki_create_vault",
@@ -1153,6 +1231,7 @@ export function SiteTools() {
           can_write?: boolean;
           can_create_wiki?: boolean;
           can_restore?: boolean;
+          can_soft_delete?: boolean;
         };
       }>("/api/session/capabilities");
       const tools = toolsForCapabilities(

@@ -1,593 +1,438 @@
-# WebMCP Challenge 참가 및 제출 준비 문서
+# Liminal Wiki — WebMCP Challenge 제출 원고
 
-> 조사 기준일: 2026-08-31 KST
-> 대상 프로젝트: Liminal Wiki
-> 공식 정보는 변경될 수 있으므로 최종 제출 직전에 Devpost 공식 규정을 다시 확인한다.
+> 제출 마감: 2026-09-03 13:00 PDT / **2026-09-04 05:00 KST**
+>
+> 심사 종료: 2026-09-21 17:00 PDT / 2026-09-22 09:00 KST
+>
+> Live app: <https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>
+>
+> Repository: <https://github.com/rca32/llmwiki-webmcp>
 
-## 1. 요약
+이 문서는 Devpost에 붙여넣을 영문 설명, 3분 미만 데모 대본, 심사위원용 테스트
+안내와 최종 제출 점검표다. 일정과 요건은 제출 직전에 Devpost 공식 페이지와
+규정을 다시 확인한다.
 
-Liminal Wiki는 WebMCP Challenge의 주제와 기술 요구사항에 잘 맞는다. 현재
-프로젝트는 ChatGPT Sites에서 실행되는 page-scoped WebMCP 앱이며, 사람 UI와
-에이전트 도구가 같은 세션 권한, API, D1/R2 데이터, revision, optimistic
-concurrency 및 provenance 규칙을 사용한다.
+## 1. 제품 정의와 심사 포인트
 
-기술 구현과 로컬 검증은 완료됐지만 다음 외부 제출 항목을 마치기 전에는 제출
-준비가 끝난 것으로 볼 수 없다.
+### 한 문장 정의
 
-1. Devpost 참가 등록 및 제출 초안 생성
-2. 심사위원이 접속할 수 있는 격리된 라이브 데모 제공
-3. 추가된 루트 라이선스의 GitHub 인식 확인
-4. 수정된 GitHub Actions의 원격 전체 CI 통과 확인
-5. 영문 제출 설명과 3분 미만 공개 YouTube 데모 준비
-6. 외부 심사 세션에서 WebMCP discovery와 실제 호출 재검증
+> **Liminal Wiki는 사람이 직접 편집하는 위키가 아니라, 사람이 지식을 읽고
+> 변경을 요청하면 Codex가 근거를 검토하고 page-scoped WebMCP로 안전하게
+> 유지하는 위키다.**
 
-## 2. 공식 일정
-
-Devpost 공식 규정의 Pacific Daylight Time을 Korea Standard Time으로 변환한
-일정이다.
-
-| 단계              | 공식 시각            | 한국 시각                |
-| ----------------- | -------------------- | ------------------------ |
-| 등록 및 제출 시작 | 2026-08-25 11:00 PDT | 2026-08-26 03:00 KST     |
-| 등록 및 제출 마감 | 2026-09-03 13:00 PDT | **2026-09-04 05:00 KST** |
-| 심사 시작         | 2026-09-04 10:00 PDT | 2026-09-05 02:00 KST     |
-| 심사 종료         | 2026-09-21 17:00 PDT | 2026-09-22 09:00 KST     |
-| 수상자 발표 예정  | 2026-09-23 14:00 PDT | 2026-09-24 06:00 KST     |
-
-OpenAI 소개 페이지와 Devpost 규정의 시작 시각 표기에는 차이가 있지만 마감
-시각은 동일하다. 충돌 시 Devpost 공식 규정을 기준으로 한다.
-
-## 3. 참가 자격과 등록 절차
-
-### 3.1 참가 자격
-
-- 거주 지역의 성년 기준을 충족한 개인이 참가할 수 있다.
-- 팀 또는 조직으로 참가할 수 있다.
-- 팀이나 조직은 제출을 담당할 대표자 한 명을 지정해야 한다.
-- 참가자는 OpenAI API 지원 국가 또는 지역의 거주자여야 하며 공식 제외
-  지역에 해당하지 않아야 한다.
-- 대한민국은 공개된 제외 목록에 없지만 각 참가자는 자신의 성년 여부와 최신
-  지원 국가 조건을 직접 확인해야 한다.
-
-### 3.2 Devpost 등록
-
-등록에는 개인정보 입력과 공식 규정 동의가 포함되므로 참가자 또는 팀 대표자가
-직접 진행한다.
-
-1. <https://webmcp.devpost.com/>에 접속한다.
-2. `Join hackathon`을 누른다.
-3. Devpost 계정을 생성하거나 기존 계정으로 로그인한다.
-4. 개인, 팀 또는 조직 참가 형태를 정하고 필요한 팀원을 연결한다.
-5. `My projects` 또는 `Enter a Submission`에서 제출 초안을 생성한다.
-6. 필수 자료를 입력하고 초안으로 저장한다.
-7. 마감 전에 최종 `Submit`까지 완료한다. 초안 저장만으로는 제출되지 않는다.
-
-Devpost Hackathons 플러그인은 선택 사항이며 참가나 수상에 필수적이지 않다.
-
-### 3.3 현재 Project overview 입력안
-
-**Project name**
+### Elevator pitch
 
 ```text
-Liminal Wiki
+A read-only, source-grounded knowledge workspace where people request changes
+and Codex verifies evidence and maintains knowledge through page-scoped WebMCP.
 ```
 
-**Elevator pitch**
+### 핵심 협업 루프
 
 ```text
-A source-grounded knowledge workspace where humans and AI agents share the same tools, permissions, revisions, and provenance through WebMCP.
+Read → Request → Verify → Plan → Apply → Audit
 ```
 
-## 4. 공식 제출 요구사항
+1. **Read** — 사람은 Documents, Explore topics, Find, Connections에서 지식과
+   근거를 읽는다.
+2. **Request** — 현재 문서·주제·revision·삭제 문서 또는 전체 위키를 대상으로
+   구조화된 변경 요청을 복사한다.
+3. **Verify** — Codex는 열린 페이지의 세션과 권한을 사용해 운영 계약, 기존 문서,
+   연결, claim과 topic brief를 확인한다.
+4. **Plan** — 외부 근거나 여러 문서·claim 작업은 immutable ingest plan으로,
+   주제·인사이트 작업은 knowledge-map plan으로 만든다.
+5. **Apply** — 최초 요청이 명시한 정확한 범위 안에서 동일한 plan hash, 최신
+   version과 retry-safe operation ID로 적용한다.
+6. **Audit** — 사람은 같은 읽기 화면에서 결과를 확인하고 Codex는 provenance,
+   revision과 lint 결과를 다시 검증한다.
 
-제출물에는 다음 항목이 필요하다.
+### 네 가지 심사 기준에 대한 답
 
-- 심사위원이 ChatGPT 인앱 브라우저 또는 WebMCP가 활성화된 Chrome에서 접근할
-  수 있는 실제 라이브 URL
-- 다음 내용을 설명하는 프로젝트 소개문
-  - 이 use case가 WebMCP에 적합한 이유
-  - 사용자 경험이 어떻게 개선되는지
-  - 사람과 에이전트가 이전에는 어렵거나 불가능했던 어떤 일을 함께 하는지
-  - WebMCP를 어떻게 구현했는지
-- GitHub, GitLab 또는 Bitbucket의 공개 코드 저장소 URL
-- 프로젝트 실행에 필요한 소스, 에셋 및 사용 지침
-- 저장소 상단에서 감지되고 GitHub About에 표시되는 오픈소스 라이선스
-- 3분 미만의 공개 YouTube 데모 영상
-  - 실제 작동 장면
-  - WebMCP 사용 장면
-  - 구현 내용과 WebMCP 활용을 설명하는 음성
-- 비공개 앱인 경우 심사용 접근 방법 또는 테스트 인증 정보
-- 영문 제출 자료 또는 모든 비영문 자료에 대한 영문 번역과 영상 자막
+| 기준                  | Liminal Wiki의 답                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WebMCP Leverage       | 열린 페이지의 vault, 선택 문서, 로그인 role과 capability에 따라 최대 27개의 구조화된 도구를 투영한다. 도구는 DOM을 추측하지 않고 동일한 same-origin API와 제품 규칙을 사용한다. |
+| Execution             | 읽기 전용 UI, 다국어 변경 요청, D1/R2 저장, revision, provenance, backup, recovery와 권한 모델이 하나의 실행 가능한 제품으로 연결된다.                                          |
+| Potential Impact      | 사람이 직접 문서 구조와 출처를 관리하는 부담을 줄이면서도 변경 범위, 근거와 책임 추적을 잃지 않는다.                                                                            |
+| Creativity & Ambition | AI를 편집기 안의 보조 버튼으로 넣는 대신, 사람의 요청을 제품 수준의 권한 계약으로 바꾸고 지식 유지보수 전체를 WebMCP 흐름으로 만든다.                                           |
 
-제출 마감 후에는 원칙적으로 제출 자료를 변경할 수 없다. 라이브 프로젝트는
-적어도 심사 기간이 끝날 때까지 무료이고 제한 없이 테스트할 수 있어야 한다.
+## 2. Devpost 제출용 영문 원고
 
-## 5. 심사 기준
+아래 블록은 제출 폼에 바로 붙여넣을 수 있는 최종 문안이다.
 
-1차 심사는 주제와 요구 API의 기본 적용 여부를 pass/fail로 확인한다. 이를
-통과한 제출작은 다음 네 기준으로 동일 가중치 평가를 받는다.
-
-1. **WebMCP Leverage**: WebMCP를 얼마나 깊고 능숙하게 활용했는가
-2. **Execution**: 단순 기술 PoC가 아니라 완결된 제품 경험인가
-3. **Potential Impact**: 구체적인 사용자의 실제 문제를 해결하는가
-4. **Creativity & Ambition**: 기존 개념과 구별되는 창의성과 야심이 있는가
-
-Liminal Wiki는 다음과 같이 대응할 수 있다.
-
-- 열린 페이지, 현재 vault, 로그인 세션 및 role에 따라 도구가 달라진다.
-- UI와 에이전트가 동일한 D1/R2 데이터와 same-origin API를 사용한다.
-- 사람은 근거가 붙은 인사이트를 읽고 운영 계약과 계획을 검토한다. 에이전트는
-  검색 후 기존 지식을 재사용하고, 문장별 근거가 있는 브리프를 계획하며, 승인된
-  적용과 provenance 및 품질 감사를 수행한다.
-- CAS, idempotency, immutable revision, audit trail로 사람과 에이전트의 동시
-  작업을 안전하게 만든다.
-
-## 6. 현재 프로젝트 감사 결과
-
-| 요구사항                      | 상태        | 근거 또는 후속 작업                                                                                                                                                                                                           |
-| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 챌린지 기간 내 신규 프로젝트  | 통과        | 공개 저장소 생성일은 2026-08-27, 최초 커밋은 2026-08-30이다.                                                                                                                                                                  |
-| 공개 코드 저장소              | 통과        | <https://github.com/rca32/llmwiki-webmcp>                                                                                                                                                                                     |
-| ChatGPT Sites 설정            | 통과        | `site/.openai/hosting.json`에 project, D1, R2 binding이 있다.                                                                                                                                                                 |
-| WebMCP 등록 구현              | 통과        | `site/app/site-tools.tsx`에서 capability 확인 후 `document.modelContext.registerTool()`을 호출한다.                                                                                                                           |
-| lifecycle cleanup             | 통과        | component unmount 시 AbortController로 등록을 정리한다.                                                                                                                                                                       |
-| capability-gated 도구         | 통과        | read, write, vault 생성 도구를 세션 capability에 따라 선택한다.                                                                                                                                                               |
-| closed schema와 executor 검증 | 통과        | top-level `additionalProperties: false`와 실행기 재검증이 있다.                                                                                                                                                               |
-| 실제 WebMCP 활용 깊이         | 강점        | 현재 catalog는 세션에 따라 최대 22개 도구를 제공한다.                                                                                                                                                                         |
-| 일반 사용자 UI                | 통과        | `Explore topics`는 배치 관리 컨트롤 없이 승인된 결론·상충점·시사점·질문과 문장별 근거를 읽는 단일 칼럼 화면이다. `By topic`은 계층 탐색만, 실제 파일 이동은 `By folder`만 제공하며 내부 진단은 `Advanced diagnostics`에 둔다. |
-| owner host discovery          | 부분 통과   | owner 세션에서 discovery와 harmless read call 성공 기록이 있다.                                                                                                                                                               |
-| editor/viewer 권한 행렬       | 부분 통과   | owner 세션에서 22-tool discovery와 실제 호출을 검증했다. 초대된 editor/viewer의 hosted 비교는 남아 있다.                                                                                                                      |
-| 최신 핵심 ingest 흐름         | 통과        | production 개인 위키에서 context → contract → search → plan → apply → claims/revisions/lint를 완주했다.                                                                                                                       |
-| 외부 심사 접근                | 통과        | Site URL은 공개지만 ChatGPT 로그인이 필수다. 첫 로그인 계정에는 격리된 개인 `Liminal Wiki`와 owner membership을 자동 생성한다. 다른 계정은 owner가 해당 vault에 명시적으로 membership을 부여한 경우에만 접근할 수 있다.       |
-| 루트 라이선스 인식            | 부분 통과   | 루트 `LICENSE`와 README의 GPL-3.0-only 적용 범위는 준비됐다. push 후 GitHub About 인식 확인이 남아 있다.                                                                                                                      |
-| GitHub Actions                | 재검증 필요 | 로컬에서 server bind, Windows 종료, UI selector와 접근성 실패를 수정해 `test:ui:ci`가 통과했다. 원격 Actions green 확인이 남아 있다.                                                                                          |
-| 영문 제출 설명                | 미완료      | 아래 초안을 기준으로 최종 편집해야 한다.                                                                                                                                                                                      |
-| 공개 YouTube 영상             | 미완료      | 3분 미만 데모를 촬영하고 공개 URL을 제출해야 한다.                                                                                                                                                                            |
-
-## 7. 제출 전 기술 조치
-
-### 7.1 로그인 필수 개인·공유 vault 라이브 환경
-
-production live app은
-<https://liminal-wiki-webmcp.epinfomax.chatgpt.site/>에서 제공한다. Site URL은
-공개되어 있지만 모든 위키 화면과 API는 ChatGPT 로그인을 요구한다.
-
-- 비로그인 방문자는 `Sign in with ChatGPT` 경계만 보고, API 요청은 401로 거부된다.
-- 기존 membership이 없는 로그인 계정에는 결정적이고 격리된 개인
-  `Liminal Wiki` vault를 자동 생성하고 해당 계정을 owner로 지정한다.
-- 같은 계정으로 돌아오면 같은 위키와 기록이 열리며, membership이 없는 다른
-  계정은 이를 발견하거나 읽을 수 없다.
-- 별도의 제한판, 임시 저장소나 심사용 전용 quota는 없다.
-- 신규 개인 위키는 일반 제품과 동일한 22-tool owner catalog, revision,
-  provenance, backup과 recovery 규칙을 사용한다.
-- 이전 정책에서 생성된 격리 vault는 다음 로그인에서 페이지와 revision을 유지한 채
-  개인 owner vault로 승격한다.
-- WebMCP discovery와 서버 API는 현재 로그인 세션의 membership과 capability를 각각
-  다시 검사한다.
-
-#### 공유 vault와 role
-
-개인 위키는 owner가 **Settings & backup → People & access**에서 다른
-ChatGPT 계정의 이메일을 명시적으로 추가하기 전까지 비공개다. 이 동작은 Site
-전체나 다른 vault를 공개하지 않고 선택한 vault에만 membership을 만든다.
-
-- 별도 초대 메일은 발송되지 않는다. 추가된 사용자는 공개 Site URL에서 정확히
-  일치하는 ChatGPT 계정으로 로그인한 뒤 vault switcher에서 공유 vault를 선택한다.
-- 공유받은 사용자의 기존 개인 vault는 유지되며 공유 vault와 함께 목록에 나타난다.
-- `viewer`는 읽기와 portable export, `editor`는 여기에 콘텐츠 쓰기·revision
-  복원·첨부·복구 가능한 삭제 권한이 추가된다.
-- `owner`만 멤버 추가·제거, role 변경, ownership transfer, full backup/import와
-  운영 기능을 사용할 수 있다.
-- 현재 owner는 직접 제거할 수 없다. 기존 멤버에게 ownership을 이전하면 이전
-  owner는 editor가 된다.
-- 멤버 관리는 사람 UI와 same-origin API에만 제공하며 page-scoped WebMCP
-  catalog에는 노출하지 않는다.
-- 이것은 Liminal Wiki의 vault membership이며 ChatGPT Sites 자체의 공유 또는
-  초대 정책과는 별개다. 공개 URL만으로는 어떤 vault 접근권한도 생기지 않는다.
-
-### 7.2 루트 라이선스
-
-- 저장소 루트에 `LICENSE`를 추가한다.
-- GPL-3.0-only의 적용 범위를 루트 README에서 명확히 설명한다.
-- push 후 GitHub 저장소 About 영역에 라이선스가 표시되는지 확인한다.
-
-### 7.3 CI 수정 및 원격 재검증
-
-2026-08-30 GitHub Actions 실행에서 lint, typecheck, unit tests, notices, DB
-check, build, bundle 및 production dependency audit는 통과했다. 이후 `vinext
-dev`는 `http://localhost:3000`에서 시작됐지만 `start-server-and-test`가
-`http://127.0.0.1:3000`을 기다리다가 5분 후 timeout됐다. 이 때문에 UI,
-performance 및 backup-spike gate가 완주하지 못했다.
-
-로컬 수정 결과:
-
-1. `vinext dev --hostname 127.0.0.1`로 bind 주소와 health check 주소를 일치시켰다.
-2. 최신 Windows에서 제거된 `wmic.exe`에 의존하지 않는 CI server runner로 교체했다.
-3. 다국어 UI 이후 stale selector와 동적 fixture type을 수정하고 axe 접근성 검사를 통과했다.
-4. 로컬 `test:ui:ci`는 통과했다. GitHub Actions에서 performance와 backup-spike까지
-   완주하는지 확인하고 최종 제출 commit의 run을 green으로 유지한다.
-
-### 7.4 `wiki_plan_ingest` annotation
-
-수정 완료. `wiki_plan_ingest`는 write catalog로 이동했고
-`readOnlyHint: false`, `idempotentHint: false`로 표시한다. discovery는
-`can_write` 세션으로 제한하고 `POST /api/ingest/plans`도 서버에서 `can_write`를
-다시 검사한다. 이 도구는 plan과 audit event를 저장하지만 wiki page와 claim은
-명시적으로 승인된 `wiki_apply_ingest` 전까지 변경하지 않는다.
-
-### 7.5 인사이트 우선 Explore와 WebMCP 승인 경계
-
-`Explore topics`는 사람이 topic placement를 직접 편집하는 화면이 아니다. 전체
-vault와 각 주제의 마지막 승인 브리프를 결론 → 상충점 → 실무 시사점 → 추가 질문
-순으로 읽고, 각 문장 아래의 접힌 출처를 열어 근거 문장·문서·신뢰도·만료 또는 대체
-상태를 확인한다. 문서 제목은 동일한 `Documents` 페이지를 연다. 빈 topic,
-미분류 목록, 반복 통계, select, 이동·복제·삭제와 drag-and-drop은 이 화면과
-`By topic`에서 제거했다.
-
-브리프는 `wiki_plan_ingest` 또는 `wiki_plan_knowledge_map`의 immutable plan에만
-포함된다. 에이전트는 검색 후 기존 page/claim ID를 재사용하고 모든 결론·상충점·
-시사점에 같은 vault의 근거를 붙인다. 사람의 명시적 승인과 unchanged plan hash가
-없으면 적용되지 않는다. topic 구조, placement, page version 또는 active claim이
-바뀌면 서버는 basis hash를 비교해 `stale`/`insight_stale`를 반환하지만 마지막 승인
-브리프를 덮어쓰지 않는다. 일반 UI는 이를 경고판으로 키우지 않고 계속 읽을 수
-있게 하며, 갱신 판단은 WebMCP 진단과 다음 검토 계획에 남긴다.
-
-### 7.6 최종 검증
-
-소스나 성공한 build만으로 WebMCP 완료를 주장하지 않는다. 정확한 심사용 URL을
-지원 host에서 열고 다음을 기록한다.
-
-1. WebMCP capability 획득
-2. `fetchTools()` 결과와 발견된 도구 이름
-3. descriptor의 description, schema, annotation
-4. `wiki_get_context` 또는 `wiki_get_operating_contract` 실제 호출 결과
-5. search → plan → review → apply → claims/lint 대표 흐름
-6. viewer/editor/owner별 도구 projection
-7. vault 전환이나 권한 변경 후 rediscovery
-8. 의도적으로 실행하지 않은 destructive mutation
-
-## 8. 제출용 설명 초안
-
-### 8.1 Project title
+### Project title
 
 ```text
-Liminal Wiki — A Source-Grounded Knowledge Workspace for Humans and Agents
+Liminal Wiki — A Read-Only Knowledge Workspace Maintained by Codex
 ```
 
-### 8.2 Short description
+### Short description
 
 ```text
-Liminal Wiki gives people and agents one shared knowledge workspace with the same permissions, revisions, provenance, and commands. Humans define the operating contract and approve changes; agents search existing knowledge, prepare source-grounded ingest plans, apply approved updates, and audit claims without bypassing the UI's safety rules.
+Liminal Wiki is a source-grounded workspace where people read knowledge and
+request changes instead of editing pages directly. Codex uses page-scoped
+WebMCP tools to inspect the current workspace, verify evidence, reuse existing
+knowledge, plan safe updates, and maintain the same pages, revisions, and
+provenance that people see.
 ```
 
-### 8.3 Why WebMCP
+### Full project description
 
 ```text
-Liminal Wiki is stateful by design: every action depends on the open vault, the current page, the signed-in user's role, and the latest revision. WebMCP lets the page expose precise, session-aware tools instead of forcing an agent to infer complex workflows from screenshots and DOM interactions.
+Most wikis assume that people will continuously edit pages, move files, repair
+links, curate sources, and resolve conflicts by hand. Adding an AI button to
+that editor does not remove the maintenance burden; it also makes it difficult
+to tell which context the agent used, what it was allowed to change, and which
+evidence supports the result.
+
+Liminal Wiki starts from a different interaction model. The human-facing Site
+is a read-only knowledge surface. People use Documents, Explore topics, Find,
+and Connections to understand a wiki, then select the contextual Request change action.
+The request identifies the exact wiki and target, current version, path,
+permalink, request type, and the person's instructions. It explicitly
+authorizes only that scope and is copied into the person's Codex conversation;
+the request itself is not stored by the Site.
+
+Codex then discovers the tools registered by the currently open page. Before
+writing, it reads the workspace context and operating contract, searches for
+existing canonical pages, and checks the target's neighbors, claims, sources,
+and approved topic brief. A normal single-page request uses optimistic
+concurrency and a retry-safe operation ID. Research, external evidence, or
+multi-page claim work uses an immutable ingest plan and plan hash. Topic and
+insight work uses the corresponding knowledge-map plan. The original request
+authorizes application only while the resulting plan stays inside its stated
+scope; Codex stops when the target is ambiguous, warnings expand the impact, or
+the required version has changed.
+
+This is a strong fit for WebMCP because every useful action depends on live page
+state: the active vault, selected page, signed-in membership, current revision,
+and operational read-only setting. Liminal Wiki registers page-scoped tools
+through document.modelContext.registerTool(), projects the catalog from the
+current session's capabilities, validates closed schemas again in each
+executor, and calls the same authenticated APIs used by the product. A viewer
+does not discover content-changing tools. Soft deletion appears only when the
+session has can_soft_delete and still requires the current version, an exact
+typed confirmation, a reason, and an idempotent operation ID at the server.
+
+The result is one product with two deliberately different interfaces: people
+read, judge, and request; Codex investigates and maintains. Applied changes
+immediately appear in the same Documents and Explore topics views, with stable
+page IDs, immutable revisions, claim-level evidence, and an audit trail. There
+is no separate automation database to synchronize and no hidden background
+process that silently rewrites insight prose.
+
+People continue to manage administrative concerns directly: wiki lifecycle,
+members, backups, and operational settings. The separate recovery Site is an
+explicit disaster-recovery and verification tool, not the normal knowledge
+editing experience.
 ```
 
-### 8.4 Better user experience
+### Why WebMCP
 
 ```text
-People use a task-oriented interface—Documents, Explore topics, Find, Connections, and Settings & backup—while low-level diagnostics stay out of the main workflow. Explore is an insight reader: approved conclusions, tradeoffs, implications, and open questions appear in one reading flow, with sentence-level evidence available on demand. Placement controls stay out of the human reading experience; agents search and reuse existing knowledge, then propose brief changes through the same immutable plan, explicit approval, optimistic concurrency, and audit rules as every other mutation. The site never refreshes insight prose silently.
+Liminal Wiki is stateful by design. The correct action depends on the open
+vault, current page, signed-in role, latest version, evidence graph, and
+operational mode. Page-scoped WebMCP lets the Site declare precise,
+session-aware product actions instead of making Codex scrape the DOM or use a
+separate automation identity. Discovery improves usability, while the same
+authorization is enforced again by every server API.
 ```
 
-### 8.5 What people and agents can do together
+### Better user experience
 
 ```text
-A person can define a vault's knowledge policy and review a proposed ingest plan while an agent searches existing pages, prepares source-grounded updates, records claim-level provenance, applies only the approved plan, and audits the vault for missing sources, broken links, and stale claims.
+People no longer need to learn editing modes, folder drag-and-drop, source
+placement controls, conflict dialogs, or restore workflows just to keep a wiki
+healthy. They read the knowledge, choose a plain-language request such as
+Research and expand, Verify facts and sources, Move page, or Restore deleted
+page, and add their intent. Liminal Wiki turns that context into a structured
+prompt while preserving human judgment: Codex must verify the current state and
+evidence, stay inside the authorized scope, and report the result and remaining
+risks.
 ```
 
-### 8.6 Implementation summary
+### What people and agents can do together
 
 ```text
-The ChatGPT Sites client registers page-scoped tools with document.modelContext.registerTool(). It obtains session capabilities from a same-origin endpoint, exposes only authorized tools, validates closed JSON Schemas again in each executor, and delegates work to the same D1/R2-backed APIs used by the human interface. Abort signals clean up registrations, while version checks, idempotency keys, revisions, and bounded telemetry protect mutations and retries.
+A person can identify what should change from the page they are already
+reading. Codex can then follow stable IDs across pages, links, claims, topics,
+and revisions; search before creating; add exact source evidence; apply a
+review-hashed plan; and audit the finished wiki. This combines human intent and
+judgment with maintenance that would otherwise require many manual editing,
+navigation, and provenance steps.
 ```
 
-## 9. 3분 데모 구성
-
-| 구간      | 내용                                                                                                                                       |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0:00–0:15 | 문제 소개: AI가 웹앱을 화면과 DOM으로 추측해야 하는 한계와 WebMCP의 해법                                                                   |
-| 0:15–0:35 | 열린 페이지가 현재 로그인 세션과 role에 맞는 도구를 직접 제공하는 장면                                                                     |
-| 0:35–0:52 | WebMCP discovery와 `wiki_get_context` 실제 호출                                                                                            |
-| 0:52–1:10 | 클릭 대신 제품 수준의 작업인 운영 규칙 확인과 지식 검색 실행                                                                               |
-| 1:10–1:36 | 구조화된 입력과 결과로 `wiki_plan_ingest` 계획 생성                                                                                        |
-| 1:36–1:55 | WebMCP가 앱의 승인·권한·버전 안전장치를 그대로 지키는 장면                                                                                 |
-| 1:55–2:18 | 적용된 문서·claim과 승인 브리프가 `By topic` 계층과 읽기 전용 `Explore topics`에 함께 나타나고, 결론의 접힌 근거에서 같은 문서를 여는 결과 |
-| 2:18–2:40 | stable ID, evidence, revision과 `wiki_lint`로 검증 가능한 결과 확인                                                                        |
-| 2:40–2:55 | 사람 UI와 AI 도구가 하나의 제품을 공유한다는 WebMCP 가치로 결론                                                                            |
-
-영상은 3분 미만, 공개 YouTube 상태, 음성 포함이어야 한다. 한국어 음성을 사용할
-경우 정확한 영문 자막과 제출 자료의 영문 번역을 함께 제공한다.
-
-### 9.1 데모의 한 문장 이야기
+### Implementation summary
 
 ```text
-Liminal Wiki는 WebMCP를 통해 열린 웹페이지 자체가 현재 상태와 권한에 맞는
-구조화된 도구를 AI에게 제공하는 모습을 보여준다. AI는 화면을 추측하거나 별도
-자동화 계정을 사용하지 않고, 사람이 쓰는 것과 같은 제품 규칙과 API를 통해
-검색하고 계획하며 승인된 변경을 적용한다. 결과는 즉시 같은 UI에 나타난다.
+The ChatGPT Site registers page-scoped tools with
+document.modelContext.registerTool(). A mounted client component reads
+same-origin session capabilities, exposes only authorized descriptors, uses
+closed JSON Schemas, revalidates executor input, and cleans registrations with
+an abort signal. Executors call the same D1/R2-backed APIs as the product. The
+server independently enforces vault isolation, role permissions, operational
+read-only mode, expected-version checks, idempotency keys, immutable revisions,
+typed deletion confirmation, plan hashes, provenance validation, and bounded
+content-free telemetry.
 ```
 
-발표 전체는 다음 세 가지 WebMCP 장점을 전달한다.
+## 3. 제품과 WebMCP의 책임 경계
 
-1. **Page-native tools** — AI가 화면이나 DOM을 추측하지 않고, 열린 페이지가
-   제공한 명시적인 제품 기능을 호출한다.
-2. **Live context and permissions** — 도구는 현재 vault, 페이지 상태, 로그인 세션과
-   role을 반영하며 권한이 바뀌면 발견되는 기능도 달라진다.
-3. **One product, two interfaces** — 사람 UI와 AI 도구가 동일한 API, 데이터,
-   승인 규칙과 version을 사용하므로 별도 자동화 사본이나 동기화가 필요 없다.
+### 사람용 Site
 
-내레이션에서는 WebMCP를 단순히 한 번 언급하고 지나가지 않는다. 각 장면에서
-일반 브라우저 자동화나 별도 remote MCP 연결과 무엇이 다른지 사용자 가치로
-설명한다. API나 데이터베이스 내부 구조는 설명하지 않고, tool discovery, schema,
-실제 호출, `plan_hash`, version과 UI 반영을 WebMCP의 효과를 증명하는 장면으로
-사용한다. 발표자는 차분하고 자신 있게 말하며 실제 동작으로 주장을 입증한다.
+- **Documents**: Markdown, linked mentions, attachments와 immutable revision을
+  읽고 현재 문서에 대한 변경 요청을 만든다.
+- **Explore topics**: 마지막으로 승인된 결론, 상충점, 시사점과 질문을 문장별
+  근거와 함께 읽는다.
+- **Find**: 위키 내용을 검색하고 동일한 문서를 연다.
+- **Connections**: 전체 또는 현재 문서 주변의 연결을 그래프와 접근 가능한 목록으로
+  탐색한다.
+- **Settings & backup**: 위키 생성·삭제, 멤버, portable/full backup과 운영 설정을
+  직접 관리한다.
 
-영상에서 기능 수를 나열하는 대신 이 협업 루프 하나를 완주한다. 심사위원이
-반드시 확인해야 할 장면은 다음 다섯 가지다.
+일반 Site에는 직접 문서 편집·저장·자동 저장, 문서·폴더 이동, 콘텐츠 삭제,
+attachment 업로드, revision 복원, 휴지통 복원과 폴더 drag-and-drop이 없다.
+attachment와 revision은 읽을 수 있으며, 변경이 필요하면 현재 문맥이 채워진 요청을
+생성한다. 요청 UI는 영어·한국어·일본어·중국어를 지원한다.
 
-1. 라이브 환경은 ChatGPT 로그인이 필수이며, 기본은 계정별 개인 vault이고 owner가
-   명시적으로 membership을 추가한 vault만 공유된다.
-2. WebMCP는 별도 AI 계정이 아니라 현재 로그인 세션과 실제 membership/role을 쓴다.
-3. 일반 브라우저 자동화가 아니라 현재 페이지가 제공한 WebMCP 도구를 호출한다.
-4. `plan`과 `apply` 사이에 사람의 명시적 승인이 있다.
-5. 적용 결과가 source, claim, revision 및 lint 결과로 추적된다.
+### Codex와 WebMCP
 
-### 9.2 녹화 전 준비
+- 최대 catalog는 27개이며 실제 발견 수는 role, capability와 운영 모드에 따라
+  달라진다. 영상 대본에는 고정된 숫자를 넣지 않고 촬영 당시 `fetchTools()` 결과를
+  보여준다.
+- page-scoped 도구는 열린 Site와 로그인 세션에 속한다. 독립적으로 항상 연결되는
+  remote MCP server라고 설명하지 않는다.
+- client-side capability projection은 발견 경험을 개선하지만 보안 경계가 아니다.
+  모든 same-origin API가 vault와 권한을 다시 검사한다.
+- `expected_version`은 오래된 쓰기를 막고 `operation_id`와 request hash는 재시도를
+  안전하게 만든다.
+- `wiki_plan_ingest`와 `wiki_plan_knowledge_map`은 검토 가능한 durable plan을
+  저장하지만 page와 claim을 즉시 변경하지 않는다. apply는 동일한 plan hash와
+  요청 범위가 유지될 때만 실행한다.
+- `wiki_soft_delete_page`는 `can_soft_delete`가 있는 세션에만 등록되며 destructive,
+  idempotent로 표시한다. 최신 version, 삭제 이유, 새 operation ID와 정확한
+  `DELETE {title}` 확인 문자열이 필요하고 leaf page만 soft-delete한다.
+- `wiki_restore_deleted_page`는 같은 capability 아래에서 삭제 문서를 history와 함께
+  복구하며 slug 충돌 시 대체 slug를 받을 수 있다.
 
-- 녹화용 ChatGPT 계정의 개인 vault 이름을 `Liminal Wiki`로 통일한다.
-- 공개 URL은 익명 데이터 공개가 아니라 ChatGPT 로그인 진입점이라는 점을 설명한다.
-- 첫 로그인에서 계정별 개인 vault가 자동 생성되고, 다른 계정의 vault는 목록과
-  검색에 나타나지 않는다는 점을 확인한다. 공유 vault는 owner가 정확한 ChatGPT
-  계정 이메일을 추가한 경우에만 vault switcher에 나타난다.
-- `wiki_get_context`와 tool catalog에서 owner role과 22개 도구가 현재 로그인
-  membership과 일치하는지 보여준다.
-- 복원처럼 발견되는 consequential WebMCP 도구는 시연 중 실행하지 않고 안전
-  장치를 설명한다. 삭제·멤버 관리·full backup은 UI/API 전용이며 WebMCP catalog에
-  없다는 점을 구분한다.
-- 화면에 개인 이메일이나 다른 vault의 비공개 데이터가 보이지 않게 한다.
-- 가능하면 로그아웃 창에서 `Sign in with ChatGPT` 경계를 2~3초 보여준 뒤,
-  로그인된 개인 위키 화면으로 전환한다. 실제 이메일이나 인증 과정은 녹화하지 않는다.
-- 아래 시연에서 사용할 제목이 아직 존재하지 않는 깨끗한 seed 상태를 만든다.
-  - source: `OpenScreen GitHub README — product overview`
-  - entity: `OpenScreen`
-- operating contract에 `source`, `concept`, `plan_before_apply`,
-  `search_before_create`와 필요한 source metadata가 설정되어 있는지 확인한다.
-- 정확한 라이브 URL을 지원 host에서 열고 `fetchTools()` 또는 host의 도구 목록에서
-  현재 세션용 catalog를 확인한다. 영상에는 실제 발견된 도구 수를 표시하며 숫자를
-  대본에 고정하지 않는다.
-- `wiki_get_context`, `wiki_get_operating_contract`, `wiki_search`,
-  `wiki_plan_ingest`, `wiki_apply_ingest`, `wiki_get_claims`,
-  `wiki_list_revisions`, `wiki_lint`가 실제로 호출되는지 리허설한다.
-- `wiki_plan_ingest`가 write-only discovery와 non-idempotent annotation으로
-  표시되는지 녹화 직전 다시 확인한다.
-- ChatGPT 응답 대기 구간만 잘라낼 수 있다. 도구명, 입력 승인, 성공 결과가 이어지는
-  장면은 남기고, 배속했다면 화면에 배속 사실을 표시한다.
+### 승인 경계
 
-### 9.3 촬영용 source packet
+구조화된 변경 요청은 그 메시지에 적힌 대상과 작업 범위의 명시적 실행 승인이다.
+Codex는 범위가 그대로라면 plan을 보여준 뒤 별도의 일반 승인 질문을 반복하지 않는다.
+다음 경우에는 apply하지 않고 사용자에게 다시 확인한다.
 
-아래 자료는 OpenScreen 공개 저장소 README의 내용을 이용한 고정 fixture다.
-사용자가 제품을 조사하다 발견한 공개 자료를 개인 위키에 보관하는 상황을 만든다.
-`retrieved_at`만
-실제 녹화 시각의 ISO 8601 값으로 바꾼다. evidence fragment는 source Markdown에
-정확히 존재해야 한다.
+- 대상 ID나 의도가 모호하다.
+- plan warning을 해결하려면 다른 문서나 주제를 추가로 변경해야 한다.
+- 삭제, 이동 또는 복원이 요청에 없었는데 필요해졌다.
+- current version이나 plan hash가 달라졌다.
+- 근거가 부족하거나 교차 vault 참조가 발견됐다.
+
+## 4. 2분 55초 데모 원고
+
+### 데모의 한 문장 이야기
+
+```text
+A person reads an incomplete page and requests better evidence. Codex discovers
+the tools of that exact page, verifies the current knowledge, safely applies a
+source-grounded plan under the request's scope, and proves the result in the
+same read-only wiki.
+```
+
+### 녹화 fixture
+
+녹화 전에 비식별 개인 vault를 준비한다.
+
+1. `OpenScreen` concept page를 만들되 “open-source screen recorder”라는 짧은
+   소개만 두고 source page와 active claim은 만들지 않는다.
+2. 같은 제목의 다른 canonical page나 아래 source title이 없는지 확인한다.
+3. UI 언어를 영어로 설정하고 `Request change`와 요청 유형
+   `Research and expand`가 보이는지 확인한다.
+4. operating contract에 `search_before_create`, `plan_before_apply`, source metadata와
+   claim evidence 규칙이 있는지 확인한다.
+5. 아래 public source packet을 Codex 대화에 붙여넣거나 파일로 첨부할 수 있게
+   준비한다.
 
 ```text
 Source title: OpenScreen GitHub README — product overview
 Source URL: https://github.com/getopenscreen/openscreen
-Retrieval status: success
 Retrieved at: <RECORDING_TIME_IN_ISO_8601>
+Retrieval status: success
 Extraction method: manual-summary-and-excerpt
 Confidence: 0.95
 
-Source Markdown:
-# OpenScreen GitHub README — product overview
+Summary:
+OpenScreen is a free, open-source desktop application for recording screens and
+turning recordings into polished product demos. Its README describes automatic
+voiceover captions that are transcribed locally and can be edited or translated.
 
-OpenScreen is an open-source desktop recorder designed to turn raw screen captures into polished demos and walkthroughs.
+Exact evidence fragment:
+Automatic captions for voiceovers, transcribed on-device with no upload (works offline)
 
-Automatic captions for voiceovers, transcribed on-device with no upload (works offline), with an editable transcript you can cut from and optional subtitle translation.
-
-Proposed entity page:
-- title: OpenScreen
-- type: entity
-- markdown: |
-    # OpenScreen
-
-    OpenScreen is a free, open-source desktop application for creating polished
-    screen-recorded product demos. It can transcribe voiceover captions locally
-    and optionally translate subtitles.
-
-    Source: [[OpenScreen GitHub README — product overview]]
-
-Proposed claim:
+Requested claim:
 - subject: OpenScreen
 - predicate: supports
 - object value: on-device automatic captions for voiceovers
-- evidence fragment: Automatic captions for voiceovers, transcribed on-device with no upload (works offline), with an editable transcript you can cut from and optional subtitle translation.
 - confidence: 0.95
 ```
 
-### 9.4 2분 55초 최종 제품 소개 대본
+공개 자료의 필요한 사실과 짧은 근거 fragment만 사용한다. source page에는 URL,
+조회 시각, retrieval status, extraction method와 confidence를 함께 보존한다.
 
-| 시간      | 화면과 조작                                                                                                                                                                                           | 한국어 내레이션                                                                                                                                                                                                                              | 영문 자막                                                                                                                                                                                                                                                    |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0:00–0:15 | 어두운 배경에 `What if a web app could tell AI exactly what it can do?`를 띄운 뒤 Liminal Wiki와 ChatGPT 화면으로 전환한다.                                                                           | 지금까지 AI는 웹앱을 바깥에서 다뤘습니다. 화면을 읽고, 버튼을 추측하고, UI가 바뀌면 다시 배워야 했죠. WebMCP는 이 관계를 뒤집습니다. 이제 열린 페이지가 AI에게 정확한 도구를 직접 제공합니다.                                                | Until now, AI has operated web apps from the outside—reading screens, guessing at controls, and breaking when the UI changes. WebMCP reverses that relationship: the open page provides AI with precise tools directly.                                      |
-| 0:15–0:35 | `Liminal Wiki` 로고 뒤 로그아웃 상태의 `Sign in with ChatGPT`를 2초 보여준다. 로그인된 비식별 개인 `Liminal Wiki`로 전환해 wiki switcher, `owner`, capability와 전체 22-tool catalog를 함께 보여준다. | 공개 URL은 익명 데이터 공개가 아니라 로그인 진입점이라는 뜻입니다. 로그인하면 계정별 개인 위키가 열리고, 다른 계정은 owner가 viewer나 editor membership을 명시적으로 부여한 경우에만 접근합니다. 별도 데모 모드 없이 실제 role이 적용됩니다. | The public URL is a sign-in entry point, not anonymous data access. Sign-in opens a personal wiki for each account; another account gains access only through an explicit viewer or editor membership. There is no separate demo mode—the real role applies. |
-| 0:35–0:52 | 프롬프트 1을 전송한다. 발견된 descriptor의 name, description, input schema를 짧게 보여준 뒤 `wiki_get_context`의 실제 결과와 현재 UI의 vault·role이 일치하는지 강조한다.                              | ChatGPT는 페이지가 설명한 이름과 스키마로 도구를 발견하고 실제로 호출합니다. DOM에서 텍스트를 긁어 현재 상태를 짐작하는 대신, `wiki_get_context`가 열린 공간과 허용된 작업을 구조화된 결과로 돌려줍니다.                                     | ChatGPT discovers tools through the names and schemas published by the page, then calls them for real. Instead of scraping the DOM to infer state, `wiki_get_context` returns the open workspace and allowed actions as structured data.                     |
-| 0:52–1:10 | `wiki_get_operating_contract`의 핵심 규칙과 `wiki_search` 결과를 연속해서 보여준다. 검색 중에는 마우스 클릭이 발생하지 않는 것을 화면에서 확인시킨다.                                                 | 중요한 점은 WebMCP가 버튼 클릭을 자동화하는 기술이 아니라는 것입니다. 페이지는 ‘운영 규칙 읽기’와 ‘지식 검색’처럼 제품이 의미를 아는 작업을 제공합니다. UI 배치가 바뀌어도 이 작업 계약은 유지됩니다.                                        | WebMCP is not a faster way to automate button clicks. The page exposes product-level actions such as reading workspace rules and searching knowledge. The interface can move while that action contract remains stable.                                      |
-| 1:10–1:36 | 프롬프트 2를 보낸다. `wiki_plan_ingest` 입력과 결과에서 OpenScreen source, entity, grounded claim이 하나의 typed review plan으로 묶이는 모습을 보여주고 `Ready for review`를 오버레이한다.            | 이제 공개 자료를 위키에 추가해 보겠습니다. 한 번의 구조화된 호출이 source, entity와 근거 있는 claim을 검토 가능한 계획으로 반환합니다. AI와 앱이 화면 문장이 아니라 명확한 입력과 결과 계약으로 대화하는 장면입니다.                         | Now I will add a public source to the wiki. One structured call returns a reviewable plan containing the source, entity, and grounded claim. The AI and the app communicate through an explicit input-and-result contract, not screen text.                  |
-| 1:36–1:55 | source와 confidence를 확인한 뒤 프롬프트 3을 전송한다. `approved: true`, 동일한 `plan_hash`, 현재 version과 새 `operation_id`를 차례로 강조한다.                                                      | WebMCP가 페이지 기능을 제공한다고 해서 앱의 안전장치를 우회하지는 않습니다. 같은 로그인 권한이 다시 검사되고, 명시적 승인과 plan hash, version이 검토하지 않은 변경이나 오래된 쓰기를 막습니다.                                              | Exposing an action through WebMCP does not bypass the app's safeguards. The same session permission is enforced again, while explicit approval, the plan hash, and the current version prevent unreviewed or stale writes.                                   |
-| 1:55–2:18 | apply 성공 직후 `By topic` 목록과 `Explore topics` 화면에 source와 OpenScreen entity가 생기는 모습을 보여준다. tool result의 stable page ID/version을 UI의 새 페이지와 revision에 연결해 강조한다.    | 적용 결과는 별도의 AI용 데이터베이스에 저장되지 않습니다. WebMCP 도구가 사람 UI와 같은 API와 같은 데이터를 사용하기 때문에 새 페이지와 revision이 즉시 현재 화면에 나타납니다. 동기화할 두 번째 시스템이 없습니다.                           | The result is not stored in a separate database for AI. Because the WebMCP tool uses the same APIs and data as the human interface, the new page and revision appear here immediately. There is no second system to synchronize.                             |
-| 2:18–2:40 | 프롬프트 4를 보낸다. `wiki_get_claims`, `wiki_list_revisions`, `wiki_lint`의 구조화된 결과에서 source ID, evidence, revision과 issue count를 차례로 보여준다.                                         | 도구 결과도 다음 작업에 쓸 수 있는 stable ID와 구조를 가집니다. ChatGPT는 방금 만든 claim의 근거와 revision을 다시 따라가고, 위키 전체 품질까지 검사합니다. 이것이 단순 클릭 자동화와 제품 수준 통합의 차이입니다.                           | Tool results carry stable IDs and structure that later actions can reuse. ChatGPT can trace the claim back to its evidence and revision, then audit the wiki. That is the difference between click automation and product-level integration.                 |
-| 2:40–2:55 | Liminal Wiki UI와 ChatGPT tool result를 나란히 보여주고 `Page-native tools · Session-aware · One shared product`를 표시한다.                                                                          | WebMCP를 사용하면 웹페이지는 AI가 조작하는 화면을 넘어, 자신의 기능과 경계를 직접 설명합니다. AI는 사용자의 실제 세션 안에서 일하고, 사람 UI와 AI 도구는 하나의 제품이 됩니다.                                                               | With WebMCP, a page is no longer just a screen for AI to operate. It declares its capabilities and boundaries while AI acts within the user's real session. The human UI and AI tools become one product.                                                    |
+### 장면별 한·영 대본
 
-### 9.5 화면에서 전송할 프롬프트
+| 시간      | 화면과 조작                                                                                                                                                                            | 한국어 내레이션                                                                                                                                                                                 | English subtitle                                                                                                                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0:00–0:18 | 읽기 전용 Documents와 `OpenScreen` 문서를 보여준다. 화면에 `Read knowledge. Request change. Codex maintains.`를 표시한다.                                                              | 위키를 오래 유지하기 어려운 이유는 글쓰기보다 편집, 연결, 출처와 충돌을 계속 관리해야 하기 때문입니다. AI가 편집 버튼을 대신 누르는 것만으로는 무엇을 근거로 어디까지 바꿨는지 알기 어렵습니다. | The hard part of maintaining a wiki is not writing alone. It is continuously managing edits, links, sources, and conflicts. Having AI click the same editing controls still leaves its evidence and scope unclear. |
+| 0:18–0:42 | 현재 문서의 `Request change`를 열고 `Research and expand`를 선택한다. “Add reliable evidence for offline voiceover captions without creating a duplicate OpenScreen page.”를 입력한다. | Liminal Wiki에서 사람은 직접 편집하지 않습니다. 읽고 있는 문서를 대상으로 평범한 말로 변경을 요청합니다.                                                                                        | In Liminal Wiki, people do not edit the page directly. They request a change in plain language from the document they are already reading.                                                                         |
+| 0:42–0:58 | 접힌 preview를 열어 wiki/page ID, version, permalink, request type과 exact-scope authorization을 강조하고 `Copy request`를 누른다. Codex에 요청과 source packet을 붙인다.              | 요청에는 대상과 현재 버전, 링크, 작업 종류와 정확한 범위의 승인이 들어갑니다. 본문은 복사하지 않고 Codex가 현재 페이지에서 다시 읽습니다.                                                       | The request carries the target, current version, permalink, change type, and authorization for that exact scope. It does not copy the page body; Codex reads the current page through WebMCP.                      |
+| 0:58–1:25 | 실제 tool discovery 후 context, contract, page, neighbors, claims, knowledge map과 search 결과를 빠르게 이어서 보여준다. 기존 `OpenScreen` page를 재사용한다는 결과를 강조한다.        | 열린 페이지가 현재 로그인 세션에 허용된 도구를 제공합니다. Codex는 운영 규칙과 현재 문서, 연결, claim, 주제 인사이트를 확인하고 먼저 검색해 기존 지식을 재사용합니다.                           | The open page provides tools allowed by the current signed-in session. Codex checks the operating rules, page, links, claims, and topic insight, then searches first and reuses the existing knowledge.            |
+| 1:25–1:52 | `wiki_plan_ingest` 결과에서 existing page update, 새 source, grounded claim, warning과 `plan_hash`를 보여준다.                                                                         | 외부 근거와 claim은 바로 쓰지 않습니다. 하나의 immutable plan이 기존 페이지 수정, 새 source와 정확한 evidence를 검토 가능한 결과로 묶습니다.                                                    | External evidence and claims are not written immediately. One immutable plan groups the existing-page update, new source, and exact evidence into a reviewable result.                                             |
+| 1:52–2:15 | 최초 요청 범위와 plan이 일치함을 보여준 뒤 `wiki_apply_ingest`가 동일한 hash, `approved: true`, 새 operation ID로 실행되는 장면을 보여준다. 별도 승인 프롬프트는 보내지 않는다.        | 이 요청 자체가 명시된 범위의 실행 승인입니다. 범위와 hash가 그대로이므로 Codex는 승인을 반복해서 묻지 않고, 서버는 권한과 version을 다시 검사한 뒤 적용합니다.                                  | The request itself authorizes its stated scope. Because the scope and hash are unchanged, Codex does not ask for another general approval; the server rechecks permission and version before applying.             |
+| 2:15–2:40 | Documents를 다시 열어 보완된 문장, linked source와 새 revision을 보여준다. 가능하면 Explore topics의 접힌 문장별 근거에서 같은 source를 연다.                                          | 결과는 별도의 AI 저장소가 아니라 사람이 읽던 같은 위키에 나타납니다. 문서, source, claim과 immutable revision이 함께 남아 판단 과정을 추적할 수 있습니다.                                       | The result appears in the same wiki the person was reading, not in a separate AI store. The page, source, claim, and immutable revision remain connected and traceable.                                            |
+| 2:40–2:55 | `wiki_get_claims`, `wiki_list_revisions`, `wiki_lint` 결과를 보여주고 `People request · Codex verifies · WebMCP maintains`로 끝낸다.                                                   | 마지막으로 Codex가 근거와 revision, 위키 품질을 다시 검사합니다. 사람은 요청하고 판단하며, Codex는 검증하고, WebMCP는 그 경계를 실행 가능한 제품 계약으로 만듭니다.                             | Codex finishes by checking the evidence, revision, and wiki quality. People request and judge, Codex verifies, and WebMCP turns that boundary into an executable product contract.                                 |
 
-프롬프트는 미리 클립보드에 준비해 입력 시간을 줄인다. host가 도구 호출 전 확인을
-요구하면 그 확인 화면도 사람 승인 장면의 일부로 남긴다.
-
-**프롬프트 1 — 컨텍스트, 정책과 중복 확인**
-
-```text
-Use only the WebMCP tools provided by the Liminal Wiki page currently open.
-First, tell me which workspace I am in and what permissions I have.
-Then read its operating rules and check whether it already contains anything about
-"OpenScreen." Do not make any changes yet.
-```
-
-기대 호출 순서:
+### 예상 WebMCP 호출 흐름
 
 ```text
 wiki_get_context
 → wiki_get_operating_contract
-→ wiki_search
-```
-
-**프롬프트 2 — source-grounded 계획만 생성**
-
-```text
-Great. If there is no duplicate, use the material below to prepare an ingest plan
-for this wiki. Include one source page, one entity page, and one claim linked to
-exact evidence. Do not apply anything yet. Show me the proposed changes and any
-warnings so I can review them first.
-
-<PASTE THE COMPLETE SOURCE PACKET FROM SECTION 9.3 HERE>
-```
-
-기대 호출:
-
-```text
-wiki_plan_ingest
-```
-
-**프롬프트 3 — 사람이 검토한 계획 적용**
-
-```text
-I have reviewed the source, the proposed changes, the confidence score, and the
-warnings. I approve this exact plan. Apply it without changing anything from the
-version I just reviewed.
-```
-
-기대 호출:
-
-```text
-wiki_apply_ingest
-```
-
-화면에서 `approved: true`, 이전 결과와 동일한 `plan_hash`, 새 UUID 형식의
-`operation_id`를 확인한다. plan 내용이나 hash가 달라졌다면 승인하지 말고 다시
-계획한다.
-
-**프롬프트 4 — provenance와 품질 검증**
-
-```text
-Find the "OpenScreen" page we just added. Verify its original source, exact
-supporting evidence, and latest revision, then run a wiki quality check. Do not
-make any further changes. Give me a concise summary of what you verified.
-```
-
-기대 호출 순서:
-
-```text
-wiki_search
+→ wiki_get_page
+→ wiki_get_neighbors
 → wiki_get_claims
+→ wiki_get_knowledge_map
+→ wiki_search
+→ wiki_plan_ingest
+→ wiki_apply_ingest
 → wiki_list_revisions
 → wiki_lint
 ```
 
-### 9.6 촬영 성공 기준
+독립적인 수동 프롬프트 네 개를 보내지 않는다. 화면에서 복사한 요청 하나와 source
+packet으로 전체 흐름을 시작한다. host가 개별 consequential tool 호출 확인을
+표시하는 경우 그 화면은 제품의 일반 승인 요청이 아니라 host의 안전 UI임을 구분한다.
 
-- ChatGPT 로그인 경계와 로그인 후 계정별 private vault가 음성과 화면에서 명확하다.
-- 로그아웃 상태에서는 sign-in 경계가 보이고, 로그인 후에는 현재 role에 맞는
-  도구만 발견된다. 이메일이나 인증 정보 자체는 노출하지 않는다.
-- tool call 카드나 host의 도구 상세에 `wiki_*` 이름이 읽을 수 있게 보인다.
-- `wiki_get_context` 결과의 active vault와 capability가 현재 UI와 일치한다.
-- owner context의 capability와 22-tool catalog가 현재 UI 권한과 일치한다.
-- consequential 관리 도구는 현재 owner에게만 노출되며, 실제 API도 같은 서버 권한을
-  다시 검사한다는 점을 확인한다.
-- operating contract에서 `search_before_create`와 `plan_before_apply`가 확인된다.
-- 계획 결과에 `plan_id`, 64자리 `plan_hash`, source/page/claim action이 있다.
-- 사람의 승인 전에는 `wiki_apply_ingest`가 호출되지 않는다.
-- apply 입력에 `approved: true`, 동일한 hash와 새 `operation_id`가 보인다.
-- apply 후 UI와 tool result에서 같은 page와 version을 확인한다.
-- claim 결과에 source page와 evidence fragment가 연결된다.
-- revision과 lint는 실제 호출 결과를 보여준다. lint issue가 0일 필요는 없으며,
-  issue가 있다면 에이전트가 숨기지 않고 요약하는 편이 더 신뢰할 수 있다.
-- 비밀번호, cookie, bearer token, 개인 이메일, 내부 deployment secret은 화면에
-  노출하지 않는다.
+### 녹화 전 기술 확인
 
-### 9.7 실패 시 대체 장면
+- 지원되는 ChatGPT/Codex 인앱 브라우저의 정확한 live URL에서 로그인한다.
+- `fetchTools()`로 실제 catalog의 이름, description, schema, annotation과 origin을
+  확인한다. 영상에는 당시 발견된 숫자만 표시한다.
+- `wiki_get_context`를 실제 호출해 화면의 active vault, page와 role이 결과와
+  일치하는지 확인한다.
+- viewer, editor/owner와 operational read-only 상태의 catalog가 capability에 맞게
+  달라지는지 별도 리허설한다.
+- `wiki_plan_ingest`가 mutation을 즉시 수행하지 않고 plan을 저장하는 write tool로
+  표시되는지 확인한다.
+- `wiki_soft_delete_page`와 `wiki_restore_deleted_page`가 `can_soft_delete` 세션에만
+  보이는지 확인하되 영상에서는 실행하지 않는다.
+- 이메일, cookie, token, deployment secret과 다른 vault의 데이터가 화면에 나오지
+  않게 한다.
+- 도구명, plan hash, version과 evidence가 1080p 영상에서 읽히는지 확인한다.
 
-| 문제                       | 대체 방법                                                                                                                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| 도구 discovery가 비어 있음 | 녹화를 중단하고 지원 host, 정확한 URL, 로그인 세션과 client registration 오류를 확인한다. 소스 코드 화면으로 성공 장면을 대체하지 않는다. |
-| 기존 title이 이미 존재함   | 개인 vault에서 concept title에 녹화 날짜를 붙인다. 기존 데이터를 덮어쓰지 않는다.                                                         |
-| plan에 warning이 있음      | warning을 짧게 읽고 안전하면 그대로 심사 포인트로 사용한다. source metadata나 confidence 오류라면 packet을 수정하고 새 plan을 만든다.     |
-| apply가 conflict를 반환함  | stale plan이 최신 상태를 덮어쓰지 못했다는 안전 장치로 짧게 설명한 뒤, 깨끗한 seed에서 본 흐름을 다시 촬영한다.                           |
-| lint issue가 남음          | issue 종류와 개수를 그대로 보여준다. 시연 중 만든 source/claim의 provenance 문제라면 제출 전 수정하고 재촬영한다.                         |
-| 응답이 길어 3분을 넘김     | 입력 타이핑과 대기만 컷하고, tool name, 승인, 핵심 structured result는 유지한다.                                                          |
+### 촬영 성공 기준
 
-### 9.8 편집 및 업로드 체크
+- 영상 길이가 2분 55초 이하이고 공개 YouTube 영상이며 설명 음성이 있다.
+- 앱 UI는 영어로 표시하고, 한국어 음성을 쓰면 의미가 일치하는 영문 자막을 넣는다.
+- `Request change`에서 생성한 실제 prompt가 Codex 대화의 시작점으로 보인다.
+- tool discovery와 최소 한 번의 실제 read call이 화면에 보인다.
+- search 결과가 기존 `OpenScreen` page를 선택하고 duplicate를 만들지 않는다.
+- plan에 기존 page update, source, claim, evidence와 64자리 plan hash가 보인다.
+- 최초 요청 외에 두 번째 일반 승인 메시지를 보내지 않는다.
+- apply는 같은 hash, `approved: true`, 최신 version과 새 operation ID를 사용한다.
+- 같은 UI에서 새 revision과 출처 연결을 확인한다.
+- lint issue가 있다면 숨기지 않고 결과와 남은 위험을 짧게 설명한다.
 
-- 최종 러닝타임은 안전 여유를 두고 2분 55초 이하로 맞춘다.
-- 1080p 이상에서 도구명, hash, version, evidence가 읽히는지 전체 화면으로
-  다시 확인한다.
-- 한국어 음성과 의미가 일치하는 영문 자막을 넣고 자동 자막의 `WebMCP`,
-  `provenance`, `idempotent`, `Liminal Wiki` 표기를 수동 교정한다.
-- 배경 음악은 음성보다 충분히 낮추거나 생략한다.
-- YouTube 공개 상태를 `Public`으로 설정하고 로그아웃 창에서 재생한다.
-- 영상 설명 첫 부분에 live demo URL, 공개 repository와 testing instructions를
-  넣는다.
-- 업로드 후 Devpost에 붙일 URL과 실제 공개 영상 URL이 같은지 확인한다.
+### 실패 시 대체
 
-## 10. 실행 우선순위
+| 문제                        | 대응                                                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 도구가 발견되지 않음        | 녹화를 중단하고 host 지원, 로그인 세션, 정확한 URL과 client registration을 확인한다. 소스 코드 화면으로 성공 장면을 대체하지 않는다. |
+| fixture title이 이미 존재함 | 중복 페이지를 만들지 말고 테스트 vault를 초기화하거나 날짜가 포함된 별도 fixture를 준비한다.                                         |
+| plan warning이 범위를 넓힘  | 자동 apply하지 않는다. warning을 설명하고 깨끗한 fixture에서 다시 촬영한다.                                                          |
+| version 또는 hash conflict  | 오래된 쓰기를 막은 안전장치로 짧게 설명한 뒤 최신 상태에서 새 요청·plan으로 재촬영한다.                                              |
+| 응답이 길어 3분을 넘김      | 대기 시간만 편집하고 tool name, 요청 범위, plan, apply와 검증 결과는 유지한다.                                                       |
 
-### 즉시
+## 5. 심사위원용 라이브 테스트 안내
 
-- [ ] Devpost `Join hackathon` 완료
-- [ ] 제출 초안 생성 및 Project overview 저장
-- [x] 저장소 루트 `LICENSE` 추가
-- [x] CI server wait timeout 해결
-- [x] ChatGPT 로그인 필수·계정별 개인 위키 접근 정책 결정
-- [x] `wiki_plan_ingest` annotation과 권한 계약 수정
+아래 영문 블록을 Devpost testing instructions에 사용한다.
 
-### 시연 준비
+```text
+Testing Liminal Wiki
 
-- [x] 첫 로그인 계정별 개인 owner vault 자동 생성
-- [x] 신규 개인 owner 로그인 세션에서 라이브 URL 접근 확인
-- [x] host `fetchTools()`와 대표 read call 기록
-- [ ] 대표 ingest 흐름 완료; viewer-only role matrix 검증
-- [ ] 영문 README와 testing instructions 작성
-- [ ] 3분 미만 영상 촬영 및 공개 업로드
+1. Open https://liminal-wiki-webmcp.epinfomax.chatgpt.site/ in ChatGPT's
+   in-app browser or another supported WebMCP host.
+2. Sign in with ChatGPT. No shared test password is required. On first sign-in,
+   the app creates an isolated private Liminal Wiki owned by that account.
+3. Open a document and select Request change to inspect the structured prompt.
+   Copying the prompt does not mutate or store a request on the Site.
+4. To verify WebMCP without changing data, ask the agent:
 
-### 최종 제출
+   "Use only the WebMCP tools provided by the currently open Liminal Wiki page.
+   Tell me which wiki and page are active, what permissions I have, and the
+   workspace's operating rules. Do not make any changes."
 
-- [ ] GitHub About에 라이선스, 설명, demo URL 표시 확인
-- [ ] 최종 commit의 GitHub Actions green 확인
-- [ ] 라이브 URL을 로그아웃 및 지원 host에서 재확인
-- [ ] Devpost 설명, repository, demo, video URL 확인
-- [ ] 영문 또는 영문 번역 요건 확인
-- [ ] 2026-09-04 05:00 KST 이전 최종 제출
-- [ ] 2026-09-22 09:00 KST까지 라이브 앱 유지
+   Expected calls include wiki_get_context and wiki_get_operating_contract.
+5. Inspect the discovered tool descriptors. The catalog is projected from the
+   signed-in session, so the exact count depends on role and operational mode.
+6. Mutations should be attempted only in the account's private wiki and after
+   an explicit request copied from Request change. Content-changing APIs recheck the
+   same permissions, versions, and vault boundary.
 
-## 11. 공식 및 프로젝트 근거
+The integration is page-scoped WebMCP registered by the open Site. It is not an
+independent remote MCP server. Closing the page, switching vaults, or changing
+permissions may require tool rediscovery.
+```
+
+### 심사 시 보여줄 안전 계약
+
+- 비로그인 요청은 sign-in 경계를 만나고 protected API는 거부된다.
+- 첫 로그인 계정은 격리된 개인 vault의 owner가 되며 다른 계정의 vault를 발견하지
+  못한다.
+- owner가 Settings & backup에서 명시적으로 추가한 membership만 공유 vault 접근을
+  허용한다.
+- viewer와 operational read-only session에는 content mutation tool이 노출되지
+  않으며 서버도 같은 정책을 재검사한다.
+- 멤버, full backup/import와 운영 설정은 사람용 관리 기능이고 page-scoped WebMCP
+  catalog에 노출하지 않는다.
+- recovery Site는 blank-site restore와 검증을 위한 운영 예외이며 일반 knowledge
+  request UX가 아니다.
+
+## 6. 최종 제출 체크리스트와 근거
+
+### Devpost
+
+- [ ] `Join hackathon`과 제출 초안 생성을 완료한다.
+- [ ] Project title, short description와 full description에 2절의 영문 원고를 사용한다.
+- [ ] live URL과 위 testing instructions를 입력한다.
+- [ ] 공개 repository URL을 입력한다.
+- [ ] GitHub About에 GPL-3.0-only license가 인식되는지 확인한다.
+- [ ] 3분 미만 public YouTube URL을 입력한다.
+- [ ] 모든 제출 자료가 영어이거나 정확한 영문 번역·자막을 포함하는지 확인한다.
+- [ ] **2026-09-04 05:00 KST 이전** 최종 Submit을 완료한다.
+- [ ] 심사 종료 시각인 2026-09-22 09:00 KST까지 live app을 무료로 유지한다.
+
+### 코드와 라이브 검증
+
+- [ ] 최종 commit의 lint, typecheck, unit, UI, build와 GitHub Actions가 통과한다.
+- [ ] 정확한 배포 URL에서 `fetchTools()`와 실제 `wiki_get_context` 호출을 기록한다.
+- [ ] 현재 최대 27개 catalog와 viewer/editor/owner/read-only projection을 다시 확인한다.
+- [ ] search → plan → apply → claims/revisions/lint 데모를 깨끗한 fixture에서 완주한다.
+- [ ] `wiki_soft_delete_page`가 destructive/idempotent이고 정확한 typed confirmation을
+      요구하는지 descriptor와 서버 응답에서 확인한다.
+- [ ] 영상과 제출 원고의 UI 명칭, 요청 승인 경계와 tool 설명이 실제 배포본과 같다.
+- [ ] 로그아웃 창에서 YouTube 영상, live URL과 repository가 모두 열리는지 확인한다.
 
 ### 공식 자료
 
 - OpenAI WebMCP Challenge: <https://openai.com/ko-KR/webmcp-challenge/>
 - Devpost Overview: <https://webmcp.devpost.com/>
 - Devpost Official Rules: <https://webmcp.devpost.com/rules>
-- WebMCP specification repository: <https://github.com/webmachinelearning/webmcp>
+- WebMCP specification: <https://github.com/webmachinelearning/webmcp>
+- OpenScreen fixture source: <https://github.com/getopenscreen/openscreen>
 
 ### 프로젝트 자료
 
-- 공개 저장소: <https://github.com/rca32/llmwiki-webmcp>
-- 실패한 GitHub Actions run:
-  <https://github.com/rca32/llmwiki-webmcp/actions/runs/33315537819>
-- WebMCP 등록 코드: `site/app/site-tools.tsx`
-- Sites 설정: `site/.openai/hosting.json`
-- 시스템 설계와 acceptance evidence: `docs/SYSTEM_DESIGN.md`
-- production Site README: `site/README.md`
-- 라이선스 원본: `site/LICENSE`
+- Public repository: <https://github.com/rca32/llmwiki-webmcp>
+- WebMCP registration: `site/app/site-tools.tsx`
+- Current tool names: `site/lib/webmcp-tool-names.ts`
+- System design and acceptance: `docs/SYSTEM_DESIGN.md`
+- Production Site guide: `site/README.md`
+- License: `LICENSE`

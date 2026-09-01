@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import {
@@ -456,12 +463,14 @@ export function GraphView({
   activePageId,
   onRefresh,
   onOpenPage,
+  requestAction,
 }: {
   graph: WikiGraph | null;
   loading: boolean;
   activePageId: string | null;
   onRefresh: () => void;
   onOpenPage: (pageId: string) => void;
+  requestAction?: ReactNode;
 }) {
   const { t } = useI18n();
   const typeLabel = (type: string) =>
@@ -651,6 +660,7 @@ export function GraphView({
           <span>{t("graph.links", { count: visibleGraph.edges.length })}</span>
         </div>
         <nav aria-label={t("graph.tools")}>
+          {requestAction}
           <button
             type="button"
             className={scope === "global" ? "active" : ""}

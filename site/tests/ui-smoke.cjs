@@ -22,8 +22,6 @@ let activeBrowser;
   const page = await context.newPage();
   const baseUrl = process.env.WIKI_URL || "http://127.0.0.1:3000";
   const errors = [];
-  const pageSaveRequests = [];
-  let expectedConflictPageId = null;
   page.on("console", (message) => {
     if (
       message.type() === "error" &&
@@ -32,33 +30,8 @@ let activeBrowser;
       errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  page.on("request", (request) => {
-    if (request.method() !== "PATCH" || !request.url().includes("/api/pages/"))
-      return;
-    let body = null;
-    try {
-      body = request.postDataJSON();
-    } catch {}
-    pageSaveRequests.push({
-      url: request.url(),
-      expectedVersion: body?.expected_version,
-      saveKind: body?.save_kind ?? "manual",
-      changeSummary: body?.change_summary,
-      hasConflictDraft: String(body?.markdown ?? "").includes(
-        "LOCAL_CONFLICT_DRAFT",
-      ),
-    });
-  });
   page.on("response", (response) => {
-    const expectedConflict =
-      response.status() === 409 &&
-      expectedConflictPageId &&
-      response.url().endsWith(`/api/pages/${expectedConflictPageId}`);
-    if (
-      response.status() >= 400 &&
-      !response.url().endsWith("/favicon.ico") &&
-      !expectedConflict
-    )
+    if (response.status() >= 400 && !response.url().endsWith("/favicon.ico"))
       errors.push(`HTTP ${response.status()} ${response.url()}`);
   });
 
@@ -124,7 +97,9 @@ let activeBrowser;
   );
   await startupRacePage.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await startupSessionLoaded;
-  await startupRacePage.getByRole("button", { name: "그래프" }).click();
+  await startupRacePage
+    .getByRole("button", { name: "연결 보기", exact: true })
+    .click();
   await startupRacePage.locator(".graph-view").waitFor();
   const startupListCompleted = startupRacePage.waitForResponse(
     (response) =>
@@ -1152,7 +1127,9 @@ let activeBrowser;
   )
     throw new Error("Search result measurements did not match the response.");
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: new RegExp(securityTitle) }).click();
+  await page
+    .locator(`.tree-file-open[data-page-id="${created.page_id}"]`)
+    .click();
   await page.keyboard.press("Control+K");
   const searchInput = page.getByRole("textbox", { name: "위키 검색" });
   const searchFocus = await searchInput.evaluate((element) => ({
@@ -1179,7 +1156,7 @@ let activeBrowser;
   );
   if (!unfilteredTreePage)
     throw new Error("Search isolation fixture needs one unrelated page.");
-  await page.getByRole("button", { name: "문서" }).click();
+  await page.getByRole("button", { name: "문서", exact: true }).click();
   await page.locator(".tree-label", { hasText: /^폴더$/ }).waitFor();
   if ((await page.locator(".tree-tabs").count()) !== 0)
     throw new Error("The redundant topic/folder tabs are still visible.");
@@ -1187,11 +1164,11 @@ let activeBrowser;
     .locator(".tree-file-open")
     .filter({ hasText: unfilteredTreePage.title })
     .waitFor();
-  await page.getByRole("button", { name: "찾기" }).click();
+  await page.getByRole("button", { name: "찾기", exact: true }).click();
   await page.locator(".tree-label", { hasText: /^폴더$/ }).waitFor();
   await searchInput.fill("");
-  await page.getByRole("button", { name: "문서" }).click();
-  const keyboardTreeRows = page.locator(".tree-page-row:not(.deleted)");
+  await page.getByRole("button", { name: "문서", exact: true }).click();
+  const keyboardTreeRows = page.locator(".tree-file-open");
   await keyboardTreeRows.nth(1).waitFor();
   await keyboardTreeRows.first().focus();
   const focusedTreeTitle = await page.evaluate(
@@ -1205,19 +1182,9 @@ let activeBrowser;
     throw new Error("Arrow keys did not move focus within the page tree.");
   await page.keyboard.press("Home");
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: new RegExp(securityTitle) }).click();
-  await page.keyboard.press("Control+Shift+E");
-  const keyboardEditor = page.getByRole("textbox", { name: "Markdown 편집기" });
-  let editorFocused = false;
-  for (let attempt = 0; attempt < 20 && !editorFocused; attempt++) {
-    editorFocused = await keyboardEditor.evaluate(
-      (element) => document.activeElement === element,
-    );
-    if (!editorFocused) await page.waitForTimeout(50);
-  }
-  if (!editorFocused)
-    throw new Error("Editor shortcut did not focus the Markdown editor.");
-  await page.getByRole("button", { name: "미리보기" }).click();
+  await page
+    .locator(`.tree-file-open[data-page-id="${created.page_id}"]`)
+    .click();
   await page.locator(".markdown-preview table").waitFor();
   await page.locator(".markdown-preview .katex").waitFor();
   await page
@@ -1233,94 +1200,52 @@ let activeBrowser;
     .getAttribute("href");
   if (unsafeHref && unsafeHref.toLowerCase().startsWith("javascript:"))
     throw new Error("Unsafe Markdown URL scheme survived rendering.");
-  const localConflictDraft = `${securityMarkdown}\n\nLOCAL_CONFLICT_DRAFT`;
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      value: "hidden",
-    });
-  });
-  await page.getByRole("button", { name: "편집", exact: true }).click();
-  await page.getByRole("button", { name: "자동 저장 일시 중지" }).click();
-  const autosaveResumeButton = page.getByRole("button", {
-    name: "자동 저장 재개",
-  });
-  await autosaveResumeButton.waitFor();
-  await page.waitForLoadState("networkidle");
-  await autosaveResumeButton.waitFor();
-  await page
-    .getByRole("textbox", { name: "Markdown 편집기" })
-    .fill(localConflictDraft);
-  const activeConflictPageId = await page.evaluate(
-    () => document.documentElement.dataset.pageId,
-  );
-  if (activeConflictPageId !== created.page_id)
-    throw new Error(
-      `Stale navigation response replaced the selected page: expected ${created.page_id}, received ${activeConflictPageId}.`,
-    );
-  const serverBeforeConflict = await context.request
-    .get(`${baseUrl}/api/pages/${activeConflictPageId}`)
-    .then((response) => response.json());
-  const conflictSaveButton = page
-    .locator(".editor-statusbar .primary-action")
-    .filter({ hasText: "변경 저장" });
-  await conflictSaveButton.waitFor();
-  await page.evaluate(
-    () =>
-      new Promise((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve)),
-      ),
-  );
-  if (!(await autosaveResumeButton.isVisible()))
-    throw new Error("Autosave resumed before the conflict save was submitted.");
-  expectedConflictPageId = created.page_id;
-  await page.evaluate(() =>
-    sessionStorage.setItem("liminal:test:expected-version", "999"),
-  );
-  await conflictSaveButton.click();
-  const conflictResolver = page.getByRole("region", {
-    name: "편집 충돌 해결",
-  });
-  await conflictResolver.waitFor({ timeout: 10_000 }).catch(async () => {
-    const status = await page.locator(".sync-state").innerText();
-    const notice = await page.locator(".inline-notice").allInnerTexts();
-    throw new Error(
-      `Conflict response was not projected into the resolver (status=${status}, notice=${notice.join(" | ")}).`,
-    );
-  });
-  const conflictTextareas = conflictResolver.locator("textarea");
-  const conflictLatest = await conflictTextareas.nth(0).inputValue();
-  const conflictDraft = await conflictTextareas.nth(1).inputValue();
-  const conflictDiff = await conflictResolver.locator("pre").innerText();
-  const serverAfterConflict = await context.request
-    .get(`${baseUrl}/api/pages/${activeConflictPageId}`)
-    .then((response) => response.json());
   if (
-    !conflictLatest.includes("SECURITY_SENTINEL") ||
-    conflictLatest.includes("LOCAL_CONFLICT_DRAFT") ||
-    !conflictDraft.includes("LOCAL_CONFLICT_DRAFT") ||
-    !conflictDiff.includes("+ LOCAL_CONFLICT_DRAFT")
+    (await page.getByRole("textbox", { name: "Markdown 편집기" }).count()) !==
+      0 ||
+    (await page.getByRole("button", { name: "편집", exact: true }).count()) !==
+      0 ||
+    (await page.getByRole("button", { name: "변경 저장" }).count()) !== 0 ||
+    (await page.getByRole("button", { name: "페이지 이동" }).count()) !== 0 ||
+    (await page.getByRole("button", { name: "페이지 삭제" }).count()) !== 0 ||
+    (await page.locator('[draggable="true"]').count()) !== 0 ||
+    (await page.locator('.attachment-upload input[type="file"]').count()) !== 0
+  )
+    throw new Error("Direct content mutation controls remain in Documents.");
+
+  const requestButton = page.getByRole("button", {
+    name: "변경 요청",
+    exact: true,
+  });
+  await requestButton.click();
+  const requestDialog = page.getByRole("dialog", { name: "위키 변경 요청" });
+  await requestDialog.waitFor();
+  if (!(await requestDialog.innerText()).includes(securityTitle))
+    throw new Error("The document request did not default to the active page.");
+  await requestDialog.getByRole("combobox").last().selectOption("verify");
+  await requestDialog
+    .getByRole("textbox")
+    .fill("SECURITY_SENTINEL의 사실과 출처를 확인해 주세요.");
+  await requestDialog.locator("summary").click();
+  const requestPrompt = await requestDialog.locator("pre").innerText();
+  if (
+    !requestPrompt.includes(created.page_id) ||
+    !requestPrompt.includes(`version: ${currentVersion}`) ||
+    !requestPrompt.includes("wiki_get_page") ||
+    !requestPrompt.includes("apply 승인을 포함") ||
+    requestPrompt.includes(securityMarkdown)
   )
     throw new Error(
-      `Conflict resolver did not show latest and draft content: ${JSON.stringify({ createdPageId: created.page_id, activeConflictPageId, serverBefore: { version: serverBeforeConflict.data?.page?.version, tail: serverBeforeConflict.data?.page?.markdown?.slice(-80) }, serverAfter: { version: serverAfterConflict.data?.page?.version, tail: serverAfterConflict.data?.page?.markdown?.slice(-80) }, latest: conflictLatest.slice(-80), draft: conflictDraft.slice(-80), diff: conflictDiff.slice(-160), saveRequests: pageSaveRequests.slice(-5) })}`,
+      "The structured request prompt is incomplete or copied the body.",
     );
-  await conflictResolver
-    .getByRole("button", {
-      name: "병합 초안 만들기",
-    })
-    .click();
-  const mergedEditor = page.getByRole("textbox", { name: "Markdown 편집기" });
-  if (!(await mergedEditor.inputValue()).includes("<<<<<<< 최신 버전"))
-    throw new Error("Conflict merge draft did not include review markers.");
-  await page.getByRole("button", { name: "변경 저장" }).click();
-  await page
-    .locator(".sync-state")
-    .filter({ hasText: "방금 저장됨" })
-    .waitFor();
-  const resolvedPage = await context.request.get(
-    `${baseUrl}/api/pages/${created.page_id}`,
-  );
-  currentVersion = (await resolvedPage.json()).data.page.version;
+  await page.keyboard.press("Escape");
+  await requestDialog.waitFor({ state: "detached" });
+  if (
+    !(await requestButton.evaluate(
+      (element) => document.activeElement === element,
+    ))
+  )
+    throw new Error("Closing the request dialog did not restore focus.");
   await page.waitForLoadState("networkidle");
   const pageCount = await page.locator(".tree-page-row:not(.deleted)").count();
   if (pageCount < 1)
@@ -1333,7 +1258,7 @@ let activeBrowser;
   await page.route("**/api/pages/*", delayedPageDetail);
   await page.route("**/api/attachments?*", delayedPageDetail);
   const responsiveTargetCandidate = page
-    .locator(".tree-page-row:not(.deleted):not(.active)")
+    .locator(".tree-page-row:not(.active) .tree-file-open")
     .first();
   await responsiveTargetCandidate.waitFor();
   const responsiveTargetId =
@@ -1344,13 +1269,13 @@ let activeBrowser;
   if (!responsiveTargetId || !responsiveTargetTitle)
     throw new Error("Could not identify a page-open responsiveness target.");
   const responsiveTarget = page.locator(
-    `.tree-page-row[data-page-id="${responsiveTargetId}"]`,
+    `.tree-file-open[data-page-id="${responsiveTargetId}"]`,
   );
   await responsiveTarget.click();
   await page.waitForTimeout(75);
   if (
     !(await responsiveTarget.evaluate((element) =>
-      element.classList.contains("active"),
+      element.closest(".tree-page-row")?.classList.contains("active"),
     )) ||
     (await page.locator(".editor-title-copy h1").innerText()) !==
       responsiveTargetTitle
@@ -1365,14 +1290,14 @@ let activeBrowser;
   await page.unroute("**/api/pages/*", delayedPageDetail);
   await page.unroute("**/api/attachments?*", delayedPageDetail);
   const documentAccessibility = await new AxeBuilder({ page }).analyze();
-  for (const actionName of [
-    "페이지 링크 복사",
-    "페이지 Markdown 복사",
-    "Codex 추가 조사 요청 복사",
-  ]) {
+  for (const actionName of ["페이지 링크 복사", "페이지 Markdown 복사"]) {
     if ((await page.getByRole("button", { name: actionName }).count()) !== 1)
       throw new Error(`Page sharing action is missing: ${actionName}`);
   }
+  if ((await page.getByRole("button", { name: "변경 요청" }).count()) !== 1)
+    throw new Error(
+      "The document must expose exactly one change-request action.",
+    );
 
   const currentKnowledgeMap = await context.request
     .get(`${baseUrl}/api/knowledge-map`)
@@ -1494,8 +1419,10 @@ let activeBrowser;
     throw new Error("The insight reader overflows its mobile single column.");
   await page.setViewportSize({ width: 1440, height: 1000 });
 
-  await page.getByRole("button", { name: "그래프" }).click();
+  await page.getByRole("button", { name: "연결 보기", exact: true }).click();
   await page.locator(".graph-view").waitFor();
+  if ((await page.getByRole("button", { name: "변경 요청" }).count()) !== 1)
+    throw new Error("Connections must expose exactly one wiki change request.");
   await page.locator(".tree-label", { hasText: /^주제$/ }).waitFor();
   const graphKnowledgeTreeWidth = await page
     .locator(".knowledge-tree-shell")
@@ -1511,22 +1438,28 @@ let activeBrowser;
   const graphNodeCount = await page.locator(".graph-accessible-node").count();
   if (graphNodeCount < 1)
     throw new Error("The graph view did not render any nodes.");
+  await page
+    .locator(".sigma-container canvas")
+    .first()
+    .waitFor({ state: "attached" });
   if (
-    (await page.locator(".sigma-container canvas").count()) < 1 ||
-    (await page.getByRole("button", { name: "유형", exact: true }).count()) !==
-      1 ||
     (await page
-      .getByRole("button", { name: "커뮤니티", exact: true })
+      .getByRole("button", { name: "종류별", exact: true })
       .count()) !== 1 ||
-    (await page.getByText("노드 유형", { exact: true }).count()) !== 1
+    (await page
+      .getByRole("button", { name: "관련 문서 묶음", exact: true })
+      .count()) !== 1 ||
+    (await page.locator('.graph-legend[aria-label="문서 종류"]').count()) !== 1
   )
     throw new Error("The Sigma graph visual contract is not active.");
   const graphThemeBefore = await page.evaluate(() =>
     document.documentElement.classList.contains("dark"),
   );
   if (!graphThemeBefore) {
-    await page.locator("summary.topbar-icon-button").click();
-    await page.getByRole("button", { name: /테마$/ }).click();
+    await page.evaluate(() => {
+      document.documentElement.classList.add("dark");
+      window.localStorage.setItem("liminal-wiki:theme-v2", "dark");
+    });
     await page.waitForFunction(() =>
       document.documentElement.classList.contains("dark"),
     );
@@ -1556,13 +1489,21 @@ let activeBrowser;
       `The Sigma graph did not inherit the dark workspace background: ${JSON.stringify(graphDarkTheme)}`,
     );
   if (!graphThemeBefore) {
-    await page.locator("summary.topbar-icon-button").click();
-    await page.getByRole("button", { name: /테마$/ }).click();
+    await page.evaluate(() => {
+      document.documentElement.classList.remove("dark");
+      window.localStorage.setItem("liminal-wiki:theme-v2", "light");
+    });
     await page.waitForFunction(
       () => !document.documentElement.classList.contains("dark"),
     );
   }
-  for (const controlName of ["전체", "로컬", "미연결", "방향", "링크 이름"]) {
+  for (const controlName of [
+    "모든 문서",
+    "이 문서 주변",
+    "연결 없는 문서",
+    "연결 방향",
+    "연결 이름",
+  ]) {
     if (
       (await page
         .getByRole("button", { name: controlName, exact: true })
@@ -1573,8 +1514,10 @@ let activeBrowser;
       );
   }
   if (
-    (await page.getByPlaceholder("페이지 찾기…").count()) !== 1 ||
-    (await page.getByLabel("페이지 유형").count()) !== 1
+    (await page.getByPlaceholder("문서 찾기…").count()) !== 1 ||
+    (await page
+      .getByRole("combobox", { name: "문서 종류", exact: true })
+      .count()) !== 1
   )
     throw new Error("The graph search and type filters are missing.");
   const graphKeyboardNode = page.locator(".graph-accessible-node").first();
@@ -1597,8 +1540,8 @@ let activeBrowser;
   await page.keyboard.press("Enter");
   await page.locator(".graph-preview-panel").waitFor();
   await page.getByText("연결된 페이지", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "로컬", exact: true }).click();
-  await page.getByLabel("깊이").selectOption("2");
+  await page.getByRole("button", { name: "이 문서 주변", exact: true }).click();
+  await page.getByLabel("표시 범위").selectOption("2");
   const localGraphNodeCount = Number(
     await page.locator(".graph-canvas").getAttribute("data-node-count"),
   );
@@ -1608,7 +1551,7 @@ let activeBrowser;
     );
   await page.getByRole("button", { name: "문서 열기", exact: true }).click();
   await page.locator(".wiki-editor").waitFor();
-  await page.getByRole("button", { name: "그래프" }).click();
+  await page.getByRole("button", { name: "연결 보기", exact: true }).click();
   await page.locator(".graph-view").waitFor();
   await page
     .locator(".graph-accessible-node")
@@ -1623,7 +1566,7 @@ let activeBrowser;
   await page.locator(".graph-view").waitFor();
   const graphAccessibility = await new AxeBuilder({ page }).analyze();
 
-  await page.getByRole("button", { name: "운영과 복구" }).click();
+  await page.getByRole("button", { name: "설정 및 백업", exact: true }).click();
   await page.locator(".operations-stage").waitFor();
   await page.getByRole("button", { name: "새 위키", exact: true }).waitFor();
   const deleteWikiButton = page.getByRole("button", {
@@ -1646,15 +1589,17 @@ let activeBrowser;
   await deleteWikiDialog
     .getByRole("button", { name: "취소", exact: true })
     .click();
-  await page.getByText("에이전트 도구 호출 상태").waitFor();
-  await page.getByText("공통 명령 처리 상태").waitFor();
+  await page.locator("details.operations-advanced > summary").click();
+  await page.getByText("AI 도구 활동", { exact: true }).waitFor();
+  await page.getByText("앱 요청 활동", { exact: true }).waitFor();
   await page.getByText("검색 평균 결과").waitFor();
   await page.getByText("실제 R2 업로드 누적").waitFor();
-  await page.locator('[aria-label="API 요청 지표"] article').first().waitFor();
+  await page.locator('[aria-label="앱 요청 활동"] article').first().waitFor();
   await page
     .locator(".webmcp-metric-list article", { hasText: "wiki_search" })
     .first()
     .waitFor();
+  await page.locator("details.audit-card > summary").click();
   await page.locator(".audit-list article").first().waitFor();
   const auditEventCount = await page.locator(".audit-list article").count();
   if (auditEventCount < 1)
@@ -1668,7 +1613,7 @@ let activeBrowser;
   await page.locator(".operations-stage").waitFor();
   const operationsAccessibility = await new AxeBuilder({ page }).analyze();
 
-  await page.getByRole("button", { name: "문서" }).click();
+  await page.getByRole("button", { name: "문서", exact: true }).click();
   await page.locator(".wiki-editor").waitFor();
   await page.screenshot({ path: "artifacts/ui-smoke.png", fullPage: true });
 
@@ -1754,7 +1699,7 @@ let activeBrowser;
       shellLoadSamplesMs,
       idempotencyReplay: true,
       staleWriteBlocked: true,
-      conflictResolverVerified: true,
+      readOnlyRequestVerified: true,
       concurrentCasWinnerCount: 1,
       linkModesVerified: true,
       ambiguousWikiLinkPreserved: true,

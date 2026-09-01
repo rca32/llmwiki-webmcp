@@ -28,7 +28,7 @@ The service classifies create versus update. Do not force a duplicate page merel
 
 ## Review and apply
 
-Review the returned source action, page actions, topic and insight action, claim count, warnings, expiry, and `plan_hash`. Applying a plan is consequential: obtain user authorization when it has not already been given for this ingest.
+Review the returned source action, page actions, topic and insight action, claim count, warnings, expiry, and `plan_hash`. Applying a plan is consequential: obtain user authorization when it has not already been given for this ingest. A structured Site-generated change request is that authorization only for its named target, request type, and description; if warnings reveal a broader or ambiguous impact, stop and obtain new direction instead of treating the original request as blanket approval.
 
 Call `wiki_apply_ingest` with the unchanged `plan_id`, `plan_hash`, `approved: true`, and a fresh operation UUID. If apply returns a partial or retryable result, retry the same plan with the same operation UUID. Do not create the remaining pages manually because the plan already owns stable sub-operation IDs.
 

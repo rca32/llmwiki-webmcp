@@ -10,7 +10,6 @@ import {
   useState,
 } from "react";
 import {
-  Bot,
   ChevronRight,
   Clock3,
   Copy,
@@ -19,24 +18,27 @@ import {
   Layers3,
   Link2,
   LogOut,
+  MessageSquareText,
   Moon,
-  Move,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
-  RotateCcw,
   Settings2,
   Sun,
-  Trash2,
   Upload,
 } from "lucide-react";
 import {
-  buildCodexResearchPrompt,
   buildPagePermalink,
   readPagePermalink,
   type PagePermalinkTarget,
 } from "@/lib/page-sharing";
+import { ChangeRequestDialog } from "@/components/change-request-dialog";
+import type {
+  ChangeRequestContext,
+  ChangeRequestKind,
+  ChangeRequestScope,
+} from "@/lib/change-request";
 import { SiteTools } from "./site-tools";
 import {
   IconSidebar,
@@ -57,7 +59,7 @@ import {
 } from "@/components/i18n-provider";
 
 const loadOperationsPanel = () => import("./operations-panel");
-const loadWikiEditor = () => import("@/components/editor/wiki-editor");
+const loadWikiReader = () => import("@/components/editor/wiki-editor");
 const loadGraphView = () => import("@/components/graph/graph-view");
 const loadSearchView = () => import("@/components/search/search-view");
 const loadKnowledgeAtlas = () =>
@@ -68,9 +70,9 @@ const OperationsPanel = lazy(() =>
     default: module.OperationsPanel,
   })),
 );
-const WikiEditor = lazy(() =>
-  loadWikiEditor().then((module) => ({
-    default: module.WikiEditor,
+const WikiReader = lazy(() =>
+  loadWikiReader().then((module) => ({
+    default: module.WikiReader,
   })),
 );
 const GraphView = lazy(() =>
@@ -177,14 +179,11 @@ type Graph = {
   edges: Array<{ source: string; target: string; target_text: string }>;
   truncated: boolean;
 };
-type EditConflict = {
-  pageId: string;
-  title: string;
-  pageType: string;
-  baseVersion: number;
-  latest: Page;
-  draft: string;
-  diff: string;
+type ChangeRequestState = {
+  contexts: Partial<Record<ChangeRequestScope, ChangeRequestContext>>;
+  initialScope: ChangeRequestScope;
+  initialKind?: ChangeRequestKind;
+  initialDetails?: string;
 };
 type Caps = {
   can_bootstrap: boolean;
@@ -286,37 +285,6 @@ async function copyText(value: string) {
   if (!copied) throw new Error("클립보드에 복사하지 못했습니다.");
 }
 
-function lineDiff(latest: string, draft: string) {
-  const latestLines = latest.split("\n"),
-    draftLines = draft.split("\n"),
-    output: string[] = [],
-    length = Math.max(latestLines.length, draftLines.length);
-  for (let index = 0; index < length; index++) {
-    const current = latestLines[index],
-      mine = draftLines[index];
-    if (current === mine) output.push(`  ${current ?? ""}`);
-    else {
-      if (current !== undefined) output.push(`- ${current}`);
-      if (mine !== undefined) output.push(`+ ${mine}`);
-    }
-    if (output.length >= 500) {
-      output.push("… diff가 500줄에서 생략되었습니다.");
-      break;
-    }
-  }
-  return output.join("\n").slice(0, 30_000);
-}
-
-function mergeDraft(latest: string, draft: string) {
-  return [
-    "<<<<<<< 최신 버전",
-    latest,
-    "=======",
-    draft,
-    ">>>>>>> 내 초안",
-  ].join("\n");
-}
-
 function WorkspaceDialog({
   title,
   description,
@@ -385,7 +353,6 @@ function WorkspaceDialog({
 
 export default function Home() {
   const { language, setLanguage, t } = useI18n();
-  const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [view, setView] = useState<WorkspaceView>("document");
   const [treeMode, setTreeMode] = useState<"knowledge" | "files">("files");
   const [mobileWorkspacePane, setMobileWorkspacePane] = useState<
@@ -398,7 +365,6 @@ export default function Home() {
   const [deletedPages, setDeletedPages] = useState<Page[]>([]);
   const [active, setActive] = useState<Page | null>(null);
   const [markdown, setMarkdown] = useState("");
-  const [savedMarkdown, setSavedMarkdown] = useState("");
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -425,13 +391,9 @@ export default function Home() {
   const [identity, setIdentity] = useState<SessionIdentity | null>(null);
   const [currentWiki, setCurrentWiki] = useState<WikiSummary | null>(null);
   const [wikis, setWikis] = useState<WikiSummary[]>([]);
-  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
-  const [moveParentId, setMoveParentId] = useState<string | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState("");
-  const [deleteReason, setDeleteReason] = useState("사용자 요청");
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [changeRequest, setChangeRequest] = useState<ChangeRequestState | null>(
+    null,
+  );
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [newVaultTitle, setNewVaultTitle] = useState("");
   const [deleteWikiDialogOpen, setDeleteWikiDialogOpen] = useState(false);
@@ -448,8 +410,6 @@ export default function Home() {
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [editConflict, setEditConflict] = useState<EditConflict | null>(null);
-  const [autosavePaused, setAutosavePaused] = useState(false);
   const viewRef = useRef(view);
   const activeRef = useRef<Page | null>(null);
   const pagesRef = useRef<Page[]>([]);
@@ -459,12 +419,8 @@ export default function Home() {
   const workspaceRequestRef = useRef(0);
   const graphRequestRef = useRef(0);
   const currentWikiIdRef = useRef<string | null>(null);
-  const dirtyRef = useRef(false);
-  const markdownRef = useRef("");
-  const autosavePausedRef = useRef(false);
   const initialPermalinkRef = useRef<PagePermalinkTarget | null>(null);
   const permalinkReadRef = useRef(false);
-  const dirty = markdown !== savedMarkdown;
   const changeView = useCallback((nextView: WorkspaceView) => {
     // Keep asynchronous workspace hydration from restoring the document view
     // after the user has already navigated elsewhere in the same event turn.
@@ -502,15 +458,8 @@ export default function Home() {
     return () => window.cancelIdleCallback(idle);
   }, []);
   useEffect(() => {
-    dirtyRef.current = dirty;
     activeRef.current = active;
-    markdownRef.current = markdown;
-    autosavePausedRef.current = autosavePaused;
-  }, [dirty, active, markdown, autosavePaused]);
-  const updateAutosavePaused = useCallback((paused: boolean) => {
-    autosavePausedRef.current = paused;
-    setAutosavePaused(paused);
-  }, []);
+  }, [active]);
   const replacePageSnapshot = useCallback((nextPage: Page) => {
     setPages((current) => {
       const next = current.map((page) =>
@@ -522,18 +471,15 @@ export default function Home() {
   }, []);
 
   const openPage = useCallback(
-    async (pageId: string, preserveDraft = false) => {
+    async (pageId: string, preserveView = false) => {
       if (
-        preserveDraft &&
+        preserveView &&
         desiredPageIdRef.current &&
         desiredPageIdRef.current !== pageId
       )
         return;
-      if (!preserveDraft) desiredPageIdRef.current = pageId;
+      if (!preserveView) desiredPageIdRef.current = pageId;
       const requestNumber = ++openPageRequestRef.current;
-      const protectedDraft = dirtyRef.current || autosavePausedRef.current;
-      const protectsCurrentDraft =
-        protectedDraft && (preserveDraft || activeRef.current?.id === pageId);
       const snapshot = pagesRef.current.find((page) => page.id === pageId);
       const cached = pageDetailsCacheRef.current.get(pageId);
       const validCache =
@@ -541,29 +487,24 @@ export default function Home() {
           ? cached
           : null;
 
-      if (!preserveDraft) {
+      if (!preserveView) {
         changeView("document");
         setMobileWorkspacePane("content");
       }
-      if (!protectsCurrentDraft) {
-        setPendingPageId(pageId);
-        const immediatePage = validCache?.page ?? snapshot;
-        if (immediatePage) {
-          desiredPageIdRef.current = immediatePage.id;
-          activeRef.current = immediatePage;
-          setActive(immediatePage);
-          setMarkdown(immediatePage.markdown);
-          setSavedMarkdown(immediatePage.markdown);
-          setRevisions(validCache?.revisions ?? []);
-          setNeighbors(validCache?.neighbors ?? []);
-          setAttachments(validCache?.attachments ?? []);
-          setStatus(
-            validCache ? "status.verifyingLatest" : "status.syncingDetails",
-          );
-          setNotice(null);
-          setEditConflict(null);
-          updateAutosavePaused(false);
-        }
+      setPendingPageId(pageId);
+      const immediatePage = validCache?.page ?? snapshot;
+      if (immediatePage) {
+        desiredPageIdRef.current = immediatePage.id;
+        activeRef.current = immediatePage;
+        setActive(immediatePage);
+        setMarkdown(immediatePage.markdown);
+        setRevisions(validCache?.revisions ?? []);
+        setNeighbors(validCache?.neighbors ?? []);
+        setAttachments(validCache?.attachments ?? []);
+        setStatus(
+          validCache ? "status.verifyingLatest" : "status.syncingDetails",
+        );
+        setNotice(null);
       }
 
       try {
@@ -581,7 +522,7 @@ export default function Home() {
             `/api/pages/${pageId}/neighbors?limit=20`,
           ),
           api<{ attachments: Attachment[] }>(
-            `/api/attachments?page_id=${encodeURIComponent(pageId)}&include_deleted=true`,
+            `/api/attachments?page_id=${encodeURIComponent(pageId)}`,
           ),
         ]);
         if (
@@ -596,28 +537,16 @@ export default function Home() {
           attachments: files,
         };
         pageDetailsCacheRef.current.set(pageId, details);
-        const protectedDuringRequest =
-          (dirtyRef.current || autosavePausedRef.current) &&
-          activeRef.current?.id === pageId;
-        if (protectsCurrentDraft || protectedDuringRequest) {
-          setRevisions(history);
-          setNeighbors(linked);
-          setAttachments(files);
-          return;
-        }
         desiredPageIdRef.current = page.id;
         activeRef.current = page;
         setActive(page);
         replacePageSnapshot(page);
         setMarkdown(page.markdown);
-        setSavedMarkdown(page.markdown);
         setRevisions(history);
         setNeighbors(linked);
         setAttachments(files);
         setStatus("status.synced");
         setNotice(null);
-        setEditConflict(null);
-        updateAutosavePaused(false);
       } catch (error) {
         if (requestNumber !== openPageRequestRef.current) return;
         setStatus(
@@ -635,7 +564,7 @@ export default function Home() {
           setPendingPageId(null);
       }
     },
-    [changeView, replacePageSnapshot, setStatus, updateAutosavePaused],
+    [changeView, replacePageSnapshot, setStatus],
   );
 
   const openBreadcrumbPage = useCallback(
@@ -644,26 +573,6 @@ export default function Home() {
       if (pageId) void openPage(pageId);
     },
     [openPage],
-  );
-
-  const captureEditConflict = useCallback(
-    async (pageId: string, draft: string, baseVersion: number) => {
-      const { page } = await api<{ page: Page }>(`/api/pages/${pageId}`);
-      if (activeRef.current?.id !== pageId) return;
-      setEditConflict({
-        pageId,
-        title: page.title,
-        pageType: page.page_type,
-        baseVersion,
-        latest: page,
-        draft,
-        diff: lineDiff(page.markdown, draft),
-      });
-      updateAutosavePaused(true);
-      setStatus("status.mergeRequired");
-      setNotice(null);
-    },
-    [setStatus, updateAutosavePaused],
   );
 
   const loadWorkspace = useCallback(
@@ -737,7 +646,6 @@ export default function Home() {
           activeRef.current = null;
           setActive(null);
           setMarkdown("");
-          setSavedMarkdown("");
           pageDetailsCacheRef.current.clear();
         }
         setCurrentWiki(session.wiki);
@@ -798,12 +706,7 @@ export default function Home() {
         }
         if (requestNumber !== workspaceRequestRef.current) return;
         const current = activeRef.current;
-        if (
-          refreshActive &&
-          viewRef.current === "document" &&
-          !dirtyRef.current &&
-          !autosavePausedRef.current
-        ) {
+        if (refreshActive && viewRef.current === "document") {
           const requestedPageId =
             requestedTarget && requestedTarget.wikiId === session.wiki?.id
               ? requestedTarget.pageId
@@ -840,7 +743,6 @@ export default function Home() {
           setDeletedPages([]);
           setActive(null);
           setMarkdown("");
-          setSavedMarkdown("");
           setRevisions([]);
           setNeighbors([]);
           setAttachments([]);
@@ -891,106 +793,11 @@ export default function Home() {
             .querySelector<HTMLInputElement>(".search-view-input input")
             ?.focus(),
         );
-      } else if (
-        key === "e" &&
-        event.shiftKey &&
-        caps.can_write &&
-        view === "document"
-      ) {
-        event.preventDefault();
-        setMode("edit");
-        window.requestAnimationFrame(() =>
-          document
-            .querySelector<HTMLTextAreaElement>(".markdown-editor")
-            ?.focus(),
-        );
       }
     };
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
-  }, [caps.can_write, changeView, view]);
-  useEffect(() => {
-    if (
-      !active ||
-      !caps.can_write ||
-      markdown === savedMarkdown ||
-      editConflict ||
-      autosavePaused
-    )
-      return;
-    const pageId = active.id,
-      expectedVersion = active.version,
-      draft = markdown,
-      timer = window.setTimeout(() => {
-        setStatus("status.autosaving");
-        void api<{ page_id: string; version: number }>(`/api/pages/${pageId}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            expected_version: expectedVersion,
-            markdown: draft,
-            change_summary: "자동 저장",
-            save_kind: "autosave",
-            operation_id: crypto.randomUUID(),
-          }),
-        })
-          .then(async (result) => {
-            if (activeRef.current?.id !== pageId) return;
-            const updatedPage = {
-              ...activeRef.current,
-              version: result.version,
-              markdown: draft,
-            };
-            activeRef.current = updatedPage;
-            setActive(updatedPage);
-            replacePageSnapshot(updatedPage);
-            pageDetailsCacheRef.current.delete(pageId);
-            setSavedMarkdown(draft);
-            setStatus(
-              markdownRef.current === draft
-                ? "status.autosaved"
-                : "status.moreChanges",
-            );
-            setRevisions(
-              (
-                await api<{ revisions: Revision[] }>(
-                  `/api/pages/${pageId}/revisions?limit=10`,
-                )
-              ).revisions,
-            );
-          })
-          .catch((error: unknown) => {
-            setStatus("status.autosaveStopped");
-            if (
-              error instanceof Error &&
-              (error as Error & { code?: string }).code === "version_conflict"
-            )
-              void captureEditConflict(pageId, draft, expectedVersion).catch(
-                () =>
-                  setNotice(
-                    "최신 버전을 불러오지 못했습니다. 초안은 이 탭에 유지됩니다.",
-                  ),
-              );
-            else
-              setNotice(
-                error instanceof Error
-                  ? error.message
-                  : "자동 저장하지 못했습니다.",
-              );
-          });
-      }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [
-    active,
-    autosavePaused,
-    caps.can_write,
-    captureEditConflict,
-    editConflict,
-    markdown,
-    replacePageSnapshot,
-    savedMarkdown,
-    setStatus,
-  ]);
+  }, [changeView]);
   useEffect(() => {
     if (active) {
       document.documentElement.dataset.pageId = active.id;
@@ -1041,182 +848,8 @@ export default function Home() {
     [pages, query, searchIds],
   );
 
-  async function save() {
-    if (!active || !dirty || !caps.can_write) return;
-    setStatus("status.saving");
-    setNotice(null);
-    try {
-      let expectedVersion = active.version;
-      if (process.env.NODE_ENV !== "production") {
-        const forcedVersion = Number(
-          window.sessionStorage.getItem("liminal:test:expected-version"),
-        );
-        window.sessionStorage.removeItem("liminal:test:expected-version");
-        if (Number.isInteger(forcedVersion) && forcedVersion > 0)
-          expectedVersion = forcedVersion;
-      }
-      const result = await api<{ page_id: string; version: number }>(
-        `/api/pages/${active.id}`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            expected_version: expectedVersion,
-            markdown,
-            change_summary: "UI에서 문서 편집",
-            operation_id: crypto.randomUUID(),
-          }),
-        },
-      );
-      const updatedPage = { ...active, markdown, version: result.version };
-      activeRef.current = updatedPage;
-      setActive(updatedPage);
-      replacePageSnapshot(updatedPage);
-      pageDetailsCacheRef.current.delete(active.id);
-      setSavedMarkdown(markdown);
-      updateAutosavePaused(false);
-      setStatus("status.savedNow");
-      setRevisions(
-        (
-          await api<{ revisions: Revision[] }>(
-            `/api/pages/${active.id}/revisions?limit=10`,
-          )
-        ).revisions,
-      );
-    } catch (error) {
-      setStatus("status.saveStopped");
-      if (
-        error instanceof Error &&
-        (error as Error & { code?: string }).code === "version_conflict"
-      )
-        await captureEditConflict(active.id, markdown, active.version).catch(
-          () =>
-            setNotice(
-              "최신 버전을 불러오지 못했습니다. 초안은 이 탭에 유지됩니다.",
-            ),
-        );
-      else
-        setNotice(
-          error instanceof Error ? error.message : "저장하지 못했습니다.",
-        );
-    }
-  }
-
-  function beginConflictMerge() {
-    if (!editConflict) return;
-    activeRef.current = editConflict.latest;
-    setActive(editConflict.latest);
-    replacePageSnapshot(editConflict.latest);
-    pageDetailsCacheRef.current.delete(editConflict.latest.id);
-    setSavedMarkdown(editConflict.latest.markdown);
-    setMarkdown(mergeDraft(editConflict.latest.markdown, editConflict.draft));
-    setEditConflict(null);
-    updateAutosavePaused(true);
-    setStatus("status.reviewingMerge");
-  }
-
-  async function saveConflictAsNewPage() {
-    if (!editConflict || !caps.can_write) return;
-    try {
-      const created = await api<{ page_id: string }>("/api/pages", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: `${editConflict.title} (충돌 초안 ${new Date().toLocaleString("ko-KR")})`,
-          page_type: editConflict.pageType,
-          markdown: editConflict.draft,
-          parent_id: null,
-          operation_id: crypto.randomUUID(),
-        }),
-      });
-      setEditConflict(null);
-      updateAutosavePaused(false);
-      await loadWorkspace(false);
-      await openPage(created.page_id);
-      setNotice("내 초안을 새 페이지로 보존했습니다.");
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "충돌 초안을 새 페이지로 저장하지 못했습니다.",
-      );
-    }
-  }
-
-  async function restoreRevision(version: number) {
-    if (!active || !caps.can_restore || dirty) return;
-    if (
-      !window.confirm(
-        `v${version} 스냅샷을 새 리비전으로 복구할까요? 현재 기록은 보존됩니다.`,
-      )
-    )
-      return;
-    try {
-      await api(`/api/pages/${active.id}/restore`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          expected_version: active.version,
-          restore_version: version,
-          operation_id: crypto.randomUUID(),
-        }),
-      });
-      await openPage(active.id);
-      setStatus("status.restoredVersion", { version });
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "리비전을 복구하지 못했습니다.",
-      );
-    }
-  }
-
-  async function movePageTo(pageId: string, parentId: string | null) {
-    const page = pagesRef.current.find((candidate) => candidate.id === pageId);
-    if (!page || !caps.can_write) return;
-    if (page.parent_id === parentId) {
-      setMoveDialogOpen(false);
-      setStatus("status.alreadyThere");
-      return;
-    }
-    if (activeRef.current?.id === pageId && dirtyRef.current) {
-      setNotice("저장되지 않은 변경을 먼저 저장한 뒤 이동하세요.");
-      return;
-    }
-    setStatus("status.movingPage");
-    try {
-      await api(`/api/pages/${page.id}/move`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          expected_version: page.version,
-          parent_id: parentId,
-          sort_order: 0,
-          operation_id: crypto.randomUUID(),
-        }),
-      });
-      setMoveDialogOpen(false);
-      pageDetailsCacheRef.current.delete(page.id);
-      await loadWorkspace(false);
-      if (activeRef.current?.id === page.id) await openPage(page.id, true);
-      setStatus("status.pageMoved");
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "페이지를 이동하지 못했습니다.",
-      );
-    }
-  }
-
   async function switchVault(wikiId: string) {
     if (!wikiId || wikiId === currentWiki?.id) return;
-    if (
-      dirty &&
-      !window.confirm("저장되지 않은 변경이 있습니다. Vault를 전환할까요?")
-    )
-      return;
     try {
       setStatus("status.switchingWiki");
       graphRequestRef.current++;
@@ -1225,7 +858,6 @@ export default function Home() {
       activeRef.current = null;
       setActive(null);
       setMarkdown("");
-      setSavedMarkdown("");
       setDeletedPages([]);
       setGraph(null);
       pageDetailsCacheRef.current.clear();
@@ -1245,11 +877,6 @@ export default function Home() {
 
   async function createVault() {
     if (!caps.can_create_wiki || !newVaultTitle.trim()) return;
-    if (
-      dirty &&
-      !window.confirm("저장되지 않은 변경이 있습니다. 새 Vault를 만들까요?")
-    )
-      return;
     try {
       setStatus("status.creatingWiki");
       graphRequestRef.current++;
@@ -1258,7 +885,6 @@ export default function Home() {
       activeRef.current = null;
       setActive(null);
       setMarkdown("");
-      setSavedMarkdown("");
       setPages([]);
       setDeletedPages([]);
       setGraph(null);
@@ -1329,76 +955,6 @@ export default function Home() {
     }
   }
 
-  function openDeleteActivePageDialog() {
-    if (!active || !caps.can_soft_delete || dirty) return;
-    setDeleteConfirmation("");
-    setDeleteReason("사용자 요청");
-    setDeleteError(null);
-    setDeleteDialogOpen(true);
-  }
-
-  async function deleteActivePage() {
-    if (!active || !caps.can_soft_delete || dirty || deletePending) return;
-    const expectedConfirmation = `DELETE ${active.title}`;
-    if (deleteConfirmation !== expectedConfirmation || !deleteReason.trim())
-      return;
-    setDeletePending(true);
-    setDeleteError(null);
-    try {
-      await api(`/api/pages/${active.id}`, {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          expected_version: active.version,
-          confirmation: deleteConfirmation,
-          reason: deleteReason.trim(),
-          operation_id: crypto.randomUUID(),
-        }),
-      });
-      setDeleteDialogOpen(false);
-      activeRef.current = null;
-      setActive(null);
-      setMarkdown("");
-      setSavedMarkdown("");
-      await loadWorkspace(true);
-      setStatus("status.pageDeleted");
-    } catch (error) {
-      setDeleteError(
-        error instanceof Error
-          ? error.message
-          : "페이지를 삭제하지 못했습니다.",
-      );
-    } finally {
-      setDeletePending(false);
-    }
-  }
-
-  async function restoreDeleted(page: Page) {
-    if (!caps.can_soft_delete) return;
-    try {
-      const result = await api<{ page_id: string }>(
-        `/api/pages/${page.id}/restore-deleted`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            expected_version: page.version,
-            replacement_slug: null,
-            operation_id: crypto.randomUUID(),
-          }),
-        },
-      );
-      await loadWorkspace(false);
-      await openPage(result.page_id);
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "삭제된 페이지를 복구하지 못했습니다.",
-      );
-    }
-  }
-
   async function showGraph() {
     changeView("graph");
     setGraph(null);
@@ -1453,11 +1009,7 @@ export default function Home() {
     if (!active) return;
     try {
       await copyText(markdown);
-      setNotice(
-        dirty
-          ? "편집 중인 Markdown을 복사했습니다."
-          : "페이지 Markdown을 복사했습니다.",
-      );
+      setNotice("페이지 Markdown을 복사했습니다.");
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "본문을 복사하지 못했습니다.",
@@ -1465,96 +1017,96 @@ export default function Home() {
     }
   }
 
-  async function copyCodexRequest() {
-    const link = activePermalink();
-    if (!active || !link) return;
+  const requestsEnabled =
+    caps.can_write && writeMode === "read_write" && Boolean(currentWiki);
+
+  function pageRequestContext(
+    page: Page,
+    scope: "page" | "revision" | "deleted_page" = "page",
+    restoreVersion?: number,
+  ): ChangeRequestContext | null {
+    if (!currentWiki) return null;
+    return {
+      language,
+      wiki: { id: currentWiki.id, title: currentWiki.title },
+      scope,
+      page: {
+        id: page.id,
+        title: page.title,
+        pageType: page.page_type,
+        path: page.path,
+        version: page.version,
+        permalink: buildPagePermalink(
+          window.location.href,
+          currentWiki.id,
+          page.id,
+        ),
+      },
+      restoreVersion,
+    };
+  }
+
+  function openChangeRequest(options?: {
+    initialScope?: ChangeRequestScope;
+    initialKind?: ChangeRequestKind;
+    page?: Page;
+    restoreVersion?: number;
+    initialDetails?: string;
+  }) {
+    if (!requestsEnabled || !currentWiki) {
+      setNotice(writeModeReason || t("request.unavailable"));
+      return;
+    }
+    const contexts: ChangeRequestState["contexts"] = {
+      wiki: {
+        language,
+        wiki: { id: currentWiki.id, title: currentWiki.title },
+        scope: "wiki",
+      },
+    };
+    const targetPage = options?.page ?? active;
+    if (targetPage) contexts.page = pageRequestContext(targetPage) ?? undefined;
+    const topic = knowledgeMap.topics.find(
+      (candidate) => candidate.id === selectedKnowledgeTopicId,
+    );
+    if (topic)
+      contexts.topic = {
+        language,
+        wiki: { id: currentWiki.id, title: currentWiki.title },
+        scope: "topic",
+        topic: { id: topic.id, title: topic.title },
+      };
+    if (targetPage && options?.initialScope === "revision")
+      contexts.revision =
+        pageRequestContext(targetPage, "revision", options.restoreVersion) ??
+        undefined;
+    if (targetPage && options?.initialScope === "deleted_page")
+      contexts.deleted_page =
+        pageRequestContext(targetPage, "deleted_page") ?? undefined;
+    const preferredScope =
+      options?.initialScope ??
+      (view === "document" && contexts.page
+        ? "page"
+        : view === "knowledge" && contexts.topic
+          ? "topic"
+          : "wiki");
+    setChangeRequest({
+      contexts,
+      initialScope: preferredScope,
+      initialKind: options?.initialKind,
+      initialDetails: options?.initialDetails,
+    });
+  }
+
+  async function copyChangeRequest(prompt: string) {
     try {
-      await copyText(buildCodexResearchPrompt(active.title, link));
-      setNotice("Codex에 붙여넣을 추가 조사 요청을 복사했습니다.");
+      await copyText(prompt);
+      setNotice(t("request.copySuccess"));
     } catch (error) {
       setNotice(
         error instanceof Error
           ? error.message
           : "Codex 요청을 복사하지 못했습니다.",
-      );
-    }
-  }
-
-  async function uploadFile(file: File) {
-    if (!active || !caps.can_manage_attachments) return;
-    const form = new FormData();
-    form.set("file", file);
-    form.set("page_id", active.id);
-    form.set("operation_id", crypto.randomUUID());
-    try {
-      setStatus("status.uploadingAttachment");
-      await api("/api/attachments", { method: "POST", body: form });
-      setAttachments(
-        (
-          await api<{ attachments: Attachment[] }>(
-            `/api/attachments?page_id=${active.id}&include_deleted=true`,
-          )
-        ).attachments,
-      );
-      setStatus("status.attachmentUploaded");
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "첨부파일을 올리지 못했습니다.",
-      );
-    }
-  }
-
-  async function deleteAttachment(attachment: Attachment) {
-    if (
-      !active ||
-      !caps.can_manage_attachments ||
-      !window.confirm(`${attachment.filename} 첨부를 소프트 삭제할까요?`)
-    )
-      return;
-    try {
-      await api(`/api/attachments/${attachment.id}`, {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ operation_id: crypto.randomUUID() }),
-      });
-      setAttachments(
-        (
-          await api<{ attachments: Attachment[] }>(
-            `/api/attachments?page_id=${active.id}&include_deleted=true`,
-          )
-        ).attachments,
-      );
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "첨부파일을 삭제하지 못했습니다.",
-      );
-    }
-  }
-
-  async function restoreAttachment(attachment: Attachment) {
-    if (!active || !caps.can_manage_attachments) return;
-    try {
-      await api(`/api/attachments/${attachment.id}/restore`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ operation_id: crypto.randomUUID() }),
-      });
-      setAttachments(
-        (
-          await api<{ attachments: Attachment[] }>(
-            `/api/attachments?page_id=${active.id}&include_deleted=true`,
-          )
-        ).attachments,
-      );
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "첨부파일을 복구하지 못했습니다.",
       );
     }
   }
@@ -1596,26 +1148,6 @@ export default function Home() {
     }
     return trail;
   }, [active, pages]);
-  const invalidMoveFolderIds = useMemo(() => {
-    const invalid = new Set<string>();
-    if (!active) return invalid;
-    invalid.add(active.id);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const page of pages)
-        if (
-          page.parent_id &&
-          invalid.has(page.parent_id) &&
-          !invalid.has(page.id)
-        ) {
-          invalid.add(page.id);
-          changed = true;
-        }
-    }
-    return invalid;
-  }, [active, pages]);
-
   if (sessionLoaded && authRequired)
     return (
       <main className="wiki-shell bootstrap-shell-root">
@@ -1642,7 +1174,7 @@ export default function Home() {
     return (
       <main className="wiki-shell bootstrap-shell-root">
         <SiteTools
-          key={`${writeMode}-${caps.can_write}-${caps.can_create_wiki}`}
+          key={`${writeMode}-${caps.can_write}-${caps.can_create_wiki}-${caps.can_soft_delete}`}
         />
         <Suspense fallback={<WorkspaceLoading />}>
           <OperationsPanel
@@ -1663,7 +1195,7 @@ export default function Home() {
   return (
     <main className="wiki-app">
       <SiteTools
-        key={`${writeMode}-${caps.can_write}-${caps.can_create_wiki}`}
+        key={`${writeMode}-${caps.can_write}-${caps.can_create_wiki}-${caps.can_soft_delete}`}
       />
       <IconSidebar
         activeView={view}
@@ -1739,7 +1271,6 @@ export default function Home() {
                   activeVaultTitle={currentWiki?.title ?? "Liminal Wiki"}
                   activePageId={pendingPageId ?? active?.id ?? null}
                   pendingPageId={pendingPageId}
-                  canWrite={caps.can_write}
                   knowledgeMap={knowledgeMap}
                   selectedKnowledgeTopicId={selectedKnowledgeTopicId}
                   onOpenPage={(pageId) => void openPage(pageId)}
@@ -1748,15 +1279,17 @@ export default function Home() {
                     changeView("knowledge");
                     setMobileWorkspacePane("content");
                   }}
-                  onMovePage={(pageId, parentId) =>
-                    void movePageTo(pageId, parentId)
-                  }
                   onSwitchVault={(wikiId) => void switchVault(wikiId)}
-                  onRestorePage={(page) => {
+                  onRequestRestore={(page) => {
                     const original = deletedPages.find(
                       (candidate) => candidate.id === page.id,
                     );
-                    if (original) void restoreDeleted(original);
+                    if (original)
+                      openChangeRequest({
+                        page: original,
+                        initialScope: "deleted_page",
+                        initialKind: "restore_deleted",
+                      });
                   }}
                 />
               </ResizablePanel>
@@ -1829,6 +1362,22 @@ export default function Home() {
                     )}
                   </div>
                   <div className="workspace-actions">
+                    {view !== "document" && (
+                      <button
+                        type="button"
+                        className="topbar-request-button"
+                        onClick={() => openChangeRequest()}
+                        disabled={!requestsEnabled}
+                        title={
+                          requestsEnabled
+                            ? t("request.open")
+                            : writeModeReason || t("request.unavailable")
+                        }
+                      >
+                        <MessageSquareText aria-hidden="true" />
+                        <span>{t("request.open")}</span>
+                      </button>
+                    )}
                     {writeMode === "read_only" && (
                       <span
                         className="readonly-badge"
@@ -1838,13 +1387,13 @@ export default function Home() {
                       </span>
                     )}
                     <span
-                      className={"sync-state " + (dirty ? "dirty" : "")}
+                      className="sync-state"
                       role="status"
-                      aria-label={dirty ? t("page.unsaved") : status}
-                      title={dirty ? t("page.unsaved") : status}
+                      aria-label={status}
+                      title={status}
                     >
                       <i />
-                      <span>{dirty ? t("page.unsaved") : status}</span>
+                      <span>{status}</span>
                     </span>
                     <details
                       className="topbar-settings"
@@ -2040,9 +1589,25 @@ export default function Home() {
                       activePageId={pendingPageId ?? active?.id ?? null}
                       onRefresh={() => void showGraph()}
                       onOpenPage={(pageId) => void openPage(pageId)}
+                      requestAction={
+                        <button
+                          type="button"
+                          className="graph-request-action"
+                          onClick={() => openChangeRequest()}
+                          disabled={!requestsEnabled}
+                          title={
+                            requestsEnabled
+                              ? t("request.open")
+                              : writeModeReason || t("request.unavailable")
+                          }
+                        >
+                          <MessageSquareText aria-hidden="true" />
+                          <span>{t("request.open")}</span>
+                        </button>
+                      }
                     />
                   ) : (
-                    <WikiEditor
+                    <WikiReader
                       title={active?.title ?? ""}
                       pageType={t(
                         pageTypeKeys[active?.page_type ?? "other"] ??
@@ -2050,20 +1615,6 @@ export default function Home() {
                       ).toUpperCase()}
                       version={active?.version ?? null}
                       markdown={markdown}
-                      mode={mode}
-                      dirty={dirty}
-                      canWrite={caps.can_write}
-                      autosavePaused={autosavePaused}
-                      onModeChange={setMode}
-                      onMarkdownChange={(nextMarkdown) => {
-                        markdownRef.current = nextMarkdown;
-                        dirtyRef.current = nextMarkdown !== savedMarkdown;
-                        setMarkdown(nextMarkdown);
-                      }}
-                      onAutosaveToggle={() =>
-                        updateAutosavePaused(!autosavePausedRef.current)
-                      }
-                      onSave={() => void save()}
                       onWikiLink={openWikiLink}
                       headerActions={
                         <>
@@ -2092,39 +1643,20 @@ export default function Home() {
                             >
                               <Copy /> <span>{t("page.content")}</span>
                             </button>
-                            <button
-                              type="button"
-                              className="page-share-action codex"
-                              onClick={() => void copyCodexRequest()}
-                              disabled={!active || !currentWiki}
-                              title={t("page.copyCodex")}
-                              aria-label={t("page.copyCodex")}
-                            >
-                              <Bot /> <span>Codex</span>
-                            </button>
                           </div>
                           <button
                             type="button"
-                            className="editor-icon-action"
-                            onClick={() => {
-                              setMoveParentId(active?.parent_id ?? null);
-                              setMoveDialogOpen(true);
-                            }}
-                            disabled={!active || dirty || !caps.can_write}
-                            title={t("page.move")}
-                            aria-label={t("page.move")}
+                            className="page-request-action"
+                            onClick={() => openChangeRequest()}
+                            disabled={!requestsEnabled}
+                            title={
+                              requestsEnabled
+                                ? t("request.open")
+                                : writeModeReason || t("request.unavailable")
+                            }
                           >
-                            <Move />
-                          </button>
-                          <button
-                            type="button"
-                            className="editor-icon-action destructive"
-                            onClick={openDeleteActivePageDialog}
-                            disabled={!active || dirty || !caps.can_soft_delete}
-                            title={t("page.delete")}
-                            aria-label={t("page.delete")}
-                          >
-                            <Trash2 />
+                            <MessageSquareText aria-hidden="true" />
+                            <span>{t("request.open")}</span>
                           </button>
                         </>
                       }
@@ -2141,62 +1673,6 @@ export default function Home() {
                                 ×
                               </button>
                             </div>
-                          )}
-                          {editConflict && (
-                            <section
-                              className="conflict-resolver"
-                              aria-label="편집 충돌 해결"
-                            >
-                              <header>
-                                <div>
-                                  <span>VERSION CONFLICT</span>
-                                  <h3>최신 변경과 내 초안을 함께 검토하세요</h3>
-                                </div>
-                                <small>
-                                  읽은 버전 {editConflict.baseVersion} · 최신
-                                  버전 {editConflict.latest.version}
-                                </small>
-                              </header>
-                              <div className="conflict-columns">
-                                <label>
-                                  <span>최신 버전</span>
-                                  <textarea
-                                    readOnly
-                                    value={editConflict.latest.markdown}
-                                  />
-                                </label>
-                                <label>
-                                  <span>내 초안</span>
-                                  <textarea
-                                    readOnly
-                                    value={editConflict.draft}
-                                  />
-                                </label>
-                                <label>
-                                  <span>줄 단위 diff</span>
-                                  <pre>{editConflict.diff}</pre>
-                                </label>
-                              </div>
-                              <div className="conflict-actions">
-                                <button
-                                  type="button"
-                                  onClick={beginConflictMerge}
-                                >
-                                  병합 초안 만들기
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => void saveConflictAsNewPage()}
-                                >
-                                  내 초안을 새 페이지로 저장
-                                </button>
-                              </div>
-                              <p>
-                                병합 초안의 충돌 표식을 정리한 뒤 변경을
-                                저장하세요. 자동 저장은 그때까지 일시
-                                중지됩니다.
-                              </p>
-                            </section>
                           )}
                         </>
                       }
@@ -2291,72 +1767,29 @@ export default function Home() {
                         }
                       </b>
                     </div>
-                    {caps.can_manage_attachments && (
-                      <label className="attachment-upload">
-                        <Upload /> {t("page.addFile")}
-                        <input
-                          type="file"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (file) void uploadFile(file);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                    )}
                     <div className="context-list">
-                      {attachments.map((attachment) => (
-                        <div
-                          key={attachment.id}
-                          className={
-                            "attachment-row " +
-                            (attachment.status !== "ready" ? "deleted" : "")
-                          }
-                        >
-                          <Paperclip />
-                          <span>
-                            <a
-                              href={
-                                attachment.status === "ready"
-                                  ? "/api/attachments/" + attachment.id
-                                  : undefined
-                              }
-                            >
-                              {attachment.filename}
-                            </a>
-                            <small>
-                              {Math.max(
-                                1,
-                                Math.round(attachment.size_bytes / 1024),
-                              )}{" "}
-                              KB · {attachment.status}
-                            </small>
-                          </span>
-                          {caps.can_manage_attachments &&
-                            (attachment.status === "ready" ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void deleteAttachment(attachment)
-                                }
-                                aria-label={attachment.filename + " 삭제"}
-                              >
-                                <Trash2 />
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void restoreAttachment(attachment)
-                                }
-                                aria-label={attachment.filename + " 복구"}
-                              >
-                                <RotateCcw />
-                              </button>
-                            ))}
-                        </div>
-                      ))}
-                      {!attachments.length && (
+                      {attachments
+                        .filter((attachment) => attachment.status === "ready")
+                        .map((attachment) => (
+                          <div key={attachment.id} className="attachment-row">
+                            <Paperclip />
+                            <span>
+                              <a href={"/api/attachments/" + attachment.id}>
+                                {attachment.filename}
+                              </a>
+                              <small>
+                                {Math.max(
+                                  1,
+                                  Math.round(attachment.size_bytes / 1024),
+                                )}{" "}
+                                KB · {attachment.status}
+                              </small>
+                            </span>
+                          </div>
+                        ))}
+                      {!attachments.some(
+                        (attachment) => attachment.status === "ready",
+                      ) && (
                         <p className="context-empty">
                           {t("page.noAttachments")}
                         </p>
@@ -2392,15 +1825,18 @@ export default function Home() {
                               )}
                             </small>
                             {revision.version !== active?.version &&
-                              caps.can_restore && (
+                              requestsEnabled && (
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void restoreRevision(revision.version)
+                                    openChangeRequest({
+                                      initialScope: "revision",
+                                      initialKind: "restore_revision",
+                                      restoreVersion: revision.version,
+                                    })
                                   }
-                                  disabled={dirty}
                                 >
-                                  {t("page.restoreVersion")}
+                                  {t("request.restoreRevision")}
                                 </button>
                               )}
                           </div>
@@ -2415,108 +1851,15 @@ export default function Home() {
           )}
         </ResizablePanelGroup>
       </div>
-      {moveDialogOpen && active && (
-        <WorkspaceDialog
-          title={t("dialog.moveTitle", { title: active.title })}
-          description={t("dialog.moveDescription")}
-          confirmLabel={t("dialog.moveConfirm")}
-          onConfirm={() => void movePageTo(active.id, moveParentId)}
-          onClose={() => setMoveDialogOpen(false)}
-        >
-          <div
-            className="move-tree"
-            role="tree"
-            aria-label={t("dialog.moveTree")}
-          >
-            <label className={moveParentId === null ? "selected" : ""}>
-              <input
-                type="radio"
-                name="move-parent"
-                checked={moveParentId === null}
-                onChange={() => setMoveParentId(null)}
-              />
-              <span>▣</span>
-              <strong>{currentWiki?.title ?? "Wiki"}</strong>
-              <small>{t("tree.topLevel")}</small>
-            </label>
-            {pages
-              .filter((page) => page.page_type === "folder")
-              .map((folder) => (
-                <label
-                  key={folder.id}
-                  className={moveParentId === folder.id ? "selected" : ""}
-                  aria-disabled={invalidMoveFolderIds.has(folder.id)}
-                >
-                  <input
-                    type="radio"
-                    name="move-parent"
-                    checked={moveParentId === folder.id}
-                    disabled={invalidMoveFolderIds.has(folder.id)}
-                    onChange={() => setMoveParentId(folder.id)}
-                  />
-                  <span>▾</span>
-                  <strong>{folder.title}</strong>
-                  <small>{folder.path}</small>
-                </label>
-              ))}
-          </div>
-        </WorkspaceDialog>
-      )}
-      {deleteDialogOpen && active && (
-        <WorkspaceDialog
-          title={`“${active.title}” 삭제`}
-          description="leaf 페이지만 소프트 삭제할 수 있습니다. 삭제된 페이지는 복구 목록에서 다시 복원할 수 있습니다."
-          confirmLabel={deletePending ? "삭제 중…" : "소프트 삭제"}
-          confirmTone="destructive"
-          confirmDisabled={
-            deletePending ||
-            deleteConfirmation !== `DELETE ${active.title}` ||
-            !deleteReason.trim()
-          }
-          onConfirm={() => void deleteActivePage()}
-          onClose={() => {
-            if (deletePending) return;
-            setDeleteDialogOpen(false);
-            setDeleteError(null);
-          }}
-        >
-          <div className="workspace-dialog-confirmation">
-            <span>입력할 확인 문구</span>
-            <code>{`DELETE ${active.title}`}</code>
-          </div>
-          <label className="workspace-dialog-field">
-            <span>확인 문구</span>
-            <input
-              autoFocus
-              value={deleteConfirmation}
-              onChange={(event) => setDeleteConfirmation(event.target.value)}
-              placeholder={`DELETE ${active.title}`}
-              autoComplete="off"
-            />
-          </label>
-          <label className="workspace-dialog-field">
-            <span>삭제 이유</span>
-            <input
-              value={deleteReason}
-              onChange={(event) => setDeleteReason(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  deleteConfirmation === `DELETE ${active.title}` &&
-                  deleteReason.trim() &&
-                  !deletePending
-                )
-                  void deleteActivePage();
-              }}
-              placeholder="삭제 이유를 입력하세요"
-            />
-          </label>
-          {deleteError && (
-            <p className="workspace-dialog-error" role="alert">
-              {deleteError}
-            </p>
-          )}
-        </WorkspaceDialog>
+      {changeRequest && (
+        <ChangeRequestDialog
+          contexts={changeRequest.contexts}
+          initialScope={changeRequest.initialScope}
+          initialKind={changeRequest.initialKind}
+          initialDetails={changeRequest.initialDetails}
+          onClose={() => setChangeRequest(null)}
+          onCopy={copyChangeRequest}
+        />
       )}
       {vaultDialogOpen && (
         <WorkspaceDialog

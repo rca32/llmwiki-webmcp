@@ -1,6 +1,6 @@
 # Liminal Wiki
 
-WebMCP Native LLM Wiki is a ChatGPT Sites knowledge workspace where the human UI and page-scoped agent tools use the same authenticated APIs, optimistic concurrency rules, immutable revisions, and audit trail.
+WebMCP Native LLM Wiki is a ChatGPT Sites knowledge workspace where people read grounded knowledge and copy structured change requests, while Codex maintains pages through page-scoped tools backed by the same authenticated APIs, concurrency rules, immutable revisions, and audit trail.
 
 ## Local development
 
@@ -22,7 +22,7 @@ npm run db:check
 npm run build
 ```
 
-With the development server running, exercise the security/role matrix plus the human UI lifecycle (create, move, autosave, revision restore, attachment upload, graph navigation, and browser backup) in headless Chrome:
+With the development server running, exercise the security/role matrix plus the read-only human UI lifecycle (document reading, contextual request generation, graph navigation, and browser backup) in headless Chrome:
 
 ```bash
 npm run test:ui
@@ -56,18 +56,20 @@ npm run db:generate
 
 - Workspace-authenticated session capabilities and owner bootstrap
 - D1-backed page create, read, update, append, move, link, leaf soft-delete/restore, text search, backlinks, and graph
-- Optimistic concurrency, idempotent mutations, simple YAML frontmatter validation, autosave, immutable revisions, and restore-as-new-version
+- Optimistic concurrency, idempotent mutations, simple YAML frontmatter validation, immutable revisions, and restore-as-new-version through Codex
 - R2 revision tiering plus upload/download/checksum, 30-day attachment soft-delete/restore, quota accounting, orphan reconciliation, and retention maintenance
 - Portable and full multipart backups with per-part SHA-256, explicit ACK, and full-backup revision coverage
 - Resumable import sessions that validate every declared part before an empty-Site-only atomic commit
-- Multi-vault workspace with per-user vault switching, physical folder/page hierarchy, semantic Knowledge groups, breadcrumb navigation, and drag/drop or picker-based moves
-- Responsive tree, server-backed full-text search, GFM/math/Mermaid preview, graph, attachments, trash, revision restore, and conflict UI
+- Multi-vault workspace with per-user vault switching, a read-only physical folder/page hierarchy, semantic topic groups, and breadcrumb navigation
+- Responsive tree, server-backed full-text search, GFM/math/Mermaid preview, graph, attachment downloads, trash history, and contextual change requests in four languages
 - Owner operations center for member roles and ownership transfer, audit history, usage/repair status, and storage maintenance
-- Owner-controlled operational read-only mode that removes write Site tools, disables human write controls, rejects direct mutation APIs, and records the transition in the audit trail
+- Owner-controlled operational read-only mode that removes write Site tools, disables change requests, rejects direct mutation APIs, and records the transition in the audit trail
 - Browser-verified portable/full ZIP backup with multipart checksum verification and ACK, plus empty-Site restore from the same package
 - Vault, folder, and page WebMCP tools using the same server APIs and active-vault context as the human UI
 
-The current WebMCP knowledge workflow includes `wiki_get_operating_contract`, `wiki_plan_ingest`, `wiki_apply_ingest`, `wiki_get_claims`, and `wiki_lint`. Workspace mutations also include `wiki_switch_vault`, `wiki_create_vault`, `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, `wiki_restore_revision`, and `wiki_update_operating_contract`. Soft delete remains UI/API-only until the late-MVP typed-confirmation tool is deliberately exposed.
+The current WebMCP knowledge workflow includes `wiki_get_operating_contract`, `wiki_plan_ingest`, `wiki_apply_ingest`, `wiki_get_claims`, and `wiki_lint`. Workspace mutations also include `wiki_switch_vault`, `wiki_create_vault`, `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`, `wiki_restore_revision`, `wiki_soft_delete_page`, `wiki_restore_deleted_page`, and `wiki_update_operating_contract`. Page deletion is capability-gated, soft-only, version checked, idempotent, and requires the exact typed confirmation.
+
+The product `site/` deliberately contains no direct page editor, page/folder move controls, attachment upload controls, or restore buttons. A human request copied from the current document, topic, revision, deleted page, or whole wiki is explicit authorization for that exact scope. Codex must read current context and evidence before applying it, and must stop when the target is ambiguous or the required scope expands. `recovery-site/` is the operational disaster-recovery exception and retains direct restore and verification controls.
 
 See `../docs/SYSTEM_DESIGN.md` for the complete architecture, contracts, operational evidence, and remaining release gates.
 Production rollback, revision recovery, and empty-Site full-backup restoration are documented in `RECOVERY_RUNBOOK.md`.

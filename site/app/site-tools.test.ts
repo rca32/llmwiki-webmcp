@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LLM_WIKI_CORE_IDEA } from "../lib/llm-wiki-core";
 import { WEBMCP_TOOL_NAMES } from "../lib/webmcp-tool-names";
-import { readTools, toolsForCapabilities, writeTools } from "./site-tools";
+import {
+  readTools,
+  softDeleteTools,
+  toolsForCapabilities,
+  writeTools,
+} from "./site-tools";
 
 type JsonObject = Record<string, unknown>;
 
 describe("WebMCP descriptor contract", () => {
-  const tools = [...readTools(), ...writeTools()];
+  const tools = [...readTools(), ...writeTools(), ...softDeleteTools()];
   it("has stable unique names", () => {
     const names = tools.map((tool) => tool.name);
     expect(new Set(names).size).toBe(names.length);
@@ -35,6 +40,8 @@ describe("WebMCP descriptor contract", () => {
       "wiki_move_page",
       "wiki_link_pages",
       "wiki_restore_revision",
+      "wiki_soft_delete_page",
+      "wiki_restore_deleted_page",
     ]);
   });
   it("closes every top-level input schema", () => {
@@ -59,6 +66,15 @@ describe("WebMCP descriptor contract", () => {
       );
     for (const tool of writeTools())
       expect(tool.annotations.readOnlyHint, tool.name).toBe(false);
+    const deletion = softDeleteTools().find(
+      (tool) => tool.name === "wiki_soft_delete_page",
+    )!;
+    expect(deletion.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
   });
   it("requires concurrency and idempotency for existing-page writes", () => {
     for (const tool of writeTools().filter(
@@ -84,6 +100,8 @@ describe("WebMCP descriptor contract", () => {
       json: async () => ({ ok: true, data: {} }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("CustomEvent", class {});
     await readTools()
       .find((tool) => tool.name === "wiki_list_pages")!
       .execute({ parent_id: null, depth: 2, limit: 7 });
@@ -98,6 +116,49 @@ describe("WebMCP descriptor contract", () => {
       "/api/pages?parent_id=&depth=2&limit=7&include_markdown=false",
     );
     expect(fetchMock.mock.calls[1][0]).toContain("/neighbors?depth=2&limit=9");
+  });
+
+  it("forwards explicit soft-delete and deleted-page restore requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, data: {} }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("CustomEvent", class {});
+    const pageId = "11111111-1111-4111-8111-111111111111";
+    const operationId = "22222222-2222-4222-8222-222222222222";
+    await softDeleteTools()
+      .find((tool) => tool.name === "wiki_soft_delete_page")!
+      .execute({
+        page_id: pageId,
+        expected_version: 4,
+        confirmation: "DELETE Example",
+        reason: "Explicit user request",
+        operation_id: operationId,
+      });
+    await softDeleteTools()
+      .find((tool) => tool.name === "wiki_restore_deleted_page")!
+      .execute({
+        page_id: pageId,
+        expected_version: 5,
+        replacement_slug: null,
+        operation_id: operationId,
+      });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/pages/${pageId}`);
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)),
+    ).toMatchObject({
+      expected_version: 4,
+      confirmation: "DELETE Example",
+      reason: "Explicit user request",
+      operation_id: operationId,
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/api/pages/${pageId}/restore-deleted`,
+    );
   });
 
   it("exposes cursor pagination and metadata-only page lists by default", () => {
@@ -189,6 +250,25 @@ describe("WebMCP descriptor contract", () => {
       toolsForCapabilities({
         can_read: true,
         can_write: true,
+        can_soft_delete: false,
+      }).map((tool) => tool.name),
+    ).not.toContain("wiki_soft_delete_page");
+    expect(
+      toolsForCapabilities({
+        can_read: true,
+        can_write: true,
+        can_soft_delete: true,
+      }).map((tool) => tool.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "wiki_soft_delete_page",
+        "wiki_restore_deleted_page",
+      ]),
+    );
+    expect(
+      toolsForCapabilities({
+        can_read: true,
+        can_write: true,
         can_restore: false,
       }).map((tool) => tool.name),
     ).not.toContain("wiki_restore_revision");
@@ -204,6 +284,7 @@ describe("WebMCP descriptor contract", () => {
         can_read: true,
         can_write: true,
         can_create_wiki: true,
+        can_soft_delete: true,
       }).map((tool) => tool.name),
     ).toEqual(WEBMCP_TOOL_NAMES);
     expect(

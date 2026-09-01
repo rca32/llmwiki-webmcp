@@ -970,6 +970,314 @@ textarea {
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 18%, transparent);
 }
 
+.change-request-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in oklch, black 46%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.change-request-dialog {
+  width: min(640px, 100%);
+  max-height: min(780px, calc(100vh - 48px));
+  padding: 22px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  outline: 0;
+  color: var(--foreground);
+  background: var(--background);
+  box-shadow: 0 28px 80px color-mix(in oklch, black 34%, transparent);
+}
+
+.change-request-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.change-request-dialog > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.change-request-dialog > header span svg,
+.change-request-dialog > header > button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.change-request-dialog h2 {
+  margin: 6px 0 0;
+  font-size: 22px;
+  font-weight: 680;
+  letter-spacing: -0.025em;
+}
+
+.change-request-dialog header p {
+  max-width: 520px;
+  margin: 8px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.change-request-dialog > header > button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+
+.change-request-dialog > header > button:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.change-request-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.change-request-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.change-request-target {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 3px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--muted);
+}
+
+.change-request-target > span,
+.change-request-target small {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.change-request-target strong,
+.change-request-target small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-request-target strong {
+  font-size: 11px;
+}
+
+.change-request-fields label:last-child {
+  grid-column: 1 / -1;
+}
+
+.change-request-fields label > span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.change-request-fields select,
+.change-request-fields textarea {
+  width: 100%;
+  border: 1px solid var(--input);
+  border-radius: 7px;
+  outline: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font: inherit;
+  font-size: 12px;
+}
+
+.change-request-fields select {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.change-request-fields textarea {
+  min-height: 116px;
+  padding: 10px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.change-request-fields select:focus,
+.change-request-fields textarea:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 18%, transparent);
+}
+
+.change-request-fields small {
+  justify-self: end;
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.change-request-preview {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--muted);
+}
+
+.change-request-preview summary {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.change-request-preview summary svg {
+  width: 13px;
+  height: 13px;
+}
+
+.change-request-preview[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.change-request-preview pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  color: var(--foreground);
+  background: var(--background);
+  font: 10px/1.6 var(--font-mono, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.change-request-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.change-request-dialog > footer p {
+  max-width: 330px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.change-request-dialog > footer > div {
+  display: flex;
+  gap: 7px;
+}
+
+.change-request-dialog > footer button,
+.topbar-request-button,
+.page-request-action {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--background);
+  font-size: 11px;
+  font-weight: 620;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.change-request-dialog > footer button.primary,
+.page-request-action {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.change-request-dialog button svg,
+.topbar-request-button svg,
+.page-request-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.topbar-request-button {
+  min-height: 29px;
+  color: color-mix(in oklch, var(--primary) 82%, var(--foreground));
+}
+
+.change-request-dialog button:disabled,
+.topbar-request-button:disabled,
+.page-request-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 640px) {
+  .change-request-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .change-request-dialog {
+    width: 100%;
+    max-height: 92vh;
+    padding: 18px;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .change-request-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .change-request-fields label:last-child {
+    grid-column: auto;
+  }
+
+  .change-request-dialog > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .change-request-dialog > footer > div {
+    justify-content: flex-end;
+  }
+}
+
 .move-tree {
   display: grid;
   gap: 3px;

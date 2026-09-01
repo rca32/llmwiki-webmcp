@@ -35,217 +35,163 @@ let activeBrowser;
 
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.locator(".tree-page-row").first().waitFor();
-  await page.waitForFunction(() =>
-    Boolean(document.documentElement.dataset.wikiId),
-  );
   const staleFixtures = await context.request
     .get(`${baseUrl}/api/pages?depth=64&limit=200`)
     .then((response) => response.json());
-  for (const fixture of staleFixtures.data.pages
-    .filter((item) => /^Lifecycle (Child|Parent) \d+$/.test(item.title))
-    .sort(
-      (left, right) =>
-        Number(right.title.includes("Child")) -
-        Number(left.title.includes("Child")),
-    )) {
-    const cleanup = await context.request.delete(
-      `${baseUrl}/api/pages/${fixture.id}`,
-      {
-        data: {
-          expected_version: fixture.version,
-          confirmation: `DELETE ${fixture.title}`,
-          reason: "Stale UI lifecycle fixture cleanup",
-          operation_id: crypto.randomUUID(),
+  for (const fixture of staleFixtures.data.pages.filter((item) =>
+    /^Read-only Lifecycle \d+$/.test(item.title),
+  ))
+    await context.request.delete(`${baseUrl}/api/pages/${fixture.id}`, {
+      data: {
+        expected_version: fixture.version,
+        confirmation: `DELETE ${fixture.title}`,
+        reason: "Stale read-only lifecycle cleanup",
+        operation_id: crypto.randomUUID(),
+      },
+    });
+  const stamp = Date.now();
+  const title = `Read-only Lifecycle ${stamp}`;
+  const created = await context.request
+    .post(`${baseUrl}/api/pages`, {
+      data: {
+        title,
+        page_type: "note",
+        markdown: `# ${title}\n\nInitial grounded note.`,
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    })
+    .then(async (response) => {
+      if (!response.ok())
+        throw new Error(`Fixture create failed: ${await response.text()}`);
+      return (await response.json()).data;
+    });
+  const updated = await context.request
+    .patch(`${baseUrl}/api/pages/${created.page_id}`, {
+      data: {
+        expected_version: created.version,
+        markdown: `# ${title}\n\nUpdated grounded note.`,
+        change_summary: "Lifecycle revision fixture",
+        operation_id: crypto.randomUUID(),
+      },
+    })
+    .then(async (response) => {
+      if (!response.ok())
+        throw new Error(`Fixture update failed: ${await response.text()}`);
+      return (await response.json()).data;
+    });
+  const attachmentName = `read-only-${stamp}.txt`;
+  const attachment = await context.request
+    .post(`${baseUrl}/api/attachments`, {
+      multipart: {
+        page_id: created.page_id,
+        operation_id: crypto.randomUUID(),
+        file: {
+          name: attachmentName,
+          mimeType: "text/plain",
+          buffer: Buffer.from(`attachment ${stamp}`, "utf8"),
         },
       },
-    );
-    if (!cleanup.ok())
-      throw new Error(
-        `Stale lifecycle cleanup failed: ${cleanup.status()} ${await cleanup.text()}`,
-      );
-  }
-  if (staleFixtures.data.pages.some((item) => /^Lifecycle /.test(item.title)))
-    await page.reload({ waitUntil: "domcontentloaded" });
-  const stamp = Date.now();
-  const originalSession = await context.request
-    .get(`${baseUrl}/api/session/capabilities`)
-    .then((response) => response.json());
-  const originalWikiId = originalSession.data.wiki.id;
-  const vaultTitle = `Lifecycle Vault ${stamp}`;
-  await page.getByRole("button", { name: "새 Vault" }).click();
-  await page.locator(".workspace-dialog-field input").fill(vaultTitle);
-  const vaultCreateResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().endsWith("/api/wikis") &&
-      response.status() === 201,
-  );
-  await page.getByRole("button", { name: "Vault 만들기" }).click();
-  const createdVault = (await (await vaultCreateResponse).json()).data.wiki;
-  await page.locator(".vault-header select").waitFor();
-  await page.locator(".vault-header select").selectOption(originalWikiId);
-  await page.waitForFunction(async (wikiId) => {
-    const response = await fetch("/api/session/capabilities");
-    const payload = await response.json();
-    return payload.data?.wiki?.id === wikiId;
-  }, originalWikiId);
-  if (!createdVault?.id)
-    throw new Error("UI vault creation did not return a stable vault ID.");
+    })
+    .then(async (response) => {
+      if (!response.ok())
+        throw new Error(`Fixture attachment failed: ${await response.text()}`);
+      return (await response.json()).data;
+    });
 
-  const parentTitle = `Lifecycle Parent ${stamp}`;
-  const childTitle = `Lifecycle Child ${stamp}`;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const treeButton = page.locator(".tree-file-open").filter({ hasText: title });
+  await treeButton.waitFor({ timeout: 10_000 });
+  await treeButton.click();
+  await page
+    .locator(".editor-title-copy h1")
+    .filter({ hasText: title })
+    .waitFor();
+  await page
+    .locator(".markdown-preview")
+    .filter({ hasText: "Updated grounded note." })
+    .waitFor();
 
-  await page.getByRole("button", { name: "새 항목" }).click();
-  await page.getByRole("menuitem", { name: "새 폴더" }).click();
-  await page.locator(".workspace-dialog-field input").fill(parentTitle);
-  await page.getByRole("button", { name: "만들기" }).click();
-  await page
-    .locator(".workspace-breadcrumbs strong")
-    .filter({ hasText: parentTitle })
-    .waitFor({ timeout: 10_000 });
+  for (const selector of [
+    ".markdown-editor",
+    ".editor-mode-switch",
+    '.attachment-upload input[type="file"]',
+    '[draggable="true"]',
+    ".move-tree",
+    ".conflict-resolver",
+  ])
+    if ((await page.locator(selector).count()) !== 0)
+      throw new Error(`Direct mutation UI remains visible: ${selector}`);
+  for (const label of ["편집", "변경 저장", "페이지 이동", "페이지 삭제"])
+    if (
+      (await page.getByRole("button", { name: label, exact: true }).count()) !==
+      0
+    )
+      throw new Error(`Direct mutation action remains visible: ${label}`);
 
-  await page.getByRole("button", { name: "새 항목" }).click();
-  await page.getByRole("menuitem", { name: "새 페이지" }).click();
-  await page.locator(".workspace-dialog-field input").fill(childTitle);
-  await page.getByRole("button", { name: "만들기" }).click();
-  const childTreeButton = page.getByRole("button", {
-    name: new RegExp(childTitle),
-  });
-  await childTreeButton.waitFor({ timeout: 10_000 });
-  await page
-    .locator(".workspace-breadcrumbs strong")
-    .filter({ hasText: childTitle })
-    .waitFor({ timeout: 10_000 });
-  const childId = await page.evaluate(
-    () => document.documentElement.dataset.pageId,
-  );
-  if (!childId) throw new Error("UI-created child page did not become active.");
-
-  await page.getByRole("button", { name: "페이지 이동", exact: true }).click();
-  await page.locator('.move-tree input[type="radio"]').first().check();
-  const rootMoveResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().endsWith(`/api/pages/${childId}/move`) &&
-      response.status() === 200,
-  );
-  await page.getByRole("button", { name: "이 위치로 이동" }).click();
-  await rootMoveResponse;
-  await page
-    .locator(".sync-state")
-    .filter({ hasText: "페이지를 이동했습니다." })
-    .waitFor({ timeout: 10_000 });
-  const rootMovedPage = await context.request
-    .get(`${baseUrl}/api/pages/${childId}`)
-    .then((response) => response.json());
-  if (rootMovedPage.data.page.parent_id !== null)
-    throw new Error(
-      "Tree move picker did not move the page to the vault root.",
-    );
-
-  await page.getByRole("button", { name: "페이지 이동", exact: true }).click();
-  await page
-    .locator(".move-tree label")
-    .filter({ hasText: parentTitle })
-    .locator('input[type="radio"]')
-    .check();
-  const folderMoveResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().endsWith(`/api/pages/${childId}/move`) &&
-      response.status() === 200,
-  );
-  await page.getByRole("button", { name: "이 위치로 이동" }).click();
-  await folderMoveResponse;
-  await page
-    .locator(".sync-state")
-    .filter({ hasText: "페이지를 이동했습니다." })
-    .waitFor({ timeout: 10_000 });
-  const movedPage = await context.request
-    .get(`${baseUrl}/api/pages/${childId}`)
-    .then((response) => response.json());
-  const parentId = movedPage.data.page.parent_id;
-  if (!parentId)
-    throw new Error("UI move did not persist the selected parent page.");
-
-  const autosaveMarker = `AUTOSAVE_LIFECYCLE_${stamp}`;
-  await page.getByRole("button", { name: "편집", exact: true }).click();
-  const autosaveResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === "PATCH" &&
-      response.url().endsWith(`/api/pages/${childId}`) &&
-      response.status() === 200,
-    { timeout: 15_000 },
-  );
-  await page
-    .getByRole("textbox", { name: "Markdown 편집기" })
-    .fill(`# ${childTitle}\n\n${autosaveMarker}`);
-  await autosaveResponse;
-  const autosaved = await context.request
-    .get(`${baseUrl}/api/pages/${childId}`)
-    .then((response) => response.json());
-  if (!autosaved.data.page.markdown.includes(autosaveMarker))
-    throw new Error("UI autosave did not persist the editor contents.");
-
-  const laterMarker = `LATER_LIFECYCLE_${stamp}`;
-  await page
-    .getByRole("textbox", { name: "Markdown 편집기" })
-    .fill(`# ${childTitle}\n\n${laterMarker}`);
-  await page.getByRole("button", { name: "변경 저장" }).click();
-  await page
-    .locator(".sync-state")
-    .filter({ hasText: "방금 저장됨" })
-    .waitFor({ timeout: 10_000 });
-  const restoreButton = page
-    .getByRole("button", { name: "이 버전 복구" })
-    .first();
-  await restoreButton.waitFor({ timeout: 10_000 });
-  page.once("dialog", (dialog) => dialog.accept());
-  await restoreButton.click();
-  await page
-    .locator(".sync-state")
-    .filter({ hasText: /에서 복구됨/ })
-    .waitFor({ timeout: 10_000 });
-  const restored = await context.request
-    .get(`${baseUrl}/api/pages/${childId}`)
-    .then((response) => response.json());
-  if (
-    !restored.data.page.markdown.includes(autosaveMarker) ||
-    restored.data.page.markdown.includes(laterMarker)
-  )
-    throw new Error("UI revision restore did not restore the prior snapshot.");
-
-  const attachmentName = `lifecycle-${stamp}.txt`;
-  await page.locator('.attachment-upload input[type="file"]').setInputFiles({
-    name: attachmentName,
-    mimeType: "text/plain",
-    buffer: Buffer.from(`attachment ${stamp}`, "utf8"),
-  });
-  await page
-    .locator(".sync-state")
-    .filter({ hasText: "첨부 업로드됨" })
-    .waitFor({ timeout: 10_000 });
   await page.getByRole("link", { name: attachmentName }).waitFor();
+  if (
+    (await page
+      .getByRole("button", { name: `${attachmentName} 삭제` })
+      .count()) !== 0
+  )
+    throw new Error("Attachment deletion is still exposed in the human UI.");
 
-  await page.getByRole("button", { name: "그래프" }).click();
-  const graphNode = page.getByRole("button", {
-    name: `${childTitle} 그래프 노드`,
+  const requestAction = page.getByRole("button", {
+    name: "변경 요청",
+    exact: true,
   });
+  if ((await requestAction.count()) !== 1)
+    throw new Error(
+      "Documents must expose exactly one contextual request action.",
+    );
+  await requestAction.click();
+  const requestDialog = page.getByRole("dialog", { name: "위키 변경 요청" });
+  await requestDialog.waitFor();
+  await requestDialog.getByRole("combobox").last().selectOption("move");
+  await requestDialog
+    .getByRole("textbox")
+    .fill("이 문서를 의사결정 폴더로 이동해 주세요.");
+  await requestDialog.locator("summary").click();
+  const movePrompt = await requestDialog.locator("pre").innerText();
+  if (
+    !movePrompt.includes(created.page_id) ||
+    !movePrompt.includes(`version: ${updated.version}`) ||
+    !movePrompt.includes("실제 폴더 위치만 변경") ||
+    !movePrompt.includes("wiki_get_neighbors")
+  )
+    throw new Error(
+      "The page move request did not preserve its exact context.",
+    );
+  await page.keyboard.press("Escape");
+
+  const restoreRequest = page
+    .getByRole("button", { name: "복원 요청" })
+    .first();
+  await restoreRequest.waitFor();
+  await restoreRequest.click();
+  const restoreDialog = page.getByRole("dialog", { name: "위키 변경 요청" });
+  await restoreDialog.locator("summary").click();
+  const restorePrompt = await restoreDialog.locator("pre").innerText();
+  if (
+    !restorePrompt.includes("복원할 버전") ||
+    !restorePrompt.includes("wiki_restore_revision")
+  )
+    throw new Error(
+      "Revision history did not open a prefilled restore request.",
+    );
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "연결 보기", exact: true }).click();
+  const graphNode = page.getByRole("button", { name: `${title} 문서` });
   await graphNode.waitFor({ state: "attached", timeout: 10_000 });
   await graphNode.evaluate((element) => element.click());
   await page.locator(".graph-preview-panel").waitFor();
-  if (
-    (await page.locator(".graph-preview-heading > span").innerText()) !==
-    childTitle
-  )
-    throw new Error("Graph node click did not open the document preview.");
   await page.getByRole("button", { name: "문서 열기" }).click();
-  await page.locator(".wiki-editor").waitFor();
-  if (
-    (await page.locator(".workspace-breadcrumbs strong").innerText()) !==
-    childTitle
-  )
-    throw new Error("Graph node click did not open the selected page.");
+  await page
+    .locator(".markdown-preview")
+    .filter({ hasText: "Updated grounded note." })
+    .waitFor();
 
   await page.locator("summary.topbar-icon-button").click();
   await page.getByRole("button", { name: "백업", exact: true }).click();
@@ -262,7 +208,7 @@ let activeBrowser;
   );
   const [download] = await Promise.all([
     page.waitForEvent("download", { timeout: 30_000 }),
-    page.getByRole("button", { name: "이동용 백업" }).click(),
+    page.getByRole("button", { name: "일반 백업", exact: true }).click(),
   ]);
   await download.saveAs(backupPath);
   await backupAck;
@@ -271,54 +217,33 @@ let activeBrowser;
   const backupBytes = statSync(backupPath).size;
   rmSync(backupPath);
 
-  const attachments = await context.request
-    .get(`${baseUrl}/api/attachments?page_id=${childId}&include_deleted=true`)
-    .then((response) => response.json());
-  const uploaded = attachments.data.attachments.find(
-    (attachment) => attachment.filename === attachmentName,
-  );
-  if (!uploaded) throw new Error("Uploaded attachment was not indexed.");
-  const attachmentCleanup = await context.request.delete(
-    `${baseUrl}/api/attachments/${uploaded.id}`,
+  await context.request.delete(
+    `${baseUrl}/api/attachments/${attachment.attachment_id}`,
     { data: { operation_id: crypto.randomUUID() } },
   );
-  if (!attachmentCleanup.ok())
-    throw new Error("Lifecycle attachment cleanup failed.");
-  for (const fixture of [
-    { id: childId, title: childTitle },
-    { id: parentId, title: parentTitle },
-  ]) {
-    const current = await context.request
-      .get(`${baseUrl}/api/pages/${fixture.id}`)
-      .then((response) => response.json());
-    const cleanup = await context.request.delete(
-      `${baseUrl}/api/pages/${fixture.id}`,
-      {
-        data: {
-          expected_version: current.data.page.version,
-          confirmation: `DELETE ${fixture.title}`,
-          reason: "UI lifecycle cleanup",
-          operation_id: crypto.randomUUID(),
-        },
+  const cleanup = await context.request.delete(
+    `${baseUrl}/api/pages/${created.page_id}`,
+    {
+      data: {
+        expected_version: updated.version,
+        confirmation: `DELETE ${title}`,
+        reason: "Read-only UI lifecycle cleanup",
+        operation_id: crypto.randomUUID(),
       },
-    );
-    if (!cleanup.ok())
-      throw new Error(
-        `Lifecycle page cleanup failed: ${cleanup.status()} ${await cleanup.text()}`,
-      );
-  }
+    },
+  );
+  if (!cleanup.ok())
+    throw new Error(`Lifecycle cleanup failed: ${await cleanup.text()}`);
 
   if (errors.length) throw new Error(`Browser errors:\n${errors.join("\n")}`);
   console.log(
     JSON.stringify({
-      uiVaultSwitch: true,
-      uiPageCreate: true,
-      uiPageMove: true,
-      uiAutosave: true,
-      uiRevisionRestore: true,
-      uiAttachmentUpload: true,
-      uiGraphNodeOpen: true,
-      uiPortableExport: true,
+      readOnlyDocument: true,
+      contextualRequest: true,
+      revisionRestoreRequest: true,
+      attachmentDownloadOnly: true,
+      graphNodeOpen: true,
+      portableExport: true,
       portableBackupBytes: backupBytes,
     }),
   );

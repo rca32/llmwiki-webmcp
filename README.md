@@ -79,15 +79,15 @@ the underlying data model:
 
 | Screen                | Purpose                                                                           |
 | --------------------- | --------------------------------------------------------------------------------- |
-| **Documents**         | Read and edit one page                                                            |
+| **Documents**         | Read one page and create a contextual change request                              |
 | **Explore topics**    | Read approved conclusions, tradeoffs, implications, questions, and their evidence |
 | **Find**              | Find pages by title or content                                                    |
 | **Connections**       | See how pages link to one another                                                 |
-| **Settings & backup** | Manage editing access, backups, people, and storage                               |
+| **Settings & backup** | Manage content access, backups, people, and storage                               |
 
 The left rail makes that choice directly: **Explore topics** opens the
 topic-only outline and insight reader, while **Documents** opens the physical
-folder tree and page editor. Find, Connections, and Settings & backup preserve
+folder tree and Markdown reader. Find, Connections, and Settings & backup preserve
 the most recently used outline. Direct page and folder creation is intentionally
 absent from the document tree; approved WebMCP work grows the wiki, while new
 wiki creation lives under Settings & backup. Owners can also soft-delete the
@@ -104,7 +104,7 @@ and up to three representative pages.
 **Find** filters only its own result view; leaving Find never hides pages from
 the topic or folder outline. **Connections** follows the workspace's light or dark
 theme and exposes a visible page list when keyboard focus enters the graph, so
-nodes can be previewed without a pointer. Sync, save, and other live workspace
+nodes can be previewed without a pointer. Sync and other live workspace
 statuses update in English, Korean, Japanese, or Chinese when the interface
 language changes. Technical storage, request, and AI-tool metrics are kept
 under a collapsed **Advanced diagnostics** section. Stable implementation names
@@ -120,30 +120,33 @@ sequenceDiagram
     participant Page as Liminal Wiki page
     participant Data as D1 / R2
 
-    Human->>Page: Define the vault policy and working context
+    Human->>Page: Read knowledge and copy a scoped change request
+    Human->>Agent: Paste the request and attach source files if needed
     Agent->>Page: Discover session-authorized WebMCP tools
-    Agent->>Page: Search before creating
+    Agent->>Page: Read context and policy, then search before creating
     Page->>Data: Read current pages, versions, and claims
     Agent->>Page: Prepare a source-grounded ingest or insight plan
     Page-->>Agent: Return the exact plan, hash, and warnings
-    Agent-->>Human: Present the plan and provenance for review
-    Human->>Agent: Explicitly approve the reviewed plan
+    Agent-->>Human: Verify that the plan matches the authorized request
     Agent->>Page: Apply the exact approved plan and hash
     Page->>Data: Commit pages, claims, approved briefs, revisions, and audit events
-    Human->>Page: Read insights, inspect evidence, edit documents, or restore revisions
+    Human->>Page: Read the result, insights, evidence, and immutable history
 ```
 
-One representative flow is:
+The generated request contains the wiki and target IDs, current version,
+permalink, request type, user notes, and explicit authorization for exactly
+that scope. Codex must stop instead of applying when the target or impact is
+ambiguous or the required scope expands. A representative grounded flow is:
 
 1. The agent calls `wiki_get_context` and `wiki_get_operating_contract` to
    understand the active vault and its policy.
 2. It uses `wiki_search`, `wiki_get_page`, and `wiki_get_claims` to avoid
    duplicates and preserve existing knowledge.
 3. It creates an expiring source-grounded plan with `wiki_plan_ingest`.
-4. The agent presents the proposed source, pages, claims, confidence, and
-   warnings to a person for explicit review.
-5. The agent calls `wiki_apply_ingest` with the unchanged plan hash and
-   explicit approval.
+4. The agent checks that the proposed source, pages, claims, confidence, and
+   warnings remain within the user's structured request.
+5. The agent calls `wiki_apply_ingest` with the unchanged plan hash and the
+   apply authorization carried by that request.
 6. Both participants inspect the committed revisions and run `wiki_lint` to
    find missing provenance, unresolved links, or stale claims.
 
@@ -168,8 +171,9 @@ a UI with an automation layer bolted on afterward.
 
 ## WebMCP surface
 
-Liminal Wiki can expose up to 22 tools. The exact catalog changes with the
-current session's capabilities and active vault.
+The exact catalog changes with the current session's capabilities and active
+vault. Viewer and operational read-only sessions discover no content-changing
+tools.
 
 | Area                 | Tools                                                                                                                                    | What they enable                                                                       |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -177,11 +181,11 @@ current session's capabilities and active vault.
 | Policy and grounding | `wiki_get_operating_contract`, `wiki_update_operating_contract`, `wiki_get_claims`, `wiki_lint`, `wiki_plan_ingest`, `wiki_apply_ingest` | Define knowledge policy, review grounded changes, preserve evidence, and audit quality |
 | Browse               | `wiki_list_pages`, `wiki_search`, `wiki_get_page`, `wiki_get_neighbors`, `wiki_list_revisions`                                           | Traverse hierarchy, search bounded content, follow links, and inspect history          |
 | Author               | `wiki_create_folder`, `wiki_create_page`, `wiki_update_page`, `wiki_append_page`, `wiki_move_page`, `wiki_link_pages`                    | Maintain Markdown knowledge without bypassing domain rules                             |
-| Recover              | `wiki_restore_revision`                                                                                                                  | Restore an immutable snapshot as a new version                                         |
+| Recover              | `wiki_restore_revision`, `wiki_soft_delete_page`, `wiki_restore_deleted_page`                                                            | Restore immutable history or perform explicitly requested recoverable deletion         |
 
-Soft delete is intentionally UI/API-only until a typed-confirmation WebMCP
-contract is ready. The absence of a destructive tool is a product safety
-decision, not a missing capability.
+`wiki_soft_delete_page` is exposed only with `can_soft_delete`. It requires the
+current page version, a reason, a retry-safe operation ID, and the exact
+`DELETE {title}` confirmation after children and evidence impact are checked.
 
 ## Safety by construction
 
@@ -205,7 +209,7 @@ decision, not a missing capability.
   latency, tool name, and safe correlation data—not prompts, page bodies,
   credentials, or tool results.
 - **Operational containment.** Owner-controlled read-only mode hides WebMCP
-  mutations, disables human write controls, and rejects direct mutation APIs.
+  mutations, disables change requests, and rejects direct mutation APIs.
 
 ## A complete knowledge workspace
 
@@ -213,16 +217,18 @@ The human interface and WebMCP tools operate on the same product, not parallel
 implementations. The workspace includes:
 
 - multiple wikis with folder/page hierarchy and per-user switching;
-- Markdown editing with GFM, math, Mermaid, autosave, and conflict handling;
+- read-only Markdown rendering with GFM, math, Mermaid, wikilinks, and
+  contextual change-request prompts in four languages;
 - isolated full-text search, backlinks, theme-aware keyboard-accessible
   connection exploration, and stable page permalinks;
-- English, Korean, Japanese, and Chinese interface copy, including live save
-  and synchronization status;
+- English, Korean, Japanese, and Chinese interface and request copy, including
+  synchronization status;
 - source pages, structured retrieval metadata, claim-level provenance, and
   knowledge-quality linting;
-- immutable revisions, restore-as-new-version, leaf soft delete, and trash
-  recovery;
-- attachment upload, checksum verification, quota accounting, and R2 storage;
+- immutable revisions, requested restore-as-new-version, requested leaf soft
+  delete, and trash recovery;
+- attachment viewing and download in the human UI, plus agent-grounded source
+  ingestion from files attached to the Codex conversation;
 - portable and full multipart backups with per-part SHA-256 and resumable
   empty-Site restore;
 - member roles, ownership transfer, audit history, repair diagnostics, storage
@@ -315,7 +321,7 @@ presence of registration code is not enough:
 4. Call a harmless read tool such as `wiki_get_context`.
 5. Re-discover after a role, vault, login, or operational mode change.
 
-The production acceptance discovered the full 22-tool catalog projected for
+The production acceptance discovered the full capability-projected catalog for
 the signed-in personal-vault owner role and completed the scripted
 context → contract → search → plan → apply → claims/revisions/lint flow. It
 created one source page, one entity page, and one grounded claim; the resulting
@@ -343,7 +349,7 @@ separate acceptance gate.
 Liminal Wiki was created during the 2026 WebMCP Challenge submission period.
 Its submission focuses on the four judging dimensions:
 
-- **WebMCP leverage:** a non-trivial, session-aware 22-tool catalog grounded in
+- **WebMCP leverage:** a non-trivial, session-aware 27-tool catalog grounded in
   real page state and application permissions;
 - **execution:** one complete UI/API/WebMCP product with persistence,
   observability, tests, backup, and recovery;
