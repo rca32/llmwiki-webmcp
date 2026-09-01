@@ -77,18 +77,23 @@ stay in the workspace; agents work through the same command layer.
 The human interface names screens by what a person can do there, rather than by
 the underlying data model:
 
-| Screen                | Purpose                                               |
-| --------------------- | ----------------------------------------------------- |
-| **Documents**         | Read and edit one page                                |
-| **Explore topics**    | Browse related pages independently of folder location |
-| **Find**              | Find pages by title or content                        |
-| **Connections**       | See how pages link to one another                     |
-| **Settings & backup** | Manage editing access, backups, people, and storage   |
+| Screen                | Purpose                                                                           |
+| --------------------- | --------------------------------------------------------------------------------- |
+| **Documents**         | Read and edit one page                                                            |
+| **Explore topics**    | Read approved conclusions, tradeoffs, implications, questions, and their evidence |
+| **Find**              | Find pages by title or content                                                    |
+| **Connections**       | See how pages link to one another                                                 |
+| **Settings & backup** | Manage editing access, backups, people, and storage                               |
 
-The navigation panel uses **By topic** and **By folder**. Technical storage,
-request, and AI-tool metrics are kept under a collapsed **Advanced diagnostics**
-section. Stable implementation names such as `vault`, `knowledge-map`, and
-WebMCP tool IDs remain unchanged in APIs and source code.
+The navigation panel uses **By topic** for a topic-only outline and **By folder**
+for physical page organization. Explore is intentionally read-only: it presents
+the last approved all-topics or per-topic insight brief in a single reading
+flow, with sentence-level evidence collapsed beneath each conclusion. Topic and
+brief changes are proposed through WebMCP plans and applied only after review;
+the site never refreshes insight prose on its own. Technical storage, request,
+and AI-tool metrics are kept under a collapsed **Advanced diagnostics** section.
+Stable implementation names such as `vault`, `knowledge-map`, and WebMCP tool
+IDs remain unchanged in APIs and source code.
 
 ## The human-agent collaboration loop
 
@@ -103,13 +108,13 @@ sequenceDiagram
     Agent->>Page: Discover session-authorized WebMCP tools
     Agent->>Page: Search before creating
     Page->>Data: Read current pages, versions, and claims
-    Agent->>Page: Prepare a source-grounded ingest plan
+    Agent->>Page: Prepare a source-grounded ingest or insight plan
     Page-->>Agent: Return the exact plan, hash, and warnings
     Agent-->>Human: Present the plan and provenance for review
     Human->>Agent: Explicitly approve the reviewed plan
     Agent->>Page: Apply the exact approved plan and hash
-    Page->>Data: Commit pages, claims, revisions, and audit events
-    Human->>Page: Inspect, edit, restore, or continue in the UI
+    Page->>Data: Commit pages, claims, approved briefs, revisions, and audit events
+    Human->>Page: Read insights, inspect evidence, edit documents, or restore revisions
 ```
 
 One representative flow is:

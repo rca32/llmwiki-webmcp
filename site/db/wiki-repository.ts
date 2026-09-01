@@ -46,6 +46,9 @@ import {
 import {
   KNOWLEDGE_PLACEMENT_ROLES,
   KNOWLEDGE_PRESENTATIONS,
+  parseKnowledgeMapPatch,
+  type KnowledgeInsightBrief,
+  type KnowledgeInsightEvidenceReference,
   type KnowledgeMapPatch,
   type KnowledgePlacementRole,
   type KnowledgePresentation,
@@ -80,10 +83,10 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS knowledge_claims (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,subject_page_id TEXT NOT NULL,predicate TEXT NOT NULL,object_page_id TEXT,object_value TEXT,source_page_id TEXT NOT NULL,evidence_fragment TEXT NOT NULL,confidence REAL NOT NULL,observed_at TEXT NOT NULL,valid_from TEXT,valid_to TEXT,supersedes_claim_id TEXT,created_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_knowledge_claims_subject ON knowledge_claims(wiki_id,subject_page_id,created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_knowledge_claims_source ON knowledge_claims(wiki_id,source_page_id,created_at)`,
-  `CREATE TABLE IF NOT EXISTS knowledge_maps (wiki_id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL DEFAULT 0,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,last_operation_id TEXT)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_maps (wiki_id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL DEFAULT 0,overview_brief_json TEXT,overview_brief_basis_hash TEXT,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,last_operation_id TEXT)`,
   `CREATE TABLE IF NOT EXISTS knowledge_map_plans (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,actor_email TEXT NOT NULL,status TEXT NOT NULL,patch_json TEXT NOT NULL,plan_hash TEXT NOT NULL,apply_operation_id TEXT,created_at TEXT NOT NULL,expires_at TEXT NOT NULL,applied_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_knowledge_map_plans_owner ON knowledge_map_plans(wiki_id,actor_email,status,created_at)`,
-  `CREATE TABLE IF NOT EXISTS knowledge_topics (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_topic_id TEXT,title TEXT NOT NULL,summary TEXT NOT NULL,presentation TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_topics (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_topic_id TEXT,title TEXT NOT NULL,summary TEXT NOT NULL,presentation TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,insight_brief_json TEXT,insight_brief_basis_hash TEXT,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_knowledge_topics_parent ON knowledge_topics(wiki_id,parent_topic_id,sort_order)`,
   `CREATE TABLE IF NOT EXISTS knowledge_placements (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,topic_id TEXT NOT NULL,page_id TEXT NOT NULL,role TEXT NOT NULL,summary TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_placements_topic_page ON knowledge_placements(wiki_id,topic_id,page_id)`,
@@ -137,6 +140,32 @@ export function ensureWikiSchema(): Promise<void> {
       ].filter(([name]) => !existing.has(name));
     for (const [name, type] of additions)
       await d.prepare(`ALTER TABLE pages ADD COLUMN ${name} ${type}`).run();
+    for (const [table, columns] of [
+      [
+        "knowledge_maps",
+        [
+          ["overview_brief_json", "TEXT"],
+          ["overview_brief_basis_hash", "TEXT"],
+        ],
+      ],
+      [
+        "knowledge_topics",
+        [
+          ["insight_brief_json", "TEXT"],
+          ["insight_brief_basis_hash", "TEXT"],
+        ],
+      ],
+    ] as const) {
+      const info = await d
+          .prepare(`PRAGMA table_info(${table})`)
+          .all<{ name: string }>(),
+        names = new Set(info.results.map((column) => column.name));
+      for (const [name, type] of columns)
+        if (!names.has(name))
+          await d
+            .prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+            .run();
+    }
     await d
       .prepare(
         `INSERT OR IGNORE INTO site_state(id,bootstrap_status,version,updated_at) VALUES(1,'empty',1,?)`,
@@ -3867,6 +3896,12 @@ export async function createIngestPlan(input: {
           placement_count: proposed.knowledge_map_patch.placements.length,
           removal_count:
             proposed.knowledge_map_patch.remove_placement_ids.length,
+          overview_brief_changed: Object.prototype.hasOwnProperty.call(
+            proposed.knowledge_map_patch,
+            "overview_brief",
+          ),
+          topic_brief_count:
+            proposed.knowledge_map_patch.topic_briefs?.length ?? 0,
         }
       : null,
     warnings,
@@ -4926,14 +4961,20 @@ export async function prepareExport(input: {
       .all(),
     knowledgeMap = await d
       .prepare(
-        `SELECT version,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
+        `SELECT version,overview_brief_json,overview_brief_basis_hash,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
       )
       .bind(input.wikiId)
-      .first<{ version: number; updated_by: string; updated_at: string }>(),
+      .first<{
+        version: number;
+        overview_brief_json: string | null;
+        overview_brief_basis_hash: string | null;
+        updated_by: string;
+        updated_at: string;
+      }>(),
     knowledgeTopics = knowledgeMap
       ? await d
           .prepare(
-            `SELECT id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_by,updated_by,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title`,
+            `SELECT id,parent_topic_id,title,summary,presentation,sort_order,is_locked,insight_brief_json,insight_brief_basis_hash,created_by,updated_by,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title`,
           )
           .bind(input.wikiId)
           .all()
@@ -5682,6 +5723,7 @@ function validateImportedKnowledgeMap(input: {
   rawTopics: Record<string, unknown>[];
   rawPlacements: Record<string, unknown>[];
   pageIds: Set<string>;
+  claimIds: Set<string>;
   pageTypeById: Map<string, PageType>;
   fallbackActor: string;
 }) {
@@ -5690,6 +5732,50 @@ function validateImportedKnowledgeMap(input: {
     roles = new Set<string>(KNOWLEDGE_PLACEMENT_ROLES),
     topicIds = new Set<string>(),
     placementIds = new Set<string>();
+  function importedBrief(value: unknown, field: string) {
+    if (value === null || value === undefined || value === "") return null;
+    let raw = value;
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        throw new AppError(
+          "validation_error",
+          `Imported ${field} is not valid JSON.`,
+          400,
+          { field },
+        );
+      }
+    }
+    const brief = parseKnowledgeMapPatch({
+      expected_version: 0,
+      overview_brief: raw,
+    }).overview_brief!;
+    for (const item of [
+      ...brief.takeaways,
+      ...brief.tensions,
+      ...brief.implications,
+      ...brief.questions,
+    ])
+      for (const reference of item.evidence) {
+        if ("claim_id" in reference) {
+          if (!input.claimIds.has(reference.claim_id))
+            throw new AppError(
+              "validation_error",
+              `Imported ${field} references a missing claim.`,
+              400,
+              { field, claim_id: reference.claim_id },
+            );
+        } else if (!reference.page_id || !input.pageIds.has(reference.page_id))
+          throw new AppError(
+            "validation_error",
+            `Imported ${field} references a missing page.`,
+            400,
+            { field },
+          );
+      }
+    return stableJson(brief);
+  }
   const topics = input.rawTopics.map((topic) => {
     const id = importedUuid(topic.id, "knowledge_topic.id"),
       parentId =
@@ -5723,6 +5809,18 @@ function validateImportedKnowledgeMap(input: {
         "knowledge_topic.sort_order",
       ),
       isLocked: Number(topic.is_locked) === 1,
+      insightBriefJson: importedBrief(
+        topic.insight_brief_json,
+        "knowledge_topic.insight_brief_json",
+      ),
+      insightBriefBasisHash:
+        typeof topic.insight_brief_basis_hash === "string"
+          ? importedString(
+              topic.insight_brief_basis_hash,
+              "knowledge_topic.insight_brief_basis_hash",
+              64,
+            )
+          : null,
       createdBy:
         typeof topic.created_by === "string"
           ? importedString(topic.created_by, "knowledge_topic.created_by", 320)
@@ -5864,6 +5962,18 @@ function validateImportedKnowledgeMap(input: {
       typeof input.rawMap.updated_at === "string"
         ? input.rawMap.updated_at
         : now(),
+    overviewBriefJson: importedBrief(
+      input.rawMap.overview_brief_json,
+      "knowledge_map.overview_brief_json",
+    ),
+    overviewBriefBasisHash:
+      typeof input.rawMap.overview_brief_basis_hash === "string"
+        ? importedString(
+            input.rawMap.overview_brief_basis_hash,
+            "knowledge_map.overview_brief_basis_hash",
+            64,
+          )
+        : null,
     topics,
     placements,
   };
@@ -6183,11 +6293,15 @@ export async function commitImport(input: {
     }
   }
   const pageTypeById = new Map(pages.map((page) => [page.id, page.pageType])),
+    importedClaimIds = new Set(
+      rawClaims.map((claim) => importedUuid(claim.id, "claim.id")),
+    ),
     knowledgeMapData = validateImportedKnowledgeMap({
       rawMap: rawKnowledgeMap,
       rawTopics: rawKnowledgeTopics,
       rawPlacements: rawKnowledgePlacements,
       pageIds,
+      claimIds: importedClaimIds,
       pageTypeById,
       fallbackActor: input.email,
     }),
@@ -6724,18 +6838,20 @@ export async function commitImport(input: {
           ? [
               d
                 .prepare(
-                  `INSERT INTO knowledge_maps(wiki_id,version,updated_by,updated_at) VALUES(?,?,?,?)`,
+                  `INSERT INTO knowledge_maps(wiki_id,version,overview_brief_json,overview_brief_basis_hash,updated_by,updated_at) VALUES(?,?,?,?,?,?)`,
                 )
                 .bind(
                   session.staging_wiki_id,
                   knowledgeMapData.version,
+                  knowledgeMapData.overviewBriefJson,
+                  knowledgeMapData.overviewBriefBasisHash,
                   knowledgeMapData.updatedBy,
                   knowledgeMapData.updatedAt,
                 ),
               ...knowledgeMapData.topics.map((topic) =>
                 d
                   .prepare(
-                    `INSERT INTO knowledge_topics(id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    `INSERT INTO knowledge_topics(id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,insight_brief_json,insight_brief_basis_hash,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                   )
                   .bind(
                     topic.id,
@@ -6746,6 +6862,8 @@ export async function commitImport(input: {
                     topic.presentation,
                     topic.sortOrder,
                     topic.isLocked ? 1 : 0,
+                    topic.insightBriefJson,
+                    topic.insightBriefBasisHash,
                     topic.createdBy,
                     topic.updatedBy,
                     topic.createdAt,
@@ -7364,6 +7482,8 @@ type KnowledgeTopicRow = {
   presentation: KnowledgePresentation;
   sort_order: number;
   is_locked: number;
+  insight_brief_json: string | null;
+  insight_brief_basis_hash: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -7381,6 +7501,332 @@ type KnowledgePlacementRow = {
   page_version: number;
   page_path: string;
 };
+
+type ResolvedKnowledgeInsightEvidenceReference =
+  | { claim_id: string }
+  | { page_id: string };
+type ResolvedKnowledgeInsightBrief = Omit<
+  KnowledgeInsightBrief,
+  "takeaways" | "tensions" | "implications" | "questions"
+> & {
+  takeaways: Array<
+    Omit<KnowledgeInsightBrief["takeaways"][number], "evidence"> & {
+      evidence: ResolvedKnowledgeInsightEvidenceReference[];
+    }
+  >;
+  tensions: Array<
+    Omit<KnowledgeInsightBrief["tensions"][number], "evidence"> & {
+      evidence: ResolvedKnowledgeInsightEvidenceReference[];
+    }
+  >;
+  implications: Array<
+    Omit<KnowledgeInsightBrief["implications"][number], "evidence"> & {
+      evidence: ResolvedKnowledgeInsightEvidenceReference[];
+    }
+  >;
+  questions: Array<
+    Omit<KnowledgeInsightBrief["questions"][number], "evidence"> & {
+      evidence: ResolvedKnowledgeInsightEvidenceReference[];
+    }
+  >;
+};
+
+function parseStoredInsightBrief(value: string | null) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as ResolvedKnowledgeInsightBrief;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveInsightEvidenceReference(
+  wikiId: string,
+  reference: KnowledgeInsightEvidenceReference,
+  pageState?: IngestActionState,
+): Promise<ResolvedKnowledgeInsightEvidenceReference> {
+  if ("claim_id" in reference) {
+    await getClaim(wikiId, reference.claim_id);
+    return { claim_id: reference.claim_id };
+  }
+  const page = await resolvePageReference(wikiId, reference, pageState);
+  return { page_id: page.id };
+}
+
+async function resolveKnowledgeInsightBrief(
+  wikiId: string,
+  brief: KnowledgeInsightBrief,
+  pageState?: IngestActionState,
+): Promise<ResolvedKnowledgeInsightBrief> {
+  async function resolveItems(items: KnowledgeInsightBrief["takeaways"]) {
+    return Promise.all(
+      items.map(async (item) => {
+        const evidence = await Promise.all(
+          item.evidence.map((reference) =>
+            resolveInsightEvidenceReference(wikiId, reference, pageState),
+          ),
+        );
+        const keys = evidence.map((reference) =>
+          "claim_id" in reference
+            ? `claim:${reference.claim_id}`
+            : `page:${reference.page_id}`,
+        );
+        if (new Set(keys).size !== keys.length)
+          throw new AppError(
+            "validation_error",
+            "An insight item cannot cite the same evidence more than once.",
+            400,
+          );
+        return { ...item, evidence };
+      }),
+    );
+  }
+  return {
+    headline: brief.headline,
+    synthesis: brief.synthesis,
+    takeaways: await resolveItems(brief.takeaways),
+    tensions: await resolveItems(brief.tensions),
+    implications: await resolveItems(brief.implications),
+    questions: await resolveItems(brief.questions),
+  };
+}
+
+async function validateKnowledgeInsightBriefReferences(input: {
+  wikiId: string;
+  brief: KnowledgeInsightBrief;
+  pendingPageTitles?: Set<string>;
+}) {
+  for (const item of [
+    ...input.brief.takeaways,
+    ...input.brief.tensions,
+    ...input.brief.implications,
+    ...input.brief.questions,
+  ]) {
+    const canonical = new Set<string>();
+    for (const reference of item.evidence) {
+      if ("claim_id" in reference) {
+        await getClaim(input.wikiId, reference.claim_id);
+        canonical.add(`claim:${reference.claim_id}`);
+        continue;
+      }
+      if (
+        reference.title &&
+        input.pendingPageTitles?.has(titleKey(reference.title))
+      ) {
+        canonical.add(`pending:${titleKey(reference.title)}`);
+        continue;
+      }
+      const page = await resolvePageReference(input.wikiId, reference);
+      canonical.add(`page:${page.id}`);
+    }
+    if (canonical.size !== item.evidence.length)
+      throw new AppError(
+        "validation_error",
+        "An insight item cannot cite the same evidence more than once.",
+        400,
+      );
+  }
+}
+
+function insightBriefPageIds(brief: ResolvedKnowledgeInsightBrief | null) {
+  const ids = new Set<string>();
+  if (!brief) return ids;
+  for (const item of [
+    ...brief.takeaways,
+    ...brief.tensions,
+    ...brief.implications,
+    ...brief.questions,
+  ])
+    for (const reference of item.evidence)
+      if ("page_id" in reference) ids.add(reference.page_id);
+  return ids;
+}
+
+async function knowledgeInsightBasisHash(input: {
+  wikiId: string;
+  topicId: string | null;
+  brief: ResolvedKnowledgeInsightBrief | null;
+}) {
+  const d = db(),
+    topics = await d
+      .prepare(
+        `SELECT id,parent_topic_id,title,summary,presentation,sort_order,is_locked FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY id`,
+      )
+      .bind(input.wikiId)
+      .all<Record<string, unknown>>(),
+    scopeIds = new Set<string>();
+  if (input.topicId) {
+    scopeIds.add(input.topicId);
+    for (let depth = 0; depth < 4; depth += 1)
+      for (const topic of topics.results)
+        if (
+          typeof topic.parent_topic_id === "string" &&
+          scopeIds.has(topic.parent_topic_id)
+        )
+          scopeIds.add(String(topic.id));
+  } else {
+    for (const topic of topics.results) scopeIds.add(String(topic.id));
+  }
+  const scopedTopics = topics.results.filter((topic) =>
+      scopeIds.has(String(topic.id)),
+    ),
+    placements = scopeIds.size
+      ? await d
+          .prepare(
+            `SELECT id,topic_id,page_id,role,summary,sort_order,is_locked FROM knowledge_placements WHERE wiki_id=? AND deleted_at IS NULL ORDER BY id`,
+          )
+          .bind(input.wikiId)
+          .all<Record<string, unknown>>()
+      : { results: [] as Record<string, unknown>[] },
+    scopedPlacements = placements.results.filter((placement) =>
+      scopeIds.has(String(placement.topic_id)),
+    ),
+    pageIds = insightBriefPageIds(input.brief),
+    citedClaimIds = new Set<string>();
+  if (input.brief)
+    for (const item of [
+      ...input.brief.takeaways,
+      ...input.brief.tensions,
+      ...input.brief.implications,
+      ...input.brief.questions,
+    ])
+      for (const reference of item.evidence)
+        if ("claim_id" in reference) citedClaimIds.add(reference.claim_id);
+  for (const placement of scopedPlacements)
+    pageIds.add(String(placement.page_id));
+  const pageRows =
+      pageIds.size || citedClaimIds.size
+        ? await d
+            .prepare(
+              `SELECT id,version,updated_at,deleted_at FROM pages WHERE wiki_id=? ORDER BY id`,
+            )
+            .bind(input.wikiId)
+            .all<Record<string, unknown>>()
+        : { results: [] as Record<string, unknown>[] },
+    claimRows =
+      pageIds.size || citedClaimIds.size
+        ? await d
+            .prepare(
+              `SELECT id,subject_page_id,predicate,object_page_id,object_value,source_page_id,evidence_fragment,confidence,valid_from,valid_to,supersedes_claim_id,updated_at FROM knowledge_claims WHERE wiki_id=? AND deleted_at IS NULL ORDER BY id`,
+            )
+            .bind(input.wikiId)
+            .all<Record<string, unknown>>()
+        : { results: [] as Record<string, unknown>[] };
+  const scopedClaims = claimRows.results.filter(
+    (claim) =>
+      pageIds.has(String(claim.subject_page_id)) ||
+      citedClaimIds.has(String(claim.id)),
+  );
+  for (const claim of scopedClaims) {
+    pageIds.add(String(claim.subject_page_id));
+    pageIds.add(String(claim.source_page_id));
+  }
+  const allRelevantPages = pageRows.results.filter((page) =>
+    pageIds.has(String(page.id)),
+  );
+  return sha256(
+    stableJson({
+      topics: scopedTopics,
+      placements: scopedPlacements,
+      pages: allRelevantPages,
+      claims: scopedClaims,
+    }),
+  );
+}
+
+async function expandKnowledgeInsightBrief(
+  wikiId: string,
+  brief: ResolvedKnowledgeInsightBrief | null,
+) {
+  if (!brief) return null;
+  const d = db();
+  async function expandItems(
+    items: ResolvedKnowledgeInsightBrief["takeaways"],
+  ) {
+    return Promise.all(
+      items.map(async (item) => ({
+        ...item,
+        evidence: await Promise.all(
+          item.evidence.map(async (reference) => {
+            if ("page_id" in reference) {
+              const page = await d
+                .prepare(
+                  `SELECT id,title,page_type,version,slug AS path FROM pages WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
+                )
+                .bind(reference.page_id, wikiId)
+                .first<{
+                  id: string;
+                  title: string;
+                  page_type: PageType;
+                  version: number;
+                  path: string;
+                }>();
+              return {
+                kind: "page" as const,
+                page_id: reference.page_id,
+                status: page ? ("current" as const) : ("missing" as const),
+                page: page ? { ...page, version: Number(page.version) } : null,
+              };
+            }
+            const claim = await d
+              .prepare(
+                `SELECT c.id,c.evidence_fragment,c.confidence,c.valid_to,c.subject_page_id,c.source_page_id,p.title AS source_title,p.page_type AS source_page_type,p.version AS source_version,p.slug AS source_path,EXISTS(SELECT 1 FROM knowledge_claims newer WHERE newer.wiki_id=c.wiki_id AND newer.supersedes_claim_id=c.id AND newer.deleted_at IS NULL) AS is_superseded FROM knowledge_claims c LEFT JOIN pages p ON p.id=c.source_page_id AND p.wiki_id=c.wiki_id AND p.deleted_at IS NULL WHERE c.id=? AND c.wiki_id=? AND c.deleted_at IS NULL`,
+              )
+              .bind(reference.claim_id, wikiId)
+              .first<{
+                id: string;
+                evidence_fragment: string;
+                confidence: number;
+                valid_to: string | null;
+                subject_page_id: string;
+                source_page_id: string;
+                source_title: string | null;
+                source_page_type: PageType | null;
+                source_version: number | null;
+                source_path: string | null;
+                is_superseded: number;
+              }>();
+            const status = !claim
+              ? ("missing" as const)
+              : claim.is_superseded
+                ? ("superseded" as const)
+                : claim.valid_to && claim.valid_to < now()
+                  ? ("expired" as const)
+                  : ("current" as const);
+            return {
+              kind: "claim" as const,
+              claim_id: reference.claim_id,
+              status,
+              evidence_fragment: claim?.evidence_fragment ?? null,
+              confidence:
+                claim?.confidence === undefined
+                  ? null
+                  : Number(claim.confidence),
+              subject_page_id: claim?.subject_page_id ?? null,
+              source_page: claim?.source_title
+                ? {
+                    id: claim.source_page_id,
+                    title: claim.source_title,
+                    page_type: claim.source_page_type,
+                    version: Number(claim.source_version),
+                    path: claim.source_path,
+                  }
+                : null,
+            };
+          }),
+        ),
+      })),
+    );
+  }
+  return {
+    headline: brief.headline,
+    synthesis: brief.synthesis,
+    takeaways: await expandItems(brief.takeaways),
+    tensions: await expandItems(brief.tensions),
+    implications: await expandItems(brief.implications),
+    questions: await expandItems(brief.questions),
+  };
+}
 
 async function currentKnowledgeMapVersion(wikiId: string) {
   const row = await db()
@@ -7402,17 +7848,19 @@ export async function getKnowledgeMap(wikiId: string) {
     ] = await Promise.all([
       d
         .prepare(
-          `SELECT version,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
+          `SELECT version,overview_brief_json,overview_brief_basis_hash,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
         )
         .bind(wikiId)
         .first<{
           version: number;
+          overview_brief_json: string | null;
+          overview_brief_basis_hash: string | null;
           updated_by: string;
           updated_at: string;
         }>(),
       d
         .prepare(
-          `SELECT id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title,id`,
+          `SELECT id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,insight_brief_json,insight_brief_basis_hash,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title,id`,
         )
         .bind(wikiId)
         .all<KnowledgeTopicRow>(),
@@ -7505,53 +7953,127 @@ export async function getKnowledgeMap(wikiId: string) {
         placement.evidence.source_count,
     );
   }
-  const warnings = [
-    ...unmappedRows.results.map((page) => ({
-      code: "unmapped_page",
-      page_id: page.id,
-      topic_id: null,
-      message: `${page.title} needs a semantic placement.`,
-    })),
-    ...topicRows.results
-      .filter((topic) => (topicCounts.get(topic.id) ?? 0) > 12)
-      .map((topic) => ({
-        code: "overfull_topic",
-        page_id: null,
-        topic_id: topic.id,
-        message: `${topic.title} has more than 12 directly placed pages.`,
+  const overviewBrief = parseStoredInsightBrief(
+      mapRow?.overview_brief_json ?? null,
+    ),
+    overviewBasisHash = overviewBrief
+      ? await knowledgeInsightBasisHash({
+          wikiId,
+          topicId: null,
+          brief: overviewBrief,
+        })
+      : null,
+    topicBriefs = new Map(
+      await Promise.all(
+        topicRows.results.map(async (topic) => {
+          const brief = parseStoredInsightBrief(topic.insight_brief_json),
+            currentHash = brief
+              ? await knowledgeInsightBasisHash({
+                  wikiId,
+                  topicId: topic.id,
+                  brief,
+                })
+              : null;
+          return [
+            topic.id,
+            {
+              brief,
+              expanded: await expandKnowledgeInsightBrief(wikiId, brief),
+              status: !brief
+                ? ("missing" as const)
+                : currentHash === topic.insight_brief_basis_hash
+                  ? ("current" as const)
+                  : ("stale" as const),
+            },
+          ] as const;
+        }),
+      ),
+    ),
+    overviewStatus = !overviewBrief
+      ? ("missing" as const)
+      : overviewBasisHash === mapRow?.overview_brief_basis_hash
+        ? ("current" as const)
+        : ("stale" as const),
+    warnings = [
+      ...unmappedRows.results.map((page) => ({
+        code: "unmapped_page",
+        page_id: page.id,
+        topic_id: null,
+        message: `${page.title} needs a semantic placement.`,
       })),
-    ...orphanPlacementRows.results.map((placement) => ({
-      code: "deleted_page_reference",
-      page_id: placement.page_id,
-      topic_id: placement.topic_id,
-      message: "A semantic placement references a deleted or missing page.",
-    })),
-    ...topicRows.results
-      .filter(
-        (topic) =>
-          topic.presentation !== "questions" &&
-          topic.presentation !== "evidence" &&
-          (topicCounts.get(topic.id) ?? 0) > 0 &&
-          (topicEvidenceSources.get(topic.id) ?? 0) === 0,
-      )
-      .map((topic) => ({
-        code: "insufficient_evidence",
-        page_id: null,
-        topic_id: topic.id,
-        message: `${topic.title} has no independently linked source evidence.`,
+      ...topicRows.results
+        .filter((topic) => (topicCounts.get(topic.id) ?? 0) > 12)
+        .map((topic) => ({
+          code: "overfull_topic",
+          page_id: null,
+          topic_id: topic.id,
+          message: `${topic.title} has more than 12 directly placed pages.`,
+        })),
+      ...orphanPlacementRows.results.map((placement) => ({
+        code: "deleted_page_reference",
+        page_id: placement.page_id,
+        topic_id: placement.topic_id,
+        message: "A semantic placement references a deleted or missing page.",
       })),
-  ];
+      ...topicRows.results
+        .filter(
+          (topic) =>
+            topic.presentation !== "questions" &&
+            topic.presentation !== "evidence" &&
+            (topicCounts.get(topic.id) ?? 0) > 0 &&
+            (topicEvidenceSources.get(topic.id) ?? 0) === 0,
+        )
+        .map((topic) => ({
+          code: "insufficient_evidence",
+          page_id: null,
+          topic_id: topic.id,
+          message: `${topic.title} has no independently linked source evidence.`,
+        })),
+      ...(overviewStatus === "stale"
+        ? [
+            {
+              code: "insight_stale",
+              page_id: null,
+              topic_id: null,
+              message:
+                "The approved all-topics insight brief no longer matches its evidence basis.",
+            },
+          ]
+        : []),
+      ...topicRows.results
+        .filter((topic) => topicBriefs.get(topic.id)?.status === "stale")
+        .map((topic) => ({
+          code: "insight_stale",
+          page_id: null,
+          topic_id: topic.id,
+          message: `The approved insight brief for ${topic.title} no longer matches its evidence basis.`,
+        })),
+    ];
   return {
     wiki_id: wikiId,
     exists: Boolean(mapRow),
     version: Number(mapRow?.version ?? 0),
     updated_by: mapRow?.updated_by ?? null,
     updated_at: mapRow?.updated_at ?? null,
-    topics: topicRows.results.map((topic) => ({
-      ...topic,
-      sort_order: Number(topic.sort_order),
-      is_locked: Boolean(topic.is_locked),
-    })),
+    overview_brief: await expandKnowledgeInsightBrief(wikiId, overviewBrief),
+    overview_brief_status: overviewStatus,
+    topics: topicRows.results.map((topic) => {
+      const brief = topicBriefs.get(topic.id)!;
+      return {
+        id: topic.id,
+        wiki_id: topic.wiki_id,
+        parent_topic_id: topic.parent_topic_id,
+        title: topic.title,
+        summary: topic.summary,
+        presentation: topic.presentation,
+        sort_order: Number(topic.sort_order),
+        is_locked: Boolean(topic.is_locked),
+        created_at: topic.created_at,
+        updated_at: topic.updated_at,
+        insight_brief: brief.expanded,
+        insight_brief_status: brief.status,
+      };
+    }),
     placements,
     unmapped_pages: unmappedRows.results,
     warnings,
@@ -7720,6 +8242,34 @@ export async function validateKnowledgeMapPatch(input: {
     }
   }
   await validateKnowledgeHierarchy({ ...input, idsByClientKey });
+  if (input.patch.overview_brief)
+    await validateKnowledgeInsightBriefReferences({
+      wikiId: input.wikiId,
+      brief: input.patch.overview_brief,
+      pendingPageTitles: input.pendingPageTitles,
+    });
+  const topicBriefIds = new Set<string>();
+  for (const topicBrief of input.patch.topic_briefs ?? []) {
+    const topic = await resolveKnowledgeTopicReference(
+      input.wikiId,
+      topicBrief.topic,
+      idsByClientKey,
+    );
+    if (topicBriefIds.has(topic.id))
+      throw new AppError(
+        "validation_error",
+        "A knowledge map patch cannot replace the same topic brief twice.",
+        400,
+        { topic_id: topic.id },
+      );
+    topicBriefIds.add(topic.id);
+    if (topicBrief.brief)
+      await validateKnowledgeInsightBriefReferences({
+        wikiId: input.wikiId,
+        brief: topicBrief.brief,
+        pendingPageTitles: input.pendingPageTitles,
+      });
+  }
   for (const placement of input.patch.placements) {
     const topic = await resolveKnowledgeTopicReference(
         input.wikiId,
@@ -7829,6 +8379,35 @@ export async function applyKnowledgeMapPatch(input: {
     timestamp = now(),
     idsByClientKey = validation.idsByClientKey,
     topicStatements: D1PreparedStatement[] = [];
+  const hasOverviewBrief = Object.prototype.hasOwnProperty.call(
+      input.patch,
+      "overview_brief",
+    ),
+    resolvedOverviewBrief = input.patch.overview_brief
+      ? await resolveKnowledgeInsightBrief(
+          input.wikiId,
+          input.patch.overview_brief,
+          input.pageState,
+        )
+      : null,
+    resolvedTopicBriefs = await Promise.all(
+      (input.patch.topic_briefs ?? []).map(async (item) => ({
+        topicId: (
+          await resolveKnowledgeTopicReference(
+            input.wikiId,
+            item.topic,
+            idsByClientKey,
+          )
+        ).id,
+        brief: item.brief
+          ? await resolveKnowledgeInsightBrief(
+              input.wikiId,
+              item.brief,
+              input.pageState,
+            )
+          : null,
+      })),
+    );
   for (const topic of input.patch.topics) {
     const topicId = idsByClientKey.get(topic.client_key)!,
       parentId = topic.parent
@@ -8100,6 +8679,8 @@ export async function applyKnowledgeMapPatch(input: {
           topic_count: input.patch.topics.length,
           placement_count: input.patch.placements.length,
           removal_count: input.patch.remove_placement_ids.length,
+          overview_brief_changed: hasOverviewBrief,
+          topic_brief_count: resolvedTopicBriefs.length,
           manual: Boolean(input.manual),
         }),
         timestamp,
@@ -8112,6 +8693,51 @@ export async function applyKnowledgeMapPatch(input: {
       409,
       { expected_version: input.patch.expected_version },
     );
+  const briefStatements: D1PreparedStatement[] = [];
+  if (hasOverviewBrief) {
+    const basisHash = resolvedOverviewBrief
+      ? await knowledgeInsightBasisHash({
+          wikiId: input.wikiId,
+          topicId: null,
+          brief: resolvedOverviewBrief,
+        })
+      : null;
+    briefStatements.push(
+      d
+        .prepare(
+          `UPDATE knowledge_maps SET overview_brief_json=?,overview_brief_basis_hash=? WHERE wiki_id=?`,
+        )
+        .bind(
+          resolvedOverviewBrief ? stableJson(resolvedOverviewBrief) : null,
+          basisHash,
+          input.wikiId,
+        ),
+    );
+  }
+  for (const item of resolvedTopicBriefs) {
+    const basisHash = item.brief
+      ? await knowledgeInsightBasisHash({
+          wikiId: input.wikiId,
+          topicId: item.topicId,
+          brief: item.brief,
+        })
+      : null;
+    briefStatements.push(
+      d
+        .prepare(
+          `UPDATE knowledge_topics SET insight_brief_json=?,insight_brief_basis_hash=?,updated_by=?,updated_at=? WHERE id=? AND wiki_id=? AND deleted_at IS NULL`,
+        )
+        .bind(
+          item.brief ? stableJson(item.brief) : null,
+          basisHash,
+          input.email,
+          timestamp,
+          item.topicId,
+          input.wikiId,
+        ),
+    );
+  }
+  if (briefStatements.length) await d.batch(briefStatements);
   return {
     wiki_id: input.wikiId,
     version: input.patch.expected_version + 1,
@@ -8242,6 +8868,11 @@ export async function createKnowledgeMapPlan(input: {
     topic_count: input.patch.topics.length,
     placement_count: input.patch.placements.length,
     removal_count: input.patch.remove_placement_ids.length,
+    overview_brief_changed: Object.prototype.hasOwnProperty.call(
+      input.patch,
+      "overview_brief",
+    ),
+    topic_brief_count: input.patch.topic_briefs?.length ?? 0,
     expires_at: expiresAt,
   };
 }

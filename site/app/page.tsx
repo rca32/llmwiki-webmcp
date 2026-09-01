@@ -43,11 +43,7 @@ import {
   type WorkspaceView,
 } from "@/components/layout/icon-sidebar";
 import { KnowledgeTree } from "@/components/layout/knowledge-tree";
-import type {
-  KnowledgeMapData,
-  KnowledgePlacement,
-  KnowledgeTopic,
-} from "@/components/knowledge/knowledge-atlas";
+import type { KnowledgeMapData } from "@/components/knowledge/knowledge-atlas";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -96,6 +92,8 @@ const KnowledgeAtlas = lazy(() =>
 const EMPTY_KNOWLEDGE_MAP: KnowledgeMapData = {
   exists: false,
   version: 0,
+  overview_brief: null,
+  overview_brief_status: "missing",
   topics: [],
   placements: [],
   unmapped_pages: [],
@@ -1231,118 +1229,6 @@ export default function Home() {
     }
   }
 
-  async function updateKnowledgeMapPatch(patch: Record<string, unknown>) {
-    if (!caps.can_write) return;
-    setStatus(t("atlas.updatePending"));
-    try {
-      await api("/api/knowledge-map", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          expected_version: knowledgeMap.version,
-          topics: [],
-          placements: [],
-          remove_placement_ids: [],
-          ...patch,
-        }),
-      });
-      const refreshed = await api<KnowledgeMapData>("/api/knowledge-map");
-      setKnowledgeMap(refreshed);
-      setStatus(t("atlas.updateSuccess"));
-    } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : t("atlas.updateFailed"),
-      );
-    }
-  }
-
-  function topicPatch(
-    topic: KnowledgeTopic,
-    overrides: Partial<Pick<KnowledgeTopic, "title" | "parent_topic_id">>,
-  ) {
-    return {
-      client_key: `existing-${topic.id}`,
-      topic_id: topic.id,
-      parent:
-        (overrides.parent_topic_id ?? topic.parent_topic_id) === null
-          ? null
-          : {
-              topic_id: overrides.parent_topic_id ?? topic.parent_topic_id,
-            },
-      title: overrides.title ?? topic.title,
-      summary: topic.summary,
-      presentation: topic.presentation,
-      sort_order: topic.sort_order,
-    };
-  }
-
-  async function setKnowledgeTopicLocked(
-    topic: KnowledgeTopic,
-    locked: boolean,
-  ) {
-    if (!caps.can_write) return;
-    try {
-      await api(`/api/knowledge-map/topics/${topic.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          expected_version: knowledgeMap.version,
-          is_locked: locked,
-        }),
-      });
-      setKnowledgeMap(await api<KnowledgeMapData>("/api/knowledge-map"));
-      setStatus(locked ? "주제를 고정했습니다." : "주제 고정을 해제했습니다.");
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "주제 고정 상태를 변경하지 못했습니다.",
-      );
-    }
-  }
-
-  function moveKnowledgePlacement(
-    placement: KnowledgePlacement,
-    topicId: string,
-  ) {
-    void updateKnowledgeMapPatch({
-      placements: [
-        {
-          placement_id: placement.id,
-          topic: { topic_id: topicId },
-          page: { page_id: placement.page_id },
-          role: placement.role,
-          summary: placement.summary,
-          sort_order: placement.sort_order,
-        },
-      ],
-    });
-  }
-
-  function duplicateKnowledgePlacement(
-    placement: KnowledgePlacement,
-    topicId: string,
-  ) {
-    const role =
-      placement.page.page_type === "source"
-        ? "evidence"
-        : placement.page.page_type === "query"
-          ? "question"
-          : "supporting";
-    void updateKnowledgeMapPatch({
-      placements: [
-        {
-          placement_id: null,
-          topic: { topic_id: topicId },
-          page: { page_id: placement.page_id },
-          role,
-          summary: placement.summary,
-          sort_order: 0,
-        },
-      ],
-    });
-  }
-
   async function switchVault(wikiId: string) {
     if (!wikiId || wikiId === currentWiki?.id) return;
     if (
@@ -1837,7 +1723,6 @@ export default function Home() {
                     changeView("knowledge");
                     setMobileWorkspacePane("content");
                   }}
-                  onMoveKnowledgePlacement={moveKnowledgePlacement}
                   onCreatePage={startCreateItem}
                   onMovePage={(pageId, parentId) =>
                     void movePageTo(pageId, parentId)
@@ -2104,36 +1989,8 @@ export default function Home() {
                       <KnowledgeAtlas
                         map={knowledgeMap}
                         selectedTopicId={selectedKnowledgeTopicId}
-                        canWrite={caps.can_write}
                         onSelectTopic={setSelectedKnowledgeTopicId}
                         onOpenPage={(pageId) => void openPage(pageId)}
-                        onRenameTopic={(topic, title) =>
-                          void updateKnowledgeMapPatch({
-                            topics: [topicPatch(topic, { title })],
-                          })
-                        }
-                        onMoveTopic={(topic, parentTopicId) =>
-                          void updateKnowledgeMapPatch({
-                            topics: [
-                              {
-                                ...topicPatch(topic, {}),
-                                parent: parentTopicId
-                                  ? { topic_id: parentTopicId }
-                                  : null,
-                              },
-                            ],
-                          })
-                        }
-                        onSetTopicLocked={(topic, locked) =>
-                          void setKnowledgeTopicLocked(topic, locked)
-                        }
-                        onMovePlacement={moveKnowledgePlacement}
-                        onDuplicatePlacement={duplicateKnowledgePlacement}
-                        onRemovePlacement={(placement) =>
-                          void updateKnowledgeMapPatch({
-                            remove_placement_ids: [placement.id],
-                          })
-                        }
                       />
                     ) : (
                       <section className="atlas-fallback">

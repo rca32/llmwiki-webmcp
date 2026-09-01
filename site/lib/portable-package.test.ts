@@ -103,10 +103,21 @@ describe("portable backup projection", () => {
           pages: [],
           knowledge_map: {
             version: 2,
+            overview_brief_json: JSON.stringify({
+              headline: "핵심 결론",
+              synthesis: "근거를 종합한 결과",
+              takeaways: [],
+              tensions: [],
+              implications: [],
+              questions: [],
+            }),
+            overview_brief_basis_hash: "a".repeat(64),
             topics: [
               {
                 id: "11111111-1111-4111-8111-111111111111",
                 title: "시장 변화",
+                insight_brief_json: JSON.stringify({ headline: "주제 결론" }),
+                insight_brief_basis_hash: "b".repeat(64),
               },
             ],
             placements: [],
@@ -115,6 +126,11 @@ describe("portable backup projection", () => {
       ),
     );
     expect(projection["metadata/knowledge-map.json"]).toBeDefined();
+    const portableMap = JSON.parse(
+      new TextDecoder().decode(projection["metadata/knowledge-map.json"]),
+    );
+    expect(portableMap.overview_brief_basis_hash).toBe("a".repeat(64));
+    expect(portableMap.topics[0].insight_brief_basis_hash).toBe("b".repeat(64));
     expect(
       new TextDecoder().decode(projection["metadata/backup-policy.json"]),
     ).toContain('"includes_knowledge_map": true');

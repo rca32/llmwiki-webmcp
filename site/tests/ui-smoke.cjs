@@ -226,6 +226,9 @@ let activeBrowser;
   const baselinePages = workspaceListEnvelope.data.pages;
   if (!baselinePages.length)
     throw new Error("Workspace race fixture requires one existing page.");
+  const insightEvidencePage =
+    baselinePages.find((page) => page.page_type !== "folder") ??
+    baselinePages[0];
   const newestPage = {
     ...baselinePages[0],
     id: crypto.randomUUID(),
@@ -1268,6 +1271,125 @@ let activeBrowser;
       throw new Error(`Page sharing action is missing: ${actionName}`);
   }
 
+  const currentKnowledgeMap = await context.request
+    .get(`${baseUrl}/api/knowledge-map`)
+    .then((response) => response.json())
+    .then((result) => result.data);
+  const insightTopicId = currentKnowledgeMap.topics[0]?.id ?? null;
+  const insightTopicClientKey = "ui-insight-reader";
+  const insightBrief = {
+    headline: "검토할 결론이 먼저 보이는 지식 화면",
+    synthesis:
+      "주제 배치 관리보다 핵심 결론과 근거를 먼저 읽고 판단할 수 있어야 합니다.",
+    takeaways: [
+      {
+        statement: "Explore는 지식 관리 도구가 아니라 판단을 돕는 리더입니다.",
+        explanation: "관리 동작은 승인된 에이전트 계획으로 분리합니다.",
+        evidence: [{ page_id: insightEvidencePage.id }],
+      },
+    ],
+    tensions: [],
+    implications: [],
+    questions: [
+      {
+        statement: "다음 조사에서 어떤 근거를 보강해야 하는가?",
+        evidence: [],
+      },
+    ],
+  };
+  const knowledgePlanResponse = await context.request.post(
+    `${baseUrl}/api/knowledge-map/plans`,
+    {
+      data: {
+        expected_version: currentKnowledgeMap.version,
+        topics: insightTopicId
+          ? []
+          : [
+              {
+                client_key: insightTopicClientKey,
+                topic_id: null,
+                parent: null,
+                title: "인사이트 리더 검증",
+                summary: "결론과 근거 중심의 읽기 경험을 검증합니다.",
+                presentation: "cluster",
+                sort_order: 0,
+              },
+            ],
+        placements: insightTopicId
+          ? []
+          : [
+              {
+                placement_id: null,
+                topic: { client_key: insightTopicClientKey },
+                page: { page_id: insightEvidencePage.id },
+                role: "primary",
+                summary: "인사이트 리더 검증 문서",
+                sort_order: 0,
+              },
+            ],
+        remove_placement_ids: [],
+        overview_brief: insightBrief,
+        topic_briefs: [
+          {
+            topic: insightTopicId
+              ? { topic_id: insightTopicId }
+              : { client_key: insightTopicClientKey },
+            brief: insightBrief,
+          },
+        ],
+      },
+    },
+  );
+  if (knowledgePlanResponse.status() !== 201)
+    throw new Error(
+      `Could not plan the insight-reader UI fixture (${knowledgePlanResponse.status()}).`,
+    );
+  const knowledgePlan = (await knowledgePlanResponse.json()).data;
+  const knowledgeApply = await context.request.post(
+    `${baseUrl}/api/knowledge-map/plans/${knowledgePlan.plan_id}/apply`,
+    {
+      data: {
+        plan_hash: knowledgePlan.plan_hash,
+        approved: true,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!knowledgeApply.ok())
+    throw new Error(
+      `Could not apply the insight-reader UI fixture (${knowledgeApply.status()}).`,
+    );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "주제 둘러보기" }).click();
+  await page.locator(".insight-reader").waitFor();
+  await page.getByText("핵심 결론", { exact: true }).waitFor();
+  const forbiddenExploreControls = await page
+    .locator(
+      ".insight-reader .atlas-placement-actions, .insight-reader .atlas-topic-actions, .insight-reader .atlas-stat-grid, .insight-reader .atlas-unmapped, .insight-reader select",
+    )
+    .count();
+  const forbiddenTopicTreeRows = await page
+    .locator(
+      ".tree-semantic-list .semantic-page, .tree-semantic-list .tree-unmapped",
+    )
+    .count();
+  if (forbiddenExploreControls || forbiddenTopicTreeRows)
+    throw new Error(
+      `Explore still exposes knowledge-management controls (${forbiddenExploreControls}/${forbiddenTopicTreeRows}).`,
+    );
+  const evidenceDisclosure = page.locator(".insight-evidence").first();
+  await evidenceDisclosure.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await evidenceDisclosure.locator(".insight-evidence-list").waitFor();
+  const insightAccessibility = await new AxeBuilder({ page }).analyze();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const insightOverflowsMobile = await page
+    .locator(".insight-reader")
+    .evaluate((element) => element.scrollWidth > element.clientWidth + 1);
+  if (insightOverflowsMobile)
+    throw new Error("The insight reader overflows its mobile single column.");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
   await page.getByRole("button", { name: "그래프" }).click();
   await page.locator(".graph-view").waitFor();
   const graphKnowledgeTreeWidth = await page
@@ -1431,6 +1553,7 @@ let activeBrowser;
   if (errors.length) throw new Error(`Browser errors:\n${errors.join("\n")}`);
   const accessibilityViolations = [
     ...documentAccessibility.violations,
+    ...insightAccessibility.violations,
     ...graphAccessibility.violations,
     ...operationsAccessibility.violations,
   ].filter((item) => item.impact === "critical" || item.impact === "serious");
@@ -1482,6 +1605,7 @@ let activeBrowser;
       workspaceVisualVerified: true,
       lightDarkThemeVerified: true,
       signOutControlVerified: true,
+      insightReaderVerified: true,
       seriousAccessibilityViolations: 0,
       screenshot: "artifacts/ui-smoke.png",
     }),

@@ -67,11 +67,37 @@ export type KnowledgePlacementDraft = {
   sort_order: number;
 };
 
+export type KnowledgeInsightEvidenceReference =
+  | { claim_id: string }
+  | PageReference;
+
+export type KnowledgeInsightItem = {
+  statement: string;
+  explanation: string | null;
+  evidence: KnowledgeInsightEvidenceReference[];
+};
+
+export type KnowledgeInsightBrief = {
+  headline: string;
+  synthesis: string;
+  takeaways: KnowledgeInsightItem[];
+  tensions: KnowledgeInsightItem[];
+  implications: KnowledgeInsightItem[];
+  questions: KnowledgeInsightItem[];
+};
+
+export type KnowledgeTopicBriefPatch = {
+  topic: TopicReference;
+  brief: KnowledgeInsightBrief | null;
+};
+
 export type KnowledgeMapPatch = {
   expected_version: number;
   topics: KnowledgeTopicDraft[];
   placements: KnowledgePlacementDraft[];
   remove_placement_ids: string[];
+  overview_brief?: KnowledgeInsightBrief | null;
+  topic_briefs?: KnowledgeTopicBriefPatch[];
 };
 
 function exactEnum<T extends string>(
@@ -143,6 +169,124 @@ function parseTopicReference(value: unknown, field: string): TopicReference {
     : {
         client_key: requiredString(clientKey, `${field}.client_key`, 1, 80),
       };
+}
+
+function parseInsightEvidenceReference(
+  value: unknown,
+  field: string,
+): KnowledgeInsightEvidenceReference {
+  const body = requireObject(value),
+    claimId = uuidOrNull(body.claim_id, `${field}.claim_id`),
+    hasPageId = body.page_id !== undefined && body.page_id !== null,
+    hasTitle = body.title !== undefined && body.title !== null;
+  if (claimId) {
+    if (hasPageId || hasTitle)
+      throw new AppError(
+        "validation_error",
+        `${field} must contain either claim_id or a page reference, not both.`,
+        400,
+        { field },
+      );
+    return { claim_id: claimId };
+  }
+  return parsePageReference(body, field);
+}
+
+function parseInsightItems(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+  evidenceOptional = false,
+): KnowledgeInsightItem[] {
+  const values = boundedArray(value ?? [], field, maximum);
+  if (values.length < minimum)
+    throw new AppError(
+      "validation_error",
+      `${field} must contain at least ${minimum} item${minimum === 1 ? "" : "s"}.`,
+      400,
+      { field, minimum },
+    );
+  return values.map((value, index) => {
+    const item = requireObject(value),
+      evidence = boundedArray(
+        item.evidence ?? [],
+        `${field}[${index}].evidence`,
+        6,
+      ).map((reference, evidenceIndex) =>
+        parseInsightEvidenceReference(
+          reference,
+          `${field}[${index}].evidence[${evidenceIndex}]`,
+        ),
+      );
+    if (!evidenceOptional && evidence.length === 0)
+      throw new AppError(
+        "validation_error",
+        `${field}[${index}].evidence must contain at least one reference.`,
+        400,
+        { field: `${field}[${index}].evidence` },
+      );
+    const keys = evidence.map((reference) =>
+      "claim_id" in reference
+        ? `claim:${reference.claim_id}`
+        : reference.page_id
+          ? `page:${reference.page_id}`
+          : `title:${reference.title!.trim().toLocaleLowerCase()}`,
+    );
+    if (new Set(keys).size !== keys.length)
+      throw new AppError(
+        "validation_error",
+        `${field}[${index}].evidence cannot contain duplicate references.`,
+        400,
+        { field: `${field}[${index}].evidence` },
+      );
+    return {
+      statement: requiredString(
+        item.statement,
+        `${field}[${index}].statement`,
+        1,
+        500,
+      ),
+      explanation:
+        item.explanation === null ||
+        item.explanation === undefined ||
+        item.explanation === ""
+          ? null
+          : requiredString(
+              item.explanation,
+              `${field}[${index}].explanation`,
+              1,
+              1_200,
+            ),
+      evidence,
+    };
+  });
+}
+
+function parseInsightBrief(
+  value: unknown,
+  field: string,
+): KnowledgeInsightBrief {
+  const body = requireObject(value);
+  return {
+    headline: requiredString(body.headline, `${field}.headline`, 1, 160),
+    synthesis: requiredString(body.synthesis, `${field}.synthesis`, 1, 1_200),
+    takeaways: parseInsightItems(body.takeaways, `${field}.takeaways`, 1, 5),
+    tensions: parseInsightItems(body.tensions, `${field}.tensions`, 0, 3),
+    implications: parseInsightItems(
+      body.implications,
+      `${field}.implications`,
+      0,
+      4,
+    ),
+    questions: parseInsightItems(
+      body.questions,
+      `${field}.questions`,
+      0,
+      4,
+      true,
+    ),
+  };
 }
 
 export function parseKnowledgeMapPatch(value: unknown): KnowledgeMapPatch {
@@ -248,7 +392,7 @@ export function parseKnowledgeMapPatch(value: unknown): KnowledgeMapPatch {
       400,
       { field: "knowledge_map.topics.client_key" },
     );
-  return {
+  const result: KnowledgeMapPatch = {
     expected_version: requiredInteger(
       Number(body.expected_version ?? 0),
       "knowledge_map.expected_version",
@@ -260,4 +404,34 @@ export function parseKnowledgeMapPatch(value: unknown): KnowledgeMapPatch {
       (value): value is string => value !== null,
     ),
   };
+  if (Object.prototype.hasOwnProperty.call(body, "overview_brief"))
+    result.overview_brief =
+      body.overview_brief === null
+        ? null
+        : parseInsightBrief(
+            body.overview_brief,
+            "knowledge_map.overview_brief",
+          );
+  if (Object.prototype.hasOwnProperty.call(body, "topic_briefs"))
+    result.topic_briefs = boundedArray(
+      body.topic_briefs,
+      "knowledge_map.topic_briefs",
+      50,
+    ).map((value, index) => {
+      const item = requireObject(value);
+      return {
+        topic: parseTopicReference(
+          item.topic,
+          `knowledge_map.topic_briefs[${index}].topic`,
+        ),
+        brief:
+          item.brief === null
+            ? null
+            : parseInsightBrief(
+                item.brief,
+                `knowledge_map.topic_briefs[${index}].brief`,
+              ),
+      };
+    });
+  return result;
 }

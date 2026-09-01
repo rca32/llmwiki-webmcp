@@ -1,24 +1,63 @@
 "use client";
 
-import { useState } from "react";
 import {
-  ArrowRight,
   BookOpen,
   ChevronRight,
   CircleHelp,
   FileText,
-  GitCompareArrows,
   Layers3,
+  Lightbulb,
   Link2,
-  Lock,
   Network,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  Trash2,
+  Scale,
+  Target,
 } from "lucide-react";
 
 import { useI18n, type TranslationKey } from "@/components/i18n-provider";
+
+export type InsightEvidence =
+  | {
+      kind: "page";
+      page_id: string;
+      status: "current" | "missing";
+      page: {
+        id: string;
+        title: string;
+        page_type: string;
+        version: number;
+        path: string;
+      } | null;
+    }
+  | {
+      kind: "claim";
+      claim_id: string;
+      status: "current" | "expired" | "superseded" | "missing";
+      evidence_fragment: string | null;
+      confidence: number | null;
+      subject_page_id: string | null;
+      source_page: {
+        id: string;
+        title: string;
+        page_type: string | null;
+        version: number;
+        path: string | null;
+      } | null;
+    };
+
+export type InsightItem = {
+  statement: string;
+  explanation: string | null;
+  evidence: InsightEvidence[];
+};
+
+export type InsightBrief = {
+  headline: string;
+  synthesis: string;
+  takeaways: InsightItem[];
+  tensions: InsightItem[];
+  implications: InsightItem[];
+  questions: InsightItem[];
+};
 
 export type KnowledgeTopic = {
   id: string;
@@ -33,6 +72,8 @@ export type KnowledgeTopic = {
     | "evidence";
   sort_order: number;
   is_locked: boolean;
+  insight_brief: InsightBrief | null;
+  insight_brief_status: "current" | "stale" | "missing";
 };
 
 export type KnowledgePlacement = {
@@ -62,6 +103,8 @@ export type KnowledgePlacement = {
 export type KnowledgeMapData = {
   exists: boolean;
   version: number;
+  overview_brief: InsightBrief | null;
+  overview_brief_status: "current" | "stale" | "missing";
   topics: KnowledgeTopic[];
   placements: KnowledgePlacement[];
   unmapped_pages: Array<{
@@ -79,133 +122,66 @@ export type KnowledgeMapData = {
   }>;
 };
 
-const presentationMeta = {
-  cluster: { labelKey: "atlas.presentationCluster", icon: Layers3 },
-  sequence: { labelKey: "atlas.presentationSequence", icon: ArrowRight },
-  comparison: {
-    labelKey: "atlas.presentationComparison",
-    icon: GitCompareArrows,
-  },
-  questions: { labelKey: "atlas.presentationQuestions", icon: CircleHelp },
-  evidence: { labelKey: "atlas.presentationEvidence", icon: ShieldCheck },
-} as const;
-
-const roleKeys: Record<KnowledgePlacement["role"], TranslationKey> = {
-  primary: "atlas.rolePrimary",
-  supporting: "atlas.roleSupporting",
-  evidence: "atlas.roleEvidence",
-  question: "atlas.roleQuestion",
-};
-
-const pageTypeKeys: Record<string, TranslationKey> = {
-  overview: "type.overview",
-  concept: "type.concept",
-  entity: "type.entity",
-  note: "type.note",
-  source: "type.source",
-  synthesis: "type.synthesis",
-  comparison: "type.comparison",
-  query: "type.query",
-  folder: "type.folder",
-  other: "type.other",
+const roleRank: Record<KnowledgePlacement["role"], number> = {
+  primary: 0,
+  supporting: 1,
+  evidence: 2,
+  question: 3,
 };
 
 export function KnowledgeAtlas({
   map,
   selectedTopicId,
-  canWrite,
   onSelectTopic,
   onOpenPage,
-  onRenameTopic,
-  onMoveTopic,
-  onSetTopicLocked,
-  onMovePlacement,
-  onDuplicatePlacement,
-  onRemovePlacement,
 }: {
   map: KnowledgeMapData;
   selectedTopicId: string | null;
-  canWrite: boolean;
   onSelectTopic: (topicId: string | null) => void;
   onOpenPage: (pageId: string) => void;
-  onRenameTopic: (topic: KnowledgeTopic, title: string) => void;
-  onMoveTopic: (topic: KnowledgeTopic, parentTopicId: string | null) => void;
-  onSetTopicLocked: (topic: KnowledgeTopic, locked: boolean) => void;
-  onMovePlacement: (placement: KnowledgePlacement, topicId: string) => void;
-  onDuplicatePlacement: (
-    placement: KnowledgePlacement,
-    topicId: string,
-  ) => void;
-  onRemovePlacement: (placement: KnowledgePlacement) => void;
 }) {
-  const { t } = useI18n();
-  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const topicById = new Map(map.topics.map((topic) => [topic.id, topic])),
+  const { t } = useI18n(),
+    topicById = new Map(map.topics.map((topic) => [topic.id, topic])),
     selected = selectedTopicId
       ? (topicById.get(selectedTopicId) ?? null)
       : null,
-    parentId = selected?.id ?? null,
-    childTopics = map.topics.filter(
-      (topic) => topic.parent_topic_id === parentId,
-    ),
-    visibleTopics = childTopics.length
-      ? childTopics
-      : selected
-        ? [selected]
-        : [],
+    brief = selected?.insight_brief ?? (!selected ? map.overview_brief : null),
     breadcrumbs: KnowledgeTopic[] = [];
-  let breadcrumbCursor = selected;
-  for (let depth = 0; breadcrumbCursor && depth < 4; depth += 1) {
-    breadcrumbs.unshift(breadcrumbCursor);
-    breadcrumbCursor = breadcrumbCursor.parent_topic_id
-      ? (topicById.get(breadcrumbCursor.parent_topic_id) ?? null)
+  let cursor = selected;
+  for (let depth = 0; cursor && depth < 4; depth += 1) {
+    breadcrumbs.unshift(cursor);
+    cursor = cursor.parent_topic_id
+      ? (topicById.get(cursor.parent_topic_id) ?? null)
       : null;
   }
 
-  function renameTopic(topic: KnowledgeTopic) {
-    const next = window.prompt(t("atlas.topicName"), topic.title)?.trim();
-    if (next && next !== topic.title) onRenameTopic(topic, next);
-  }
+  const directPlacements = selected
+      ? map.placements
+          .filter((placement) => placement.topic_id === selected.id)
+          .sort(
+            (a, b) =>
+              roleRank[a.role] - roleRank[b.role] ||
+              a.sort_order - b.sort_order,
+          )
+      : [],
+    relatedTopics = selected
+      ? map.topics.filter(
+          (topic) =>
+            topic.parent_topic_id === selected.id ||
+            (topic.parent_topic_id === selected.parent_topic_id &&
+              topic.id !== selected.id),
+        )
+      : [];
 
   return (
-    <section className="knowledge-atlas" aria-label={t("nav.knowledge")}>
-      <header className="atlas-hero">
-        <div>
-          <span className="atlas-eyebrow">
-            <Network /> {t("atlas.eyebrow")}
-          </span>
-          <h1>{selected?.title ?? t("atlas.overviewTitle")}</h1>
-          <p>{selected?.summary ?? t("atlas.overviewDescription")}</p>
-        </div>
-        <div className="atlas-stat-grid" aria-label={t("atlas.summary")}>
-          <span>
-            <strong>{map.topics.length}</strong>
-            {t("atlas.topics")}
-          </span>
-          <span>
-            <strong>{map.placements.length}</strong>
-            {t("atlas.placements")}
-          </span>
-          <span className={map.unmapped_pages.length ? "needs-attention" : ""}>
-            <strong>{map.unmapped_pages.length}</strong>
-            {t("atlas.needsOrganizing")}
-          </span>
-          <span className={map.warnings.length ? "needs-attention" : ""}>
-            <strong>{map.warnings.length}</strong>
-            {t("atlas.warnings")}
-          </span>
-        </div>
-      </header>
-
-      <nav className="atlas-breadcrumbs" aria-label={t("atlas.semanticPath")}>
+    <article className="insight-reader" aria-label={t("nav.knowledge")}>
+      <nav className="insight-breadcrumbs" aria-label={t("atlas.semanticPath")}>
         <button type="button" onClick={() => onSelectTopic(null)}>
           {t("atlas.all")}
         </button>
         {breadcrumbs.map((topic) => (
           <span key={topic.id}>
-            <ChevronRight />
+            <ChevronRight aria-hidden="true" />
             <button type="button" onClick={() => onSelectTopic(topic.id)}>
               {topic.title}
             </button>
@@ -213,350 +189,293 @@ export function KnowledgeAtlas({
         ))}
       </nav>
 
-      <div className="atlas-topic-grid">
-        {visibleTopics.map((topic) => {
-          const meta = presentationMeta[topic.presentation],
-            Icon = meta.icon,
-            children = map.topics.filter(
-              (candidate) => candidate.parent_topic_id === topic.id,
-            ),
-            placements = map.placements.filter(
-              (placement) => placement.topic_id === topic.id,
-            ),
-            topicWarnings = map.warnings.filter(
-              (warning) => warning.topic_id === topic.id,
-            ),
-            expanded = expandedTopics.has(topic.id),
-            visiblePlacements = expanded ? placements : placements.slice(0, 5);
-          return (
-            <article
-              className={`atlas-topic-card presentation-${topic.presentation}`}
-              key={topic.id}
-              onDragOver={(event) => {
-                if (
-                  event.dataTransfer.types.includes(
-                    "application/x-knowledge-placement",
-                  )
-                )
-                  event.preventDefault();
-              }}
-              onDrop={(event) => {
-                const placementId = event.dataTransfer.getData(
-                  "application/x-knowledge-placement",
-                );
-                const placement = map.placements.find(
-                  (candidate) => candidate.id === placementId,
-                );
-                if (placement && placement.topic_id !== topic.id)
-                  onMovePlacement(placement, topic.id);
-              }}
-            >
-              <header>
-                <button
-                  type="button"
-                  className="atlas-topic-open"
-                  onClick={() => onSelectTopic(topic.id)}
-                >
-                  <span className="atlas-topic-kind">
-                    <Icon /> {t(meta.labelKey)}
-                  </span>
-                  <span
-                    className={`atlas-topic-status ${topicWarnings.length ? "warning" : ""}`}
-                  >
-                    {topicWarnings.length
-                      ? t("atlas.warningCount", {
-                          count: topicWarnings.length,
-                        })
-                      : t("atlas.healthy")}
-                  </span>
-                  <strong>{topic.title}</strong>
-                  <p>{topic.summary}</p>
-                </button>
-                {topic.is_locked && (
-                  <Lock
-                    className="atlas-lock"
-                    aria-label={t("atlas.userLocked")}
-                  />
-                )}
-                {canWrite && (
-                  <details className="atlas-topic-actions">
-                    <summary
-                      aria-label={t("atlas.editTopic", { title: topic.title })}
-                    >
-                      •••
-                    </summary>
-                    <div>
-                      <button type="button" onClick={() => renameTopic(topic)}>
-                        <Pencil /> {t("atlas.rename")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onSetTopicLocked(topic, !topic.is_locked)
-                        }
-                      >
-                        <Lock />
-                        {topic.is_locked
-                          ? t("atlas.unlockTopic")
-                          : t("atlas.lockTopic")}
-                      </button>
-                      <label>
-                        <span>{t("atlas.moveParent")}</span>
-                        <select
-                          value={topic.parent_topic_id ?? ""}
-                          onChange={(event) =>
-                            onMoveTopic(topic, event.target.value || null)
-                          }
-                        >
-                          <option value="">{t("atlas.topLevel")}</option>
-                          {map.topics
-                            .filter((candidate) => candidate.id !== topic.id)
-                            .map((candidate) => (
-                              <option key={candidate.id} value={candidate.id}>
-                                {candidate.title}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                    </div>
-                  </details>
-                )}
-              </header>
+      <header className="insight-hero">
+        <span className="insight-eyebrow">
+          <Network aria-hidden="true" /> {t("atlas.insightBrief")}
+        </span>
+        <h1>
+          {brief?.headline ?? selected?.title ?? t("atlas.overviewTitle")}
+        </h1>
+        <p>
+          {brief?.synthesis ??
+            selected?.summary ??
+            t("atlas.overviewDescription")}
+        </p>
+      </header>
 
-              {topic.presentation === "sequence" ? (
-                <ol className="atlas-item-list sequence-list">
-                  {visiblePlacements.map((placement) => (
-                    <AtlasPlacement
-                      key={placement.id}
-                      placement={placement}
-                      topics={map.topics}
-                      canWrite={canWrite}
-                      onOpenPage={onOpenPage}
-                      onMovePlacement={onMovePlacement}
-                      onDuplicatePlacement={onDuplicatePlacement}
-                      onRemovePlacement={onRemovePlacement}
-                    />
-                  ))}
-                </ol>
-              ) : (
-                <div
-                  className={`atlas-item-list ${topic.presentation === "comparison" ? "comparison-list" : ""}`}
-                >
-                  {visiblePlacements.map((placement) => (
-                    <AtlasPlacement
-                      key={placement.id}
-                      placement={placement}
-                      topics={map.topics}
-                      canWrite={canWrite}
-                      onOpenPage={onOpenPage}
-                      onMovePlacement={onMovePlacement}
-                      onDuplicatePlacement={onDuplicatePlacement}
-                      onRemovePlacement={onRemovePlacement}
-                    />
-                  ))}
-                </div>
-              )}
+      {brief ? (
+        <div className="insight-report">
+          <InsightSection
+            title={t("atlas.takeaways")}
+            icon={Lightbulb}
+            items={brief.takeaways}
+            onOpenPage={onOpenPage}
+          />
+          {!!brief.tensions.length && (
+            <InsightSection
+              title={t("atlas.tensions")}
+              icon={Scale}
+              items={brief.tensions}
+              onOpenPage={onOpenPage}
+            />
+          )}
+          {!!brief.implications.length && (
+            <InsightSection
+              title={t("atlas.implications")}
+              icon={Target}
+              items={brief.implications}
+              onOpenPage={onOpenPage}
+            />
+          )}
+          {!!brief.questions.length && (
+            <InsightSection
+              title={t("atlas.openQuestions")}
+              icon={CircleHelp}
+              items={brief.questions}
+              onOpenPage={onOpenPage}
+            />
+          )}
+        </div>
+      ) : (
+        <LegacyTopicSummary
+          map={map}
+          selected={selected}
+          onSelectTopic={onSelectTopic}
+          onOpenPage={onOpenPage}
+        />
+      )}
 
-              {!placements.length && (
-                <p className="atlas-empty-card">{t("atlas.empty")}</p>
-              )}
-              {placements.length > 5 && (
-                <button
-                  type="button"
-                  className="atlas-expand"
-                  onClick={() =>
-                    setExpandedTopics((current) => {
-                      const next = new Set(current);
-                      if (next.has(topic.id)) next.delete(topic.id);
-                      else next.add(topic.id);
-                      return next;
-                    })
-                  }
-                >
-                  {expanded
-                    ? t("atlas.coreOnly")
-                    : t("atlas.showMore", { count: placements.length - 5 })}
-                </button>
-              )}
-              {!!children.length && (
-                <footer className="atlas-child-topics">
-                  <span>{t("atlas.childTopics")}</span>
-                  {children.slice(0, 4).map((child) => (
-                    <button
-                      type="button"
-                      key={child.id}
-                      onClick={() => onSelectTopic(child.id)}
-                    >
-                      {child.title} <ChevronRight />
-                    </button>
-                  ))}
-                </footer>
-              )}
-            </article>
-          );
-        })}
-      </div>
-
-      {!!map.unmapped_pages.length && (
-        <section className="atlas-unmapped">
-          <header>
-            <div>
-              <span>{t("atlas.unmappedLabel")}</span>
-              <h2>{t("atlas.needsOrganizing")}</h2>
-            </div>
-            <b>{map.unmapped_pages.length}</b>
-          </header>
-          <div>
-            {map.unmapped_pages.map((page) => (
+      {selected && !!directPlacements.length && (
+        <section
+          className="insight-footer-section"
+          aria-labelledby="key-documents"
+        >
+          <h2 id="key-documents">{t("atlas.keyDocuments")}</h2>
+          <div className="insight-document-list">
+            {directPlacements.slice(0, 5).map((placement) => (
               <button
                 type="button"
-                key={page.id}
-                onClick={() => onOpenPage(page.id)}
+                key={placement.id}
+                onClick={() => onOpenPage(placement.page_id)}
               >
-                <FileText />
+                {placement.page.page_type === "source" ? (
+                  <BookOpen aria-hidden="true" />
+                ) : (
+                  <FileText aria-hidden="true" />
+                )}
                 <span>
-                  <strong>{page.title}</strong>
-                  <small>
-                    {t(pageTypeKeys[page.page_type] ?? "type.other")}
-                  </small>
+                  <strong>{placement.page.title}</strong>
+                  <small>{placement.summary}</small>
                 </span>
-                <ChevronRight />
+                <ChevronRight aria-hidden="true" />
               </button>
             ))}
           </div>
         </section>
       )}
+
+      {selected ? (
+        !!relatedTopics.length && (
+          <TopicList
+            title={t("atlas.relatedTopics")}
+            topics={relatedTopics}
+            onSelectTopic={onSelectTopic}
+          />
+        )
+      ) : (
+        <TopicList
+          title={t("atlas.topicGuide")}
+          topics={map.topics.filter((topic) => !topic.parent_topic_id)}
+          onSelectTopic={onSelectTopic}
+        />
+      )}
+    </article>
+  );
+}
+
+function InsightSection({
+  title,
+  icon: Icon,
+  items,
+  onOpenPage,
+}: {
+  title: string;
+  icon: typeof Lightbulb;
+  items: InsightItem[];
+  onOpenPage: (pageId: string) => void;
+}) {
+  return (
+    <section className="insight-section">
+      <h2>
+        <Icon aria-hidden="true" /> {title}
+      </h2>
+      <ol>
+        {items.map((item, index) => (
+          <li key={`${item.statement}-${index}`}>
+            <strong>{item.statement}</strong>
+            {item.explanation && <p>{item.explanation}</p>}
+            {!!item.evidence.length && (
+              <EvidenceDetails
+                evidence={item.evidence}
+                onOpenPage={onOpenPage}
+              />
+            )}
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
 
-function AtlasPlacement({
-  placement,
-  topics,
-  canWrite,
+function EvidenceDetails({
+  evidence,
   onOpenPage,
-  onMovePlacement,
-  onDuplicatePlacement,
-  onRemovePlacement,
 }: {
-  placement: KnowledgePlacement;
-  topics: KnowledgeTopic[];
-  canWrite: boolean;
+  evidence: InsightEvidence[];
   onOpenPage: (pageId: string) => void;
-  onMovePlacement: (placement: KnowledgePlacement, topicId: string) => void;
-  onDuplicatePlacement: (
-    placement: KnowledgePlacement,
-    topicId: string,
-  ) => void;
-  onRemovePlacement: (placement: KnowledgePlacement) => void;
 }) {
-  const { t } = useI18n();
-  const [targetTopicId, setTargetTopicId] = useState("");
+  const { t } = useI18n(),
+    titles = evidence
+      .map((item) =>
+        item.kind === "page" ? item.page?.title : item.source_page?.title,
+      )
+      .filter((title): title is string => Boolean(title)),
+    summary = titles.length
+      ? `${titles.slice(0, 2).join(", ")}${titles.length > 2 ? ` +${titles.length - 2}` : ""}`
+      : t("atlas.evidenceUnavailable");
   return (
-    <div
-      className={`atlas-placement role-${placement.role}`}
-      draggable={canWrite}
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData(
-          "application/x-knowledge-placement",
-          placement.id,
+    <details className="insight-evidence">
+      <summary>
+        <Link2 aria-hidden="true" />
+        <span>{summary}</span>
+        <small>{t("atlas.sourceCount", { count: evidence.length })}</small>
+      </summary>
+      <div className="insight-evidence-list">
+        {evidence.map((item) => {
+          const page = item.kind === "page" ? item.page : item.source_page,
+            statusKey =
+              `atlas.evidenceStatus${item.status.charAt(0).toUpperCase()}${item.status.slice(1)}` as TranslationKey;
+          return (
+            <article key={item.kind === "page" ? item.page_id : item.claim_id}>
+              <header>
+                {page ? (
+                  <button type="button" onClick={() => onOpenPage(page.id)}>
+                    {page.title} <ChevronRight aria-hidden="true" />
+                  </button>
+                ) : (
+                  <strong>{t("atlas.evidenceUnavailable")}</strong>
+                )}
+                <span data-status={item.status}>{t(statusKey)}</span>
+              </header>
+              {item.kind === "claim" && item.evidence_fragment && (
+                <blockquote>{item.evidence_fragment}</blockquote>
+              )}
+              {item.kind === "claim" && item.confidence !== null && (
+                <small>
+                  {t("atlas.confidence", {
+                    value: `${Math.round(item.confidence * 100)}%`,
+                  })}
+                </small>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+function LegacyTopicSummary({
+  map,
+  selected,
+  onSelectTopic,
+  onOpenPage,
+}: {
+  map: KnowledgeMapData;
+  selected: KnowledgeTopic | null;
+  onSelectTopic: (topicId: string | null) => void;
+  onOpenPage: (pageId: string) => void;
+}) {
+  const { t } = useI18n(),
+    topics = selected
+      ? [selected]
+      : map.topics.filter((topic) => !topic.parent_topic_id);
+  return (
+    <section className="legacy-insight-list" aria-label={t("atlas.topicGuide")}>
+      {topics.map((topic) => {
+        const pages = map.placements
+          .filter((placement) => placement.topic_id === topic.id)
+          .sort(
+            (a, b) =>
+              roleRank[a.role] - roleRank[b.role] ||
+              a.sort_order - b.sort_order,
+          )
+          .slice(0, 3);
+        if (!pages.length && !topic.summary) return null;
+        return (
+          <article key={topic.id}>
+            {!selected && (
+              <button
+                type="button"
+                className="legacy-topic-open"
+                onClick={() => onSelectTopic(topic.id)}
+              >
+                <Layers3 aria-hidden="true" />
+                <span>
+                  <strong>{topic.title}</strong>
+                  <small>{topic.summary}</small>
+                </span>
+                <ChevronRight aria-hidden="true" />
+              </button>
+            )}
+            {!!pages.length && (
+              <div className="legacy-document-row">
+                {pages.map((placement) => (
+                  <button
+                    type="button"
+                    key={placement.id}
+                    onClick={() => onOpenPage(placement.page_id)}
+                  >
+                    <FileText aria-hidden="true" /> {placement.page.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </article>
         );
-      }}
-    >
-      <button type="button" onClick={() => onOpenPage(placement.page_id)}>
-        {placement.page.page_type === "source" ? <BookOpen /> : <FileText />}
-        <span>
-          <small>{t(roleKeys[placement.role])}</small>
-          <strong>{placement.page.title}</strong>
-          <p>{placement.summary}</p>
-        </span>
-        <ChevronRight />
-      </button>
-      <details className="atlas-evidence">
-        <summary>
-          <Link2 />
-          {t("atlas.evidenceSummary", {
-            claims: placement.evidence.claim_count,
-            sources: placement.evidence.source_count,
-          })}
-        </summary>
-        <div>
-          <span>
-            {t("atlas.averageConfidence", {
-              value:
-                placement.evidence.average_confidence === null
-                  ? "—"
-                  : `${Math.round(placement.evidence.average_confidence * 100)}%`,
-            })}
-          </span>
-          {!!placement.evidence.expired_count && (
+      })}
+    </section>
+  );
+}
+
+function TopicList({
+  title,
+  topics,
+  onSelectTopic,
+}: {
+  title: string;
+  topics: KnowledgeTopic[];
+  onSelectTopic: (topicId: string) => void;
+}) {
+  if (!topics.length) return null;
+  return (
+    <section className="insight-topic-list">
+      <h2>{title}</h2>
+      <div>
+        {topics.map((topic) => (
+          <button
+            type="button"
+            key={topic.id}
+            onClick={() => onSelectTopic(topic.id)}
+          >
             <span>
-              {t("atlas.expiredCount", {
-                count: placement.evidence.expired_count,
-              })}
+              <strong>{topic.title}</strong>
+              <small>{topic.summary}</small>
             </span>
-          )}
-          {!!placement.evidence.superseded_count && (
-            <span>
-              {t("atlas.supersededCount", {
-                count: placement.evidence.superseded_count,
-              })}
-            </span>
-          )}
-        </div>
-      </details>
-      {canWrite && (
-        <div className="atlas-placement-actions">
-          <select
-            value={targetTopicId}
-            aria-label={t("atlas.showInOtherTopic", {
-              title: placement.page.title,
-            })}
-            onChange={(event) => setTargetTopicId(event.target.value)}
-          >
-            <option value="">{t("atlas.selectTopic")}</option>
-            {topics
-              .filter((topic) => topic.id !== placement.topic_id)
-              .map((topic) => (
-                <option key={topic.id} value={topic.id}>
-                  {topic.title}
-                </option>
-              ))}
-          </select>
-          <button
-            type="button"
-            disabled={!targetTopicId}
-            onClick={() => {
-              if (targetTopicId) onMovePlacement(placement, targetTopicId);
-              setTargetTopicId("");
-            }}
-            aria-label={t("atlas.moveToSelected")}
-            title={t("atlas.moveToSelected")}
-          >
-            <ArrowRight />
+            <ChevronRight aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            disabled={!targetTopicId}
-            onClick={() => {
-              if (targetTopicId) onDuplicatePlacement(placement, targetTopicId);
-              setTargetTopicId("");
-            }}
-            aria-label={t("atlas.showInSelected")}
-            title={t("atlas.showInAnother")}
-          >
-            <Plus />
-          </button>
-          <button
-            type="button"
-            onClick={() => onRemovePlacement(placement)}
-            aria-label={t("atlas.remove")}
-          >
-            <Trash2 />
-          </button>
-        </div>
-      )}
-    </div>
+        ))}
+      </div>
+    </section>
   );
 }

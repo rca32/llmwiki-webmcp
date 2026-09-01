@@ -49,8 +49,8 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_page_links_target ON page_links(wiki_id,target_page_id)`,
   `CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,page_id TEXT,object_key TEXT NOT NULL UNIQUE,filename TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,uploaded_by TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_wiki_page ON attachments(wiki_id,page_id,status)`,
-  `CREATE TABLE IF NOT EXISTS knowledge_maps (wiki_id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL DEFAULT 0,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,last_operation_id TEXT)`,
-  `CREATE TABLE IF NOT EXISTS knowledge_topics (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_topic_id TEXT,title TEXT NOT NULL,summary TEXT NOT NULL,presentation TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_maps (wiki_id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL DEFAULT 0,overview_brief_json TEXT,overview_brief_basis_hash TEXT,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,last_operation_id TEXT)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_topics (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,parent_topic_id TEXT,title TEXT NOT NULL,summary TEXT NOT NULL,presentation TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,insight_brief_json TEXT,insight_brief_basis_hash TEXT,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_knowledge_topics_parent ON knowledge_topics(wiki_id,parent_topic_id,sort_order)`,
   `CREATE TABLE IF NOT EXISTS knowledge_placements (id TEXT PRIMARY KEY NOT NULL,wiki_id TEXT NOT NULL,topic_id TEXT NOT NULL,page_id TEXT NOT NULL,role TEXT NOT NULL,summary TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,is_locked INTEGER NOT NULL DEFAULT 0,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_placements_topic_page ON knowledge_placements(wiki_id,topic_id,page_id)`,
@@ -89,6 +89,32 @@ export function ensureWikiSchema(): Promise<void> {
   schemaReady ??= (async () => {
     const d = db();
     await d.batch(schemaStatements.map((sql) => d.prepare(sql)));
+    for (const [table, columns] of [
+      [
+        "knowledge_maps",
+        [
+          ["overview_brief_json", "TEXT"],
+          ["overview_brief_basis_hash", "TEXT"],
+        ],
+      ],
+      [
+        "knowledge_topics",
+        [
+          ["insight_brief_json", "TEXT"],
+          ["insight_brief_basis_hash", "TEXT"],
+        ],
+      ],
+    ] as const) {
+      const info = await d
+          .prepare(`PRAGMA table_info(${table})`)
+          .all<{ name: string }>(),
+        names = new Set(info.results.map((column) => column.name));
+      for (const [name, type] of columns)
+        if (!names.has(name))
+          await d
+            .prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+            .run();
+    }
     await d
       .prepare(
         `INSERT OR IGNORE INTO site_state(id,bootstrap_status,version,updated_at) VALUES(1,'empty',1,?)`,
@@ -3603,14 +3629,20 @@ export async function prepareExport(input: {
       .all(),
     knowledgeMap = await d
       .prepare(
-        `SELECT version,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
+        `SELECT version,overview_brief_json,overview_brief_basis_hash,updated_by,updated_at FROM knowledge_maps WHERE wiki_id=?`,
       )
       .bind(input.wikiId)
-      .first<{ version: number; updated_by: string; updated_at: string }>(),
+      .first<{
+        version: number;
+        overview_brief_json: string | null;
+        overview_brief_basis_hash: string | null;
+        updated_by: string;
+        updated_at: string;
+      }>(),
     knowledgeTopics = knowledgeMap
       ? await d
           .prepare(
-            `SELECT id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_by,updated_by,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title`,
+            `SELECT id,parent_topic_id,title,summary,presentation,sort_order,is_locked,insight_brief_json,insight_brief_basis_hash,created_by,updated_by,created_at,updated_at FROM knowledge_topics WHERE wiki_id=? AND deleted_at IS NULL ORDER BY parent_topic_id,sort_order,title`,
           )
           .bind(input.wikiId)
           .all()
@@ -4325,6 +4357,22 @@ function importedKnowledgeMap(input: {
   actor: string;
 }) {
   if (!input.rawMap) return null;
+  function importedBrief(value: unknown, field: string) {
+    if (value === null || value === undefined || value === "") return null;
+    try {
+      const parsed = typeof value === "string" ? JSON.parse(value) : value;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        throw new Error();
+      return stableJson(parsed);
+    } catch {
+      throw new AppError(
+        "validation_error",
+        `Imported ${field} is not valid insight brief JSON.`,
+        400,
+        { field },
+      );
+    }
+  }
   const presentations = new Set([
       "cluster",
       "sequence",
@@ -4367,6 +4415,18 @@ function importedKnowledgeMap(input: {
         "knowledge_topic.sort_order",
       ),
       isLocked: Number(topic.is_locked) === 1,
+      insightBriefJson: importedBrief(
+        topic.insight_brief_json,
+        "knowledge_topic.insight_brief_json",
+      ),
+      insightBriefBasisHash:
+        typeof topic.insight_brief_basis_hash === "string"
+          ? importedString(
+              topic.insight_brief_basis_hash,
+              "knowledge_topic.insight_brief_basis_hash",
+              64,
+            )
+          : null,
       createdBy:
         typeof topic.created_by === "string" ? topic.created_by : input.actor,
       updatedBy:
@@ -4485,6 +4545,18 @@ function importedKnowledgeMap(input: {
       typeof input.rawMap.updated_at === "string"
         ? input.rawMap.updated_at
         : now(),
+    overviewBriefJson: importedBrief(
+      input.rawMap.overview_brief_json,
+      "knowledge_map.overview_brief_json",
+    ),
+    overviewBriefBasisHash:
+      typeof input.rawMap.overview_brief_basis_hash === "string"
+        ? importedString(
+            input.rawMap.overview_brief_basis_hash,
+            "knowledge_map.overview_brief_basis_hash",
+            64,
+          )
+        : null,
     topics,
     placements,
   };
@@ -5115,18 +5187,20 @@ export async function commitImport(input: {
           ? [
               d
                 .prepare(
-                  `INSERT INTO knowledge_maps(wiki_id,version,updated_by,updated_at) VALUES(?,?,?,?)`,
+                  `INSERT INTO knowledge_maps(wiki_id,version,overview_brief_json,overview_brief_basis_hash,updated_by,updated_at) VALUES(?,?,?,?,?,?)`,
                 )
                 .bind(
                   session.staging_wiki_id,
                   knowledgeMapData.version,
+                  knowledgeMapData.overviewBriefJson,
+                  knowledgeMapData.overviewBriefBasisHash,
                   knowledgeMapData.updatedBy,
                   knowledgeMapData.updatedAt,
                 ),
               ...knowledgeMapData.topics.map((topic) =>
                 d
                   .prepare(
-                    `INSERT INTO knowledge_topics(id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    `INSERT INTO knowledge_topics(id,wiki_id,parent_topic_id,title,summary,presentation,sort_order,is_locked,insight_brief_json,insight_brief_basis_hash,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                   )
                   .bind(
                     topic.id,
@@ -5137,6 +5211,8 @@ export async function commitImport(input: {
                     topic.presentation,
                     topic.sortOrder,
                     topic.isLocked ? 1 : 0,
+                    topic.insightBriefJson,
+                    topic.insightBriefBasisHash,
                     topic.createdBy,
                     topic.updatedBy,
                     topic.createdAt,

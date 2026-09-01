@@ -186,6 +186,8 @@ export const knowledgeClaims = sqliteTable(
 export const knowledgeMaps = sqliteTable("knowledge_maps", {
   wikiId: text("wiki_id").primaryKey(),
   version: integer("version").notNull().default(0),
+  overviewBriefJson: text("overview_brief_json"),
+  overviewBriefBasisHash: text("overview_brief_basis_hash"),
   updatedBy: text("updated_by").notNull(),
   updatedAt: text("updated_at").notNull(),
   lastOperationId: text("last_operation_id"),
@@ -224,6 +226,8 @@ export const knowledgeTopics = sqliteTable(
     presentation: text("presentation").notNull(),
     sortOrder: integer("sort_order").notNull().default(0),
     isLocked: integer("is_locked").notNull().default(0),
+    insightBriefJson: text("insight_brief_json"),
+    insightBriefBasisHash: text("insight_brief_basis_hash"),
     createdBy: text("created_by").notNull(),
     updatedBy: text("updated_by").notNull(),
     createdAt: text("created_at").notNull(),

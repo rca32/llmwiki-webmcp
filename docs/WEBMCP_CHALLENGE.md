@@ -116,32 +116,33 @@ Liminal Wiki는 다음과 같이 대응할 수 있다.
 
 - 열린 페이지, 현재 vault, 로그인 세션 및 role에 따라 도구가 달라진다.
 - UI와 에이전트가 동일한 D1/R2 데이터와 same-origin API를 사용한다.
-- 사람은 운영 계약과 ingest 계획을 검토하고 에이전트는 검색, 계획, 승인된 적용,
-  provenance 및 품질 감사를 수행한다.
+- 사람은 근거가 붙은 인사이트를 읽고 운영 계약과 계획을 검토한다. 에이전트는
+  검색 후 기존 지식을 재사용하고, 문장별 근거가 있는 브리프를 계획하며, 승인된
+  적용과 provenance 및 품질 감사를 수행한다.
 - CAS, idempotency, immutable revision, audit trail로 사람과 에이전트의 동시
   작업을 안전하게 만든다.
 
 ## 6. 현재 프로젝트 감사 결과
 
-| 요구사항                      | 상태        | 근거 또는 후속 작업                                                                                                                                                                                                     |
-| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 챌린지 기간 내 신규 프로젝트  | 통과        | 공개 저장소 생성일은 2026-08-27, 최초 커밋은 2026-08-30이다.                                                                                                                                                            |
-| 공개 코드 저장소              | 통과        | <https://github.com/rca32/llmwiki-webmcp>                                                                                                                                                                               |
-| ChatGPT Sites 설정            | 통과        | `site/.openai/hosting.json`에 project, D1, R2 binding이 있다.                                                                                                                                                           |
-| WebMCP 등록 구현              | 통과        | `site/app/site-tools.tsx`에서 capability 확인 후 `document.modelContext.registerTool()`을 호출한다.                                                                                                                     |
-| lifecycle cleanup             | 통과        | component unmount 시 AbortController로 등록을 정리한다.                                                                                                                                                                 |
-| capability-gated 도구         | 통과        | read, write, vault 생성 도구를 세션 capability에 따라 선택한다.                                                                                                                                                         |
-| closed schema와 executor 검증 | 통과        | top-level `additionalProperties: false`와 실행기 재검증이 있다.                                                                                                                                                         |
-| 실제 WebMCP 활용 깊이         | 강점        | 현재 catalog는 세션에 따라 최대 22개 도구를 제공한다.                                                                                                                                                                   |
-| 일반 사용자 UI                | 통과        | 주요 화면은 `Documents`, `Explore topics`, `Find`, `Connections`, `Settings & backup`으로 작업 중심 명칭을 사용하고 내부 진단은 접힌 `Advanced diagnostics`에 둔다.                                                     |
-| owner host discovery          | 부분 통과   | owner 세션에서 discovery와 harmless read call 성공 기록이 있다.                                                                                                                                                         |
-| editor/viewer 권한 행렬       | 부분 통과   | owner 세션에서 22-tool discovery와 실제 호출을 검증했다. 초대된 editor/viewer의 hosted 비교는 남아 있다.                                                                                                                |
-| 최신 핵심 ingest 흐름         | 통과        | production 개인 위키에서 context → contract → search → plan → apply → claims/revisions/lint를 완주했다.                                                                                                                 |
-| 외부 심사 접근                | 통과        | Site URL은 공개지만 ChatGPT 로그인이 필수다. 첫 로그인 계정에는 격리된 개인 `Liminal Wiki`와 owner membership을 자동 생성한다. 다른 계정은 owner가 해당 vault에 명시적으로 membership을 부여한 경우에만 접근할 수 있다. |
-| 루트 라이선스 인식            | 부분 통과   | 루트 `LICENSE`와 README의 GPL-3.0-only 적용 범위는 준비됐다. push 후 GitHub About 인식 확인이 남아 있다.                                                                                                                |
-| GitHub Actions                | 재검증 필요 | 로컬에서 server bind, Windows 종료, UI selector와 접근성 실패를 수정해 `test:ui:ci`가 통과했다. 원격 Actions green 확인이 남아 있다.                                                                                    |
-| 영문 제출 설명                | 미완료      | 아래 초안을 기준으로 최종 편집해야 한다.                                                                                                                                                                                |
-| 공개 YouTube 영상             | 미완료      | 3분 미만 데모를 촬영하고 공개 URL을 제출해야 한다.                                                                                                                                                                      |
+| 요구사항                      | 상태        | 근거 또는 후속 작업                                                                                                                                                                                                           |
+| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 챌린지 기간 내 신규 프로젝트  | 통과        | 공개 저장소 생성일은 2026-08-27, 최초 커밋은 2026-08-30이다.                                                                                                                                                                  |
+| 공개 코드 저장소              | 통과        | <https://github.com/rca32/llmwiki-webmcp>                                                                                                                                                                                     |
+| ChatGPT Sites 설정            | 통과        | `site/.openai/hosting.json`에 project, D1, R2 binding이 있다.                                                                                                                                                                 |
+| WebMCP 등록 구현              | 통과        | `site/app/site-tools.tsx`에서 capability 확인 후 `document.modelContext.registerTool()`을 호출한다.                                                                                                                           |
+| lifecycle cleanup             | 통과        | component unmount 시 AbortController로 등록을 정리한다.                                                                                                                                                                       |
+| capability-gated 도구         | 통과        | read, write, vault 생성 도구를 세션 capability에 따라 선택한다.                                                                                                                                                               |
+| closed schema와 executor 검증 | 통과        | top-level `additionalProperties: false`와 실행기 재검증이 있다.                                                                                                                                                               |
+| 실제 WebMCP 활용 깊이         | 강점        | 현재 catalog는 세션에 따라 최대 22개 도구를 제공한다.                                                                                                                                                                         |
+| 일반 사용자 UI                | 통과        | `Explore topics`는 배치 관리 컨트롤 없이 승인된 결론·상충점·시사점·질문과 문장별 근거를 읽는 단일 칼럼 화면이다. `By topic`은 계층 탐색만, 실제 파일 이동은 `By folder`만 제공하며 내부 진단은 `Advanced diagnostics`에 둔다. |
+| owner host discovery          | 부분 통과   | owner 세션에서 discovery와 harmless read call 성공 기록이 있다.                                                                                                                                                               |
+| editor/viewer 권한 행렬       | 부분 통과   | owner 세션에서 22-tool discovery와 실제 호출을 검증했다. 초대된 editor/viewer의 hosted 비교는 남아 있다.                                                                                                                      |
+| 최신 핵심 ingest 흐름         | 통과        | production 개인 위키에서 context → contract → search → plan → apply → claims/revisions/lint를 완주했다.                                                                                                                       |
+| 외부 심사 접근                | 통과        | Site URL은 공개지만 ChatGPT 로그인이 필수다. 첫 로그인 계정에는 격리된 개인 `Liminal Wiki`와 owner membership을 자동 생성한다. 다른 계정은 owner가 해당 vault에 명시적으로 membership을 부여한 경우에만 접근할 수 있다.       |
+| 루트 라이선스 인식            | 부분 통과   | 루트 `LICENSE`와 README의 GPL-3.0-only 적용 범위는 준비됐다. push 후 GitHub About 인식 확인이 남아 있다.                                                                                                                      |
+| GitHub Actions                | 재검증 필요 | 로컬에서 server bind, Windows 종료, UI selector와 접근성 실패를 수정해 `test:ui:ci`가 통과했다. 원격 Actions green 확인이 남아 있다.                                                                                          |
+| 영문 제출 설명                | 미완료      | 아래 초안을 기준으로 최종 편집해야 한다.                                                                                                                                                                                      |
+| 공개 YouTube 영상             | 미완료      | 3분 미만 데모를 촬영하고 공개 URL을 제출해야 한다.                                                                                                                                                                            |
 
 ## 7. 제출 전 기술 조치
 
@@ -214,7 +215,24 @@ performance 및 backup-spike gate가 완주하지 못했다.
 다시 검사한다. 이 도구는 plan과 audit event를 저장하지만 wiki page와 claim은
 명시적으로 승인된 `wiki_apply_ingest` 전까지 변경하지 않는다.
 
-### 7.5 최종 검증
+### 7.5 인사이트 우선 Explore와 WebMCP 승인 경계
+
+`Explore topics`는 사람이 topic placement를 직접 편집하는 화면이 아니다. 전체
+vault와 각 주제의 마지막 승인 브리프를 결론 → 상충점 → 실무 시사점 → 추가 질문
+순으로 읽고, 각 문장 아래의 접힌 출처를 열어 근거 문장·문서·신뢰도·만료 또는 대체
+상태를 확인한다. 문서 제목은 동일한 `Documents` 페이지를 연다. 빈 topic,
+미분류 목록, 반복 통계, select, 이동·복제·삭제와 drag-and-drop은 이 화면과
+`By topic`에서 제거했다.
+
+브리프는 `wiki_plan_ingest` 또는 `wiki_plan_knowledge_map`의 immutable plan에만
+포함된다. 에이전트는 검색 후 기존 page/claim ID를 재사용하고 모든 결론·상충점·
+시사점에 같은 vault의 근거를 붙인다. 사람의 명시적 승인과 unchanged plan hash가
+없으면 적용되지 않는다. topic 구조, placement, page version 또는 active claim이
+바뀌면 서버는 basis hash를 비교해 `stale`/`insight_stale`를 반환하지만 마지막 승인
+브리프를 덮어쓰지 않는다. 일반 UI는 이를 경고판으로 키우지 않고 계속 읽을 수
+있게 하며, 갱신 판단은 WebMCP 진단과 다음 검토 계획에 남긴다.
+
+### 7.6 최종 검증
 
 소스나 성공한 build만으로 WebMCP 완료를 주장하지 않는다. 정확한 심사용 URL을
 지원 host에서 열고 다음을 기록한다.
@@ -251,7 +269,7 @@ Liminal Wiki is stateful by design: every action depends on the open vault, the 
 ### 8.4 Better user experience
 
 ```text
-People use a task-oriented interface—Documents, Explore topics, Find, Connections, and Settings & backup—while low-level diagnostics stay out of the main workflow. People and agents still work through the same APIs and permission model. Agent changes use optimistic concurrency, idempotency keys, immutable revisions, and an audit trail, so users can review, recover, and understand every change without maintaining a separate automation backend.
+People use a task-oriented interface—Documents, Explore topics, Find, Connections, and Settings & backup—while low-level diagnostics stay out of the main workflow. Explore is an insight reader: approved conclusions, tradeoffs, implications, and open questions appear in one reading flow, with sentence-level evidence available on demand. Placement controls stay out of the human reading experience; agents search and reuse existing knowledge, then propose brief changes through the same immutable plan, explicit approval, optimistic concurrency, and audit rules as every other mutation. The site never refreshes insight prose silently.
 ```
 
 ### 8.5 What people and agents can do together
@@ -268,17 +286,17 @@ The ChatGPT Sites client registers page-scoped tools with document.modelContext.
 
 ## 9. 3분 데모 구성
 
-| 구간      | 내용                                                                            |
-| --------- | ------------------------------------------------------------------------------- |
-| 0:00–0:15 | 문제 소개: AI가 웹앱을 화면과 DOM으로 추측해야 하는 한계와 WebMCP의 해법        |
-| 0:15–0:35 | 열린 페이지가 현재 로그인 세션과 role에 맞는 도구를 직접 제공하는 장면          |
-| 0:35–0:52 | WebMCP discovery와 `wiki_get_context` 실제 호출                                 |
-| 0:52–1:10 | 클릭 대신 제품 수준의 작업인 운영 규칙 확인과 지식 검색 실행                    |
-| 1:10–1:36 | 구조화된 입력과 결과로 `wiki_plan_ingest` 계획 생성                             |
-| 1:36–1:55 | WebMCP가 앱의 승인·권한·버전 안전장치를 그대로 지키는 장면                      |
-| 1:55–2:18 | 같은 API와 데이터에 적용되어 `By topic`과 `Explore topics`에 즉시 나타나는 결과 |
-| 2:18–2:40 | stable ID, evidence, revision과 `wiki_lint`로 검증 가능한 결과 확인             |
-| 2:40–2:55 | 사람 UI와 AI 도구가 하나의 제품을 공유한다는 WebMCP 가치로 결론                 |
+| 구간      | 내용                                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0:00–0:15 | 문제 소개: AI가 웹앱을 화면과 DOM으로 추측해야 하는 한계와 WebMCP의 해법                                                                   |
+| 0:15–0:35 | 열린 페이지가 현재 로그인 세션과 role에 맞는 도구를 직접 제공하는 장면                                                                     |
+| 0:35–0:52 | WebMCP discovery와 `wiki_get_context` 실제 호출                                                                                            |
+| 0:52–1:10 | 클릭 대신 제품 수준의 작업인 운영 규칙 확인과 지식 검색 실행                                                                               |
+| 1:10–1:36 | 구조화된 입력과 결과로 `wiki_plan_ingest` 계획 생성                                                                                        |
+| 1:36–1:55 | WebMCP가 앱의 승인·권한·버전 안전장치를 그대로 지키는 장면                                                                                 |
+| 1:55–2:18 | 적용된 문서·claim과 승인 브리프가 `By topic` 계층과 읽기 전용 `Explore topics`에 함께 나타나고, 결론의 접힌 근거에서 같은 문서를 여는 결과 |
+| 2:18–2:40 | stable ID, evidence, revision과 `wiki_lint`로 검증 가능한 결과 확인                                                                        |
+| 2:40–2:55 | 사람 UI와 AI 도구가 하나의 제품을 공유한다는 WebMCP 가치로 결론                                                                            |
 
 영상은 3분 미만, 공개 YouTube 상태, 음성 포함이어야 한다. 한국어 음성을 사용할
 경우 정확한 영문 자막과 제출 자료의 영문 번역을 함께 제공한다.

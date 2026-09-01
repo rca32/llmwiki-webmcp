@@ -294,6 +294,68 @@ const knowledgePlacementSchema = closed(
   },
   ["topic", "page", "role", "summary"],
 );
+const insightEvidenceSchema = {
+  anyOf: [
+    closed({ claim_id: pageIdSchema }, ["claim_id"]),
+    claimReferenceSchema,
+  ],
+};
+const insightItemSchema = closed(
+  {
+    statement: { type: "string", minLength: 1, maxLength: 500 },
+    explanation: { type: ["string", "null"], minLength: 1, maxLength: 1200 },
+    evidence: {
+      type: "array",
+      items: insightEvidenceSchema,
+      minItems: 1,
+      maxItems: 6,
+    },
+  },
+  ["statement", "evidence"],
+);
+const insightQuestionSchema = closed(
+  {
+    statement: { type: "string", minLength: 1, maxLength: 500 },
+    explanation: { type: ["string", "null"], minLength: 1, maxLength: 1200 },
+    evidence: {
+      type: "array",
+      items: insightEvidenceSchema,
+      maxItems: 6,
+      default: [],
+    },
+  },
+  ["statement"],
+);
+const insightBriefSchema = closed(
+  {
+    headline: { type: "string", minLength: 1, maxLength: 160 },
+    synthesis: { type: "string", minLength: 1, maxLength: 1200 },
+    takeaways: {
+      type: "array",
+      items: insightItemSchema,
+      minItems: 1,
+      maxItems: 5,
+    },
+    tensions: { type: "array", items: insightItemSchema, maxItems: 3 },
+    implications: { type: "array", items: insightItemSchema, maxItems: 4 },
+    questions: { type: "array", items: insightQuestionSchema, maxItems: 4 },
+  },
+  [
+    "headline",
+    "synthesis",
+    "takeaways",
+    "tensions",
+    "implications",
+    "questions",
+  ],
+);
+const topicBriefPatchSchema = closed(
+  {
+    topic: topicReferenceSchema,
+    brief: { anyOf: [insightBriefSchema, { type: "null" }] },
+  },
+  ["topic", "brief"],
+);
 const knowledgeMapPatchSchema = closed(
   {
     expected_version: { type: "integer", minimum: 0 },
@@ -315,6 +377,18 @@ const knowledgeMapPatchSchema = closed(
       maxItems: 100,
       uniqueItems: true,
       default: [],
+    },
+    overview_brief: {
+      anyOf: [insightBriefSchema, { type: "null" }],
+      description:
+        "Omit to preserve the approved all-topics brief, use null to remove it, or provide a complete replacement.",
+    },
+    topic_briefs: {
+      type: "array",
+      items: topicBriefPatchSchema,
+      maxItems: 50,
+      description:
+        "Complete replacements for selected topic briefs. Omit to preserve all topic briefs.",
     },
   },
   ["expected_version"],
@@ -560,9 +634,9 @@ export function readTools(): SiteTool[] {
     },
     {
       name: "wiki_get_knowledge_map",
-      title: "Read the topic organization",
+      title: "Read approved topic insights",
       description:
-        "Read the active wiki's AI-authored topic outline, page roles, evidence summaries, unorganized pages, review items, and current map version. Use it before proposing topic changes.",
+        "Read the active wiki's approved all-topics and per-topic insight briefs, sentence-level evidence, current/stale/missing states, topic outline, diagnostics, and map version. Search and reuse existing knowledge before proposing an evidence-grounded brief refresh.",
       inputSchema: closed({}),
       annotations: readAnnotations,
       execute: async () => requestJson("/api/knowledge-map"),
@@ -678,9 +752,9 @@ export function writeTools(): SiteTool[] {
     },
     {
       name: "wiki_plan_knowledge_map",
-      title: "Plan a topic organization update",
+      title: "Plan a topic or insight update",
       description:
-        "Persist an immutable review plan for semantic topics and page placements in the active vault. Read the current map first, preserve user-locked items, reuse existing topics, and apply only after explicit approval.",
+        "Persist an immutable review plan for topic structure, page placement, or approved insight briefs. Read the current map and search first, preserve user-locked structure, ground each insight statement in same-vault evidence, and never refresh a brief without explicit approval.",
       inputSchema: knowledgeMapPatchSchema,
       annotations: planAnnotations,
       execute: async (input) =>
@@ -695,7 +769,7 @@ export function writeTools(): SiteTool[] {
     },
     {
       name: "wiki_apply_knowledge_map",
-      title: "Apply an approved topic organization plan",
+      title: "Apply an approved topic or insight plan",
       description:
         "Apply the exact reviewed topic organization plan using its unchanged hash, explicit approved=true, current map version, and a retry-safe operation UUID.",
       inputSchema: closed(
@@ -1133,6 +1207,39 @@ function validatedOperatingContract(value: unknown) {
   return contract;
 }
 
+function validatedInsightBrief(value: unknown, key: string) {
+  const brief = requiredObject(value, key);
+  requiredText(brief, "headline", 160);
+  requiredText(brief, "synthesis", 1200);
+  const groups: Array<[string, number, number, boolean]> = [
+    ["takeaways", 1, 5, false],
+    ["tensions", 0, 3, false],
+    ["implications", 0, 4, false],
+    ["questions", 0, 4, true],
+  ];
+  for (const [name, minimum, maximum, evidenceOptional] of groups) {
+    const items = boundedArrayValue(brief[name], `${key}.${name}`, maximum);
+    if (items.length < minimum)
+      throw new Error(`${key}.${name} must contain at least ${minimum} item.`);
+    for (const value of items) {
+      const item = requiredObject(value, `${key}.${name} item`);
+      requiredText(item, "statement", 500);
+      if (item.explanation !== undefined && item.explanation !== null)
+        requiredText(item, "explanation", 1200);
+      const evidence = boundedArrayValue(
+        item.evidence,
+        `${key}.${name}.evidence`,
+        6,
+      );
+      if (!evidenceOptional && evidence.length === 0)
+        throw new Error(`${key}.${name}.evidence must not be empty.`);
+      for (const reference of evidence)
+        requiredObject(reference, `${key}.${name}.evidence item`);
+    }
+  }
+  return brief;
+}
+
 function validatedKnowledgeMapPatch(value: unknown) {
   const patch = requiredObject(value, "knowledge_map_patch"),
     topics = boundedArrayValue(patch.topics, "topics", 50),
@@ -1160,12 +1267,34 @@ function validatedKnowledgeMapPatch(value: unknown) {
   for (const value of removals)
     if (typeof value !== "string" || !/^[0-9a-fA-F-]{36}$/.test(value))
       throw new Error("remove_placement_ids must contain UUID values.");
-  return {
+  const result: JsonObject = {
     expected_version: boundedInteger(patch.expected_version, 0),
     topics,
     placements,
     remove_placement_ids: removals,
   };
+  if (Object.prototype.hasOwnProperty.call(patch, "overview_brief"))
+    result.overview_brief =
+      patch.overview_brief === null
+        ? null
+        : validatedInsightBrief(patch.overview_brief, "overview_brief");
+  if (Object.prototype.hasOwnProperty.call(patch, "topic_briefs"))
+    result.topic_briefs = boundedArrayValue(
+      patch.topic_briefs,
+      "topic_briefs",
+      50,
+    ).map((value) => {
+      const item = requiredObject(value, "topic_briefs item");
+      requiredObject(item.topic, "topic_briefs topic");
+      return {
+        topic: item.topic,
+        brief:
+          item.brief === null
+            ? null
+            : validatedInsightBrief(item.brief, "topic_briefs brief"),
+      };
+    });
+  return result;
 }
 function validatedIngestInput(input: JsonObject) {
   const source = requiredObject(input.source, "source"),

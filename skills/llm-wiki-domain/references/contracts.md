@@ -20,6 +20,12 @@ A mapped non-source page has exactly one `primary` placement and at most two add
 
 Use `wiki_plan_knowledge_map` and `wiki_apply_knowledge_map` for a vault-wide restructuring. These use the same immutable hash, approval, optimistic concurrency, and retry-safe operation rules as ingest.
 
+## Insight briefs
+
+Explore topics is a reading surface, not a human placement editor. `overview_brief` describes the whole vault; each `topic_brief` describes one topic. A brief contains a headline, synthesis, one to five takeaways, optional tensions and implications, and optional questions. Every takeaway, tension, and implication cites one to six same-vault claims or pages. Evidence is expanded by the read tool with source titles, fragments, confidence, and current/expired/replaced/missing state.
+
+Brief fields are independent of structure fields: omission preserves the approved brief, `null` removes it, and an object is a complete replacement. The server records a basis hash from the relevant topic structure, placements, page versions, and active claims. Later changes return `stale` and an `insight_stale` diagnostic without overwriting the brief. Search first, reuse stable IDs, and refresh only through a reviewed `wiki_plan_ingest` or `wiki_plan_knowledge_map` followed by explicit approval and apply.
+
 ## Ingest plan
 
 The plan is immutable. `plan_hash` is computed from canonical server-side JSON. It expires and belongs to one actor and vault. Page updates contain captured `expected_version` values. Applying a different client reconstruction is not supported.
