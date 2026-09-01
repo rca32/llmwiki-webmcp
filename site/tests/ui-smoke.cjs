@@ -1232,7 +1232,10 @@ let activeBrowser;
     !requestPrompt.includes(created.page_id) ||
     !requestPrompt.includes(`version: ${currentVersion}`) ||
     !requestPrompt.includes("wiki_get_page") ||
-    !requestPrompt.includes("apply 승인을 포함") ||
+    !requestPrompt.includes("WebMCP 페이지:") ||
+    !requestPrompt.includes("Codex 데스크톱의 내장 브라우저") ||
+    !requestPrompt.includes("원격 MCP 서버가 아닙니다") ||
+    !requestPrompt.includes("명시적 요청") ||
     requestPrompt.includes(securityMarkdown)
   )
     throw new Error(

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import {
   buildPagePermalink,
+  buildWikiPermalink,
   readPagePermalink,
   type PagePermalinkTarget,
 } from "@/lib/page-sharing";
@@ -429,6 +430,18 @@ export default function Home() {
     if (nextView === "document") setTreeMode("files");
     if (nextView === "knowledge") setTreeMode("knowledge");
   }, []);
+  const clearPageSelection = useCallback(() => {
+    openPageRequestRef.current++;
+    desiredPageIdRef.current = null;
+    activeRef.current = null;
+    setActive(null);
+    setMarkdown("");
+    setRevisions([]);
+    setNeighbors([]);
+    setAttachments([]);
+    setPendingPageId(null);
+    pageDetailsCacheRef.current.clear();
+  }, []);
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("liminal-wiki:theme-v2");
     // Keep dark mode available, but use light as the deterministic default
@@ -641,12 +654,7 @@ export default function Home() {
           setGraph(null);
           setKnowledgeMap(EMPTY_KNOWLEDGE_MAP);
           setSelectedKnowledgeTopicId(null);
-          openPageRequestRef.current++;
-          desiredPageIdRef.current = null;
-          activeRef.current = null;
-          setActive(null);
-          setMarkdown("");
-          pageDetailsCacheRef.current.clear();
+          clearPageSelection();
         }
         setCurrentWiki(session.wiki);
         setIdentity(session.identity);
@@ -761,7 +769,7 @@ export default function Home() {
         }
       }
     },
-    [openPage, setStatus],
+    [clearPageSelection, openPage, setStatus],
   );
 
   useEffect(() => {
@@ -807,7 +815,15 @@ export default function Home() {
           "",
           buildPagePermalink(window.location.href, currentWiki.id, active.id),
         );
-    } else delete document.documentElement.dataset.pageId;
+    } else {
+      delete document.documentElement.dataset.pageId;
+      if (currentWiki)
+        window.history.replaceState(
+          null,
+          "",
+          buildWikiPermalink(window.location.href, currentWiki.id),
+        );
+    }
   }, [active, currentWiki]);
   useEffect(() => {
     if (currentWiki) document.documentElement.dataset.wikiId = currentWiki.id;
@@ -853,14 +869,9 @@ export default function Home() {
     try {
       setStatus("status.switchingWiki");
       graphRequestRef.current++;
-      openPageRequestRef.current++;
-      desiredPageIdRef.current = null;
-      activeRef.current = null;
-      setActive(null);
-      setMarkdown("");
+      clearPageSelection();
       setDeletedPages([]);
       setGraph(null);
-      pageDetailsCacheRef.current.clear();
       await api("/api/session/active-wiki", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -880,15 +891,10 @@ export default function Home() {
     try {
       setStatus("status.creatingWiki");
       graphRequestRef.current++;
-      openPageRequestRef.current++;
-      desiredPageIdRef.current = null;
-      activeRef.current = null;
-      setActive(null);
-      setMarkdown("");
+      clearPageSelection();
       setPages([]);
       setDeletedPages([]);
       setGraph(null);
-      pageDetailsCacheRef.current.clear();
       await api("/api/wikis", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1030,6 +1036,7 @@ export default function Home() {
       language,
       wiki: { id: currentWiki.id, title: currentWiki.title },
       scope,
+      webmcpPageUrl: buildWikiPermalink(window.location.href, currentWiki.id),
       page: {
         id: page.id,
         title: page.title,
@@ -1057,11 +1064,16 @@ export default function Home() {
       setNotice(writeModeReason || t("request.unavailable"));
       return;
     }
+    const webmcpPageUrl = buildWikiPermalink(
+      window.location.href,
+      currentWiki.id,
+    );
     const contexts: ChangeRequestState["contexts"] = {
       wiki: {
         language,
         wiki: { id: currentWiki.id, title: currentWiki.title },
         scope: "wiki",
+        webmcpPageUrl,
       },
     };
     const targetPage = options?.page ?? active;
@@ -1074,6 +1086,7 @@ export default function Home() {
         language,
         wiki: { id: currentWiki.id, title: currentWiki.title },
         scope: "topic",
+        webmcpPageUrl,
         topic: { id: topic.id, title: topic.title },
       };
     if (targetPage && options?.initialScope === "revision")
@@ -1102,38 +1115,42 @@ export default function Home() {
     try {
       await copyText(prompt);
       setNotice(t("request.copySuccess"));
+      return true;
     } catch (error) {
       setNotice(
         error instanceof Error
           ? error.message
           : "Codex 요청을 복사하지 못했습니다.",
       );
+      return false;
     }
   }
 
-  const linkedPages = useMemo(
-    () =>
-      neighbors
-        .map((item) =>
-          item.source_page_id === active?.id
-            ? {
-                id: item.target_page_id,
-                title: item.target_title ?? item.target_text,
-                direction: "out",
-              }
-            : {
-                id: item.source_page_id,
-                title: item.source_title ?? "연결된 페이지",
-                direction: "in",
-              },
-        )
-        .filter(
-          (item, index, items) =>
-            item.id &&
-            items.findIndex((candidate) => candidate.id === item.id) === index,
-        ),
-    [neighbors, active],
-  );
+  const linkedPages = useMemo(() => {
+    if (!active) return [];
+    return neighbors
+      .map((item) =>
+        item.source_page_id === active.id
+          ? {
+              id: item.target_page_id,
+              title: item.target_title ?? item.target_text,
+              direction: "out",
+            }
+          : {
+              id: item.source_page_id,
+              title: item.source_title ?? "연결된 페이지",
+              direction: "in",
+            },
+      )
+      .filter(
+        (item, index, items) =>
+          item.id &&
+          items.findIndex((candidate) => candidate.id === item.id) === index,
+      );
+  }, [neighbors, active]);
+
+  const visibleAttachments = active ? attachments : [];
+  const visibleRevisions = active ? revisions : [];
 
   const breadcrumbPages = useMemo(() => {
     if (!active) return [];
@@ -1762,13 +1779,14 @@ export default function Home() {
                       </span>
                       <b>
                         {
-                          attachments.filter((item) => item.status === "ready")
-                            .length
+                          visibleAttachments.filter(
+                            (item) => item.status === "ready",
+                          ).length
                         }
                       </b>
                     </div>
                     <div className="context-list">
-                      {attachments
+                      {visibleAttachments
                         .filter((attachment) => attachment.status === "ready")
                         .map((attachment) => (
                           <div key={attachment.id} className="attachment-row">
@@ -1787,7 +1805,7 @@ export default function Home() {
                             </span>
                           </div>
                         ))}
-                      {!attachments.some(
+                      {!visibleAttachments.some(
                         (attachment) => attachment.status === "ready",
                       ) && (
                         <p className="context-empty">
@@ -1802,10 +1820,10 @@ export default function Home() {
                       <span>
                         <Clock3 /> {t("page.versionHistory")}
                       </span>
-                      <b>{revisions.length}</b>
+                      <b>{visibleRevisions.length}</b>
                     </div>
                     <ol className="revision-list">
-                      {revisions.slice(0, 8).map((revision) => (
+                      {visibleRevisions.slice(0, 8).map((revision) => (
                         <li key={revision.version}>
                           <i />
                           <div>

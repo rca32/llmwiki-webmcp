@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { chromium } = require("playwright");
 const { existsSync, mkdirSync, rmSync, statSync } = require("node:fs");
+const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
 let activeBrowser;
@@ -148,22 +149,52 @@ let activeBrowser;
   await requestAction.click();
   const requestDialog = page.getByRole("dialog", { name: "위키 변경 요청" });
   await requestDialog.waitFor();
-  await requestDialog.getByRole("combobox").last().selectOption("move");
+  const initialSelect = requestDialog.getByRole("combobox").first();
+  await page.waitForFunction(
+    (element) => document.activeElement === element,
+    await initialSelect.elementHandle(),
+  );
+  const changeKindSelect = requestDialog.getByRole("combobox").last();
+  await changeKindSelect.focus();
+  await requestAction.evaluate((element) => element.click());
+  await page.waitForTimeout(100);
+  if (
+    !(await changeKindSelect.evaluate(
+      (element) => document.activeElement === element,
+    ))
+  )
+    throw new Error(
+      "A parent rerender moved focus away from the active request field.",
+    );
+  await changeKindSelect.selectOption("move");
   await requestDialog
     .getByRole("textbox")
     .fill("이 문서를 의사결정 폴더로 이동해 주세요.");
   await requestDialog.locator("summary").click();
   const movePrompt = await requestDialog.locator("pre").innerText();
+  const activeWikiId = new URL(page.url()).searchParams.get("wiki");
+  const webmcpPageLine = movePrompt
+    .split("\n")
+    .find((line) => line.startsWith("WebMCP 페이지:"));
   if (
     !movePrompt.includes(created.page_id) ||
     !movePrompt.includes(`version: ${updated.version}`) ||
     !movePrompt.includes("실제 폴더 위치만 변경") ||
-    !movePrompt.includes("wiki_get_neighbors")
+    !movePrompt.includes("wiki_get_neighbors") ||
+    !movePrompt.includes("Codex 데스크톱의 내장 브라우저") ||
+    !movePrompt.includes("원격 MCP 서버가 아닙니다") ||
+    !movePrompt.includes("wiki_get_context") ||
+    !movePrompt.includes("wiki_get_operating_contract") ||
+    !webmcpPageLine?.includes(`?wiki=${activeWikiId}`) ||
+    webmcpPageLine.includes("&page=")
   )
     throw new Error(
       "The page move request did not preserve its exact context.",
     );
-  await page.keyboard.press("Escape");
+  await requestDialog
+    .getByRole("button", { name: "요청 복사", exact: true })
+    .click();
+  await requestDialog.waitFor({ state: "detached" });
 
   const restoreRequest = page
     .getByRole("button", { name: "복원 요청" })
@@ -196,7 +227,7 @@ let activeBrowser;
   await page.locator("summary.topbar-icon-button").click();
   await page.getByRole("button", { name: "백업", exact: true }).click();
   await page.locator(".operations-stage").waitFor();
-  const artifactsDir = join(process.cwd(), "artifacts");
+  const artifactsDir = join(tmpdir(), "liminal-wiki-ui-tests");
   mkdirSync(artifactsDir, { recursive: true });
   const backupPath = join(artifactsDir, "ui-lifecycle-portable.zip");
   const backupAck = page.waitForResponse(

@@ -15,6 +15,7 @@ function context(language: Language): ChangeRequestContext {
     language,
     wiki: { id: "wiki-123", title: "Architecture Wiki" },
     scope: "page",
+    webmcpPageUrl: "https://wiki.test/?wiki=wiki-123",
     page: {
       id: "page-456",
       title: "Lakehouse decisions",
@@ -43,35 +44,87 @@ describe("change request prompts", () => {
       );
       expect(prompt).toContain("Clarify the trade-off.");
       expect(prompt).toMatch(/Authorization|승인|承認|授权/);
+      expect(prompt).toMatch(
+        /built-in browser|내장 브라우저|内蔵ブラウザ|内置浏览器/,
+      );
+      expect(prompt).toContain("https://wiki.test/?wiki=wiki-123");
+      expect(prompt).toContain("WebMCP");
+      expect(prompt).toMatch(
+        /not a remote MCP server|원격 MCP 서버가 아닙니다|リモート MCP サーバーではありません|不是远程 MCP 服务器/,
+      );
+      expect(prompt).toContain("DOM");
+      expect(prompt).toMatch(
+        /make no change|아무것도 변경하지 마세요|何も変更せず|不要更改任何内容/,
+      );
       expect(prompt).toContain("wiki_get_context");
       expect(prompt).toContain("wiki_get_operating_contract");
+      expect(prompt.indexOf("wiki_get_context")).toBeLessThan(
+        prompt.indexOf("wiki_get_operating_contract"),
+      );
     },
   );
 
-  it.each<ChangeRequestKind>([
-    "delete",
-    "move",
-    "restore_revision",
-    "restore_deleted",
-    "ingest_attachment",
-  ])("adds the operation-specific safeguard for %s", (kind) => {
-    const base = context("en");
-    const requestContext: ChangeRequestContext =
-      kind === "restore_revision"
-        ? { ...base, scope: "revision", restoreVersion: 3 }
-        : kind === "restore_deleted"
-          ? { ...base, scope: "deleted_page" }
-          : kind === "ingest_attachment"
-            ? { ...base, scope: "wiki", page: undefined }
-            : base;
-    const prompt = buildChangeRequestPrompt({
-      context: requestContext,
-      kind,
+  it.each<[ChangeRequestKind, string]>([
+    ["create", "wiki_plan_ingest"],
+    ["revise", "wiki_update_page"],
+    ["research", "wiki_apply_ingest"],
+    ["verify", "wiki_get_claims"],
+    ["move", "wiki_move_page"],
+    ["link", "wiki_link_pages"],
+    ["delete", "wiki_soft_delete_page"],
+    ["restore_revision", "wiki_restore_revision"],
+    ["restore_deleted", "wiki_restore_deleted_page"],
+    ["refresh_insights", "wiki_apply_knowledge_map"],
+    ["ingest_attachment", "wiki_plan_ingest"],
+    ["custom", "wiki_search"],
+  ])("adds the operation-specific workflow for %s", (kind, expectedTool) => {
+    for (const language of languages) {
+      const base = context(language);
+      const requestContext: ChangeRequestContext =
+        kind === "restore_revision"
+          ? { ...base, scope: "revision", restoreVersion: 3 }
+          : kind === "restore_deleted"
+            ? { ...base, scope: "deleted_page" }
+            : kind === "ingest_attachment"
+              ? { ...base, scope: "wiki", page: undefined }
+              : base;
+      const prompt = buildChangeRequestPrompt({
+        context: requestContext,
+        kind,
+      });
+      expect(prompt).toContain(expectedTool);
+      if (kind === "restore_revision") expect(prompt).toContain("v3");
+      if (kind === "delete")
+        expect(prompt).toContain("Confirmation: DELETE Lakehouse decisions");
+    }
+  });
+
+  it.each(["move", "link", "delete", "restore_revision", "restore_deleted"])(
+    "does not add plan workflows to the direct %s operation",
+    (kind) => {
+      const prompt = buildChangeRequestPrompt({
+        context: context("en"),
+        kind: kind as ChangeRequestKind,
+      });
+      expect(prompt).not.toContain("wiki_plan_ingest");
+      expect(prompt).not.toContain("wiki_plan_knowledge_map");
+      expect(prompt).not.toContain("wiki_apply_knowledge_map");
+    },
+  );
+
+  it("keeps ingest and knowledge-map plans in their own workflows", () => {
+    const research = buildChangeRequestPrompt({
+      context: context("en"),
+      kind: "research",
     });
-    expect(prompt).toMatch(
-      /Deletion rule|Move rule|Restore rule|Attachment rule/,
-    );
-    if (kind === "restore_revision") expect(prompt).toContain("v3");
+    const insights = buildChangeRequestPrompt({
+      context: context("en"),
+      kind: "refresh_insights",
+    });
+    expect(research).toContain("wiki_plan_ingest");
+    expect(research).not.toContain("wiki_plan_knowledge_map");
+    expect(insights).toContain("wiki_plan_knowledge_map");
+    expect(insights).not.toContain("wiki_plan_ingest");
   });
 
   it("does not copy page Markdown into the prompt", () => {
@@ -82,6 +135,7 @@ describe("change request prompts", () => {
     });
     expect(prompt).not.toContain("# Lakehouse decisions");
     expect(prompt).toContain("wiki_get_page");
+    expect(prompt).not.toContain("body_markdown");
   });
 
   it("limits request types by target scope", () => {

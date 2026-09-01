@@ -6,6 +6,14 @@ export type PagePermalinkTarget = {
   pageId: string;
 };
 
+export function buildWikiPermalink(currentUrl: string, wikiId: string) {
+  const url = new URL(currentUrl);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("wiki", wikiId);
+  return url.toString();
+}
+
 export function buildPagePermalink(
   currentUrl: string,
   wikiId: string,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCodexResearchPrompt,
   buildPagePermalink,
+  buildWikiPermalink,
   readPagePermalink,
 } from "./page-sharing";
 
@@ -29,6 +30,15 @@ describe("page sharing", () => {
     expect(
       readPagePermalink(`https://wiki.example.test/?wiki=${wikiId}`),
     ).toBeNull();
+  });
+
+  it("removes a stale page target when only a vault is selected", () => {
+    expect(
+      buildWikiPermalink(
+        `https://wiki.example.test/?wiki=old&page=${pageId}#stale`,
+        wikiId,
+      ),
+    ).toBe(`https://wiki.example.test/?wiki=${wikiId}`);
   });
 
   it("creates an honest Codex handoff prompt with provenance guidance", () => {

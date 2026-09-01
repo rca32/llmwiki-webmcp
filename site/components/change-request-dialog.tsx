@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Copy, X } from "lucide-react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { Bot, ChevronDown, Copy, X } from "lucide-react";
 
 import { useI18n } from "@/components/i18n-provider";
 import {
@@ -26,7 +26,7 @@ export function ChangeRequestDialog({
   initialKind?: ChangeRequestKind;
   initialDetails?: string;
   onClose: () => void;
-  onCopy: (prompt: string) => Promise<void>;
+  onCopy: (prompt: string) => Promise<boolean>;
 }) {
   const { language, t } = useI18n();
   const availableScopes = useMemo(
@@ -44,19 +44,21 @@ export function ChangeRequestDialog({
     initialKind && kinds.includes(initialKind) ? initialKind : kinds[0],
   );
   const [details, setDetails] = useState(initialDetails);
-  const [copied, setCopied] = useState(false);
   const previousFocus = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
+  const closeDialog = useEffectEvent(onClose);
 
   useEffect(() => {
     previousFocus.current = document.activeElement as HTMLElement | null;
     const frame = window.requestAnimationFrame(() =>
       dialogRef.current
-        ?.querySelector<HTMLElement>("select, textarea, button")
+        ?.querySelector<HTMLElement>(
+          ".change-request-fields select, .change-request-fields textarea",
+        )
         ?.focus(),
     );
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") closeDialog();
       if (event.key !== "Tab" || !dialogRef.current) return;
       const focusable = Array.from(
         dialogRef.current.querySelectorAll<HTMLElement>(
@@ -80,7 +82,7 @@ export function ChangeRequestDialog({
       window.cancelAnimationFrame(frame);
       previousFocus.current?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   const context = contexts[scope]!;
   const prompt = buildChangeRequestPrompt({
@@ -90,9 +92,7 @@ export function ChangeRequestDialog({
   });
 
   async function copyRequest() {
-    await onCopy(prompt);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    if (await onCopy(prompt)) onClose();
   }
 
   return (
@@ -222,12 +222,8 @@ export function ChangeRequestDialog({
               className="primary"
               onClick={() => void copyRequest()}
             >
-              {copied ? (
-                <Check aria-hidden="true" />
-              ) : (
-                <Copy aria-hidden="true" />
-              )}
-              {copied ? t("request.copied") : t("request.copy")}
+              <Copy aria-hidden="true" />
+              {t("request.copy")}
             </button>
           </div>
         </footer>
