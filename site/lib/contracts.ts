@@ -30,6 +30,7 @@ export type Capabilities = {
   can_restore: boolean;
   can_manage_attachments: boolean;
   can_soft_delete: boolean;
+  can_empty_trash: boolean;
   can_manage_members: boolean;
   can_full_backup: boolean;
   can_import: boolean;
@@ -41,6 +42,9 @@ export type ChangeSet = {
   search_changed: boolean;
   graph_changed: boolean;
   knowledge_changed: boolean;
+  attachments_changed?: string[];
+  deleted_pages_changed?: boolean;
+  session_changed?: boolean;
 };
 export type SuccessEnvelope<T> = {
   ok: true;
@@ -79,6 +83,7 @@ export type WikiPage = {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 };
 export class AppError extends Error {
   constructor(
@@ -100,6 +105,7 @@ export const READ_CAPABILITIES: Capabilities = {
   can_restore: false,
   can_manage_attachments: false,
   can_soft_delete: false,
+  can_empty_trash: false,
   can_manage_members: false,
   can_full_backup: false,
   can_import: false,
@@ -128,6 +134,7 @@ export function capabilitiesFor(
       ? {
           ...editor,
           can_create_wiki: true,
+          can_empty_trash: true,
           can_manage_members: true,
           can_full_backup: true,
           can_import: true,
@@ -142,6 +149,7 @@ export function capabilitiesFor(
         can_restore: false,
         can_manage_attachments: false,
         can_soft_delete: false,
+        can_empty_trash: false,
         can_import: false,
       }
     : capabilities;

@@ -25,5 +25,7 @@ export const WEBMCP_TOOL_NAMES = [
   "wiki_restore_revision",
   "wiki_soft_delete_page",
   "wiki_restore_deleted_page",
+  "wiki_get_trash",
+  "wiki_empty_trash",
   "wiki_create_vault",
 ] as const;

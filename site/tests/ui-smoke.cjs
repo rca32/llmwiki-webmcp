@@ -19,21 +19,24 @@ let activeBrowser;
   await context.addInitScript(() => {
     window.localStorage.setItem("liminal-wiki:language", "ko");
   });
-  const page = await context.newPage();
+  let page = await context.newPage();
   const baseUrl = process.env.WIKI_URL || "http://127.0.0.1:3000";
   const errors = [];
-  page.on("console", (message) => {
-    if (
-      message.type() === "error" &&
-      !message.text().startsWith("Failed to load resource:")
-    )
-      errors.push(message.text());
-  });
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("response", (response) => {
-    if (response.status() >= 400 && !response.url().endsWith("/favicon.ico"))
-      errors.push(`HTTP ${response.status()} ${response.url()}`);
-  });
+  const monitorPage = (target) => {
+    target.on("console", (message) => {
+      if (
+        message.type() === "error" &&
+        !message.text().startsWith("Failed to load resource:")
+      )
+        errors.push(message.text());
+    });
+    target.on("pageerror", (error) => errors.push(error.message));
+    target.on("response", (response) => {
+      if (response.status() >= 400 && !response.url().endsWith("/favicon.ico"))
+        errors.push(`HTTP ${response.status()} ${response.url()}`);
+    });
+  };
+  monitorPage(page);
 
   const hardenedResponse = await context.request.get(baseUrl);
   const hardenedHeaders = hardenedResponse.headers();
@@ -85,7 +88,7 @@ let activeBrowser;
     releaseStartupList = resolve;
   });
   await startupRacePage.route(
-    "**/api/pages?depth=64&limit=200&include_markdown=true",
+    "**/api/pages?depth=64&limit=200&include_markdown=false",
     async (route) => {
       await startupListReleased;
       await route.continue();
@@ -104,7 +107,7 @@ let activeBrowser;
   const startupListCompleted = startupRacePage.waitForResponse(
     (response) =>
       response.url() ===
-        `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=true` &&
+        `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=false` &&
       response.ok(),
   );
   releaseStartupList();
@@ -194,7 +197,7 @@ let activeBrowser;
       "The ChatGPT sign-out control is not top-level navigation.",
     );
   await profileButton.click();
-  const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=true`;
+  const workspaceListUrl = `${baseUrl}/api/pages?depth=64&limit=200&include_markdown=false`;
   const workspaceListEnvelope = await context.request
     .get(workspaceListUrl)
     .then((response) => response.json());
@@ -204,67 +207,39 @@ let activeBrowser;
   const insightEvidencePage =
     baselinePages.find((page) => page.page_type !== "folder") ??
     baselinePages[0];
-  const newestPage = {
-    ...baselinePages[0],
-    id: crypto.randomUUID(),
-    slug: "newest-workspace-response",
-    path: "/newest-workspace-response",
-    title: "NEWEST_WORKSPACE_RESPONSE",
-    page_type: "note",
-    parent_id: null,
+  const lifecycleRequests = [];
+  const recordLifecycleRequest = (request) =>
+    lifecycleRequests.push(request.url());
+  page.on("request", recordLifecycleRequest);
+  let summaryRefreshCalls = 0;
+  const countSummaryRefresh = (request) => {
+    if (request.url() === workspaceListUrl) summaryRefreshCalls += 1;
   };
-  let workspaceListCalls = 0;
-  let firstWorkspaceListRequested;
-  const firstWorkspaceListRequest = new Promise((resolve) => {
-    firstWorkspaceListRequested = resolve;
+  page.on("request", countSummaryRefresh);
+  const stableWorkspaceUrl = page.url();
+  const burstRefreshed = page.waitForResponse(
+    (response) => response.url() === workspaceListUrl && response.ok(),
+  );
+  await page.evaluate(() => {
+    const detail = {
+      pages_changed: [],
+      tree_changed: true,
+      links_changed: false,
+      search_changed: false,
+      graph_changed: false,
+      knowledge_changed: false,
+    };
+    window.dispatchEvent(new CustomEvent("wiki:changed", { detail }));
+    window.dispatchEvent(new CustomEvent("wiki:changed", { detail }));
   });
-  const workspaceRaceHandler = async (route) => {
-    workspaceListCalls += 1;
-    if (workspaceListCalls === 1) {
-      firstWorkspaceListRequested();
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(workspaceListEnvelope),
-      });
-      return;
-    }
-    if (workspaceListCalls === 2) {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          ...workspaceListEnvelope,
-          data: {
-            ...workspaceListEnvelope.data,
-            pages: [...baselinePages, newestPage],
-          },
-        }),
-      });
-      return;
-    }
-    await route.continue();
-  };
-  await page.route(workspaceListUrl, workspaceRaceHandler);
-  await page.evaluate(() => window.dispatchEvent(new Event("wiki:changed")));
-  await firstWorkspaceListRequest;
-  await page.evaluate(() => window.dispatchEvent(new Event("wiki:changed")));
-  const secondWorkspaceDeadline = Date.now() + 10_000;
-  while (workspaceListCalls < 2 && Date.now() < secondWorkspaceDeadline)
-    await page.waitForTimeout(25);
-  if (workspaceListCalls < 2)
-    throw new Error("The newer workspace refresh did not start.");
-  const newestWorkspaceRow = page
-    .locator(".tree-page-row")
-    .filter({ hasText: "NEWEST_WORKSPACE_RESPONSE" });
-  await newestWorkspaceRow.waitFor();
-  await page.waitForTimeout(900);
-  if ((await newestWorkspaceRow.count()) !== 1)
+  await burstRefreshed;
+  await page.waitForTimeout(150);
+  if (summaryRefreshCalls !== 1)
     throw new Error(
-      "An older workspace response replaced the newest page list.",
+      `Burst workspace changes were not coalesced (${summaryRefreshCalls}).`,
     );
-  await page.unroute(workspaceListUrl, workspaceRaceHandler);
+  if (page.url() !== stableWorkspaceUrl)
+    throw new Error("Background workspace hydration changed the page URL.");
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reducedMotionDuration = await page
     .locator(".sidebar-icon-button")
@@ -278,12 +253,28 @@ let activeBrowser;
       `Reduced-motion preference did not collapse animation duration (${reducedMotionDuration}).`,
     );
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  const workspaceRestored = page.waitForResponse(
-    (response) => response.url() === workspaceListUrl && response.ok(),
+  await page.waitForTimeout(5_100);
+  lifecycleRequests.length = 0;
+  const focusSynced = page.waitForResponse(
+    (response) => response.url().includes("/api/sync") && response.ok(),
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await workspaceRestored;
-  await newestWorkspaceRow.waitFor({ state: "detached" });
+  await focusSynced;
+  await page.waitForTimeout(100);
+  if (
+    lifecycleRequests.some(
+      (url) =>
+        url.includes("/api/session/capabilities") ||
+        url.includes("/api/wikis") ||
+        url.includes("/api/knowledge-map") ||
+        url.includes("/api/pages?"),
+    )
+  )
+    throw new Error("Focus synchronization triggered a full workspace reload.");
+  if (page.url() !== stableWorkspaceUrl)
+    throw new Error("Focus synchronization changed the page URL.");
+  page.off("request", recordLifecycleRequest);
+  page.off("request", countSummaryRefresh);
   const roleStamp = Date.now();
   const editorEmail = `editor-${roleStamp}@sites.test`;
   const viewerEmail = `viewer-${roleStamp}@sites.test`;
@@ -351,6 +342,11 @@ let activeBrowser;
     );
     if (deniedReadOnlyWrite.status() !== 403)
       throw new Error("Read-only mode did not block direct API execution.");
+    const deniedReadOnlyTrash = await context.request.get(
+      `${baseUrl}/api/trash`,
+    );
+    if (deniedReadOnlyTrash.status() !== 403)
+      throw new Error("Read-only mode did not block trash administration.");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByText("읽기 전용", { exact: true }).waitFor();
     if ((await page.getByRole("button", { name: "새 항목" }).count()) !== 0)
@@ -396,6 +392,11 @@ let activeBrowser;
   );
   if (deniedFullBackup.status() !== 403)
     throw new Error("Editor full backup was not denied.");
+  const deniedEditorTrash = await editorContext.request.get(
+    `${baseUrl}/api/trash`,
+  );
+  if (deniedEditorTrash.status() !== 403)
+    throw new Error("Editor trash administration was not denied.");
   const ownerIsolationSession = await context.request
     .get(`${baseUrl}/api/session/capabilities`)
     .then((response) => response.json());
@@ -449,6 +450,391 @@ let activeBrowser;
   if (lifecycleCreate.status() !== 201)
     throw new Error("Could not create the wiki lifecycle fixture.");
   const lifecycleWiki = (await lifecycleCreate.json()).data.wiki;
+  const emptyTrashSummary = await context.request
+    .get(`${baseUrl}/api/trash`)
+    .then((response) => response.json());
+  if (
+    emptyTrashSummary.data.deleted_page_count !== 0 ||
+    emptyTrashSummary.data.trash_token !== null ||
+    emptyTrashSummary.data.confirmation_phrase !==
+      `EMPTY TRASH ${lifecycleTitle}`
+  )
+    throw new Error("An empty owner trash summary was incorrect.");
+  const rejectedEmptyTrash = await context.request.delete(
+    `${baseUrl}/api/trash`,
+    {
+      data: {
+        trash_token: "a".repeat(64),
+        confirmation: `EMPTY TRASH ${lifecycleTitle}`,
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (rejectedEmptyTrash.status() !== 409)
+    throw new Error("An already-empty trash was not rejected.");
+
+  const trashStamp = crypto.randomUUID().slice(0, 8),
+    trashTargetTitle = `Permanent trash target ${trashStamp}`,
+    trashTargetCreate = await context.request.post(`${baseUrl}/api/pages`, {
+      data: {
+        title: trashTargetTitle,
+        page_type: "note",
+        markdown: `# ${trashTargetTitle}\n\nInitial trash fixture.`,
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    }),
+    trashTarget = (await trashTargetCreate.json()).data,
+    trashTargetUpdate = await context.request.patch(
+      `${baseUrl}/api/pages/${trashTarget.page_id}`,
+      {
+        data: {
+          expected_version: trashTarget.version,
+          markdown: `# ${trashTargetTitle}\n\nUpdated trash fixture.`,
+          change_summary: "Trash integration revision",
+          operation_id: crypto.randomUUID(),
+        },
+      },
+    ),
+    updatedTrashTarget = (await trashTargetUpdate.json()).data,
+    trashSourceTitle = `Permanent trash source ${trashStamp}`,
+    trashSourceCreate = await context.request.post(`${baseUrl}/api/pages`, {
+      data: {
+        title: trashSourceTitle,
+        page_type: "note",
+        markdown: `# ${trashSourceTitle}\n\n[[${trashTargetTitle}]]`,
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    }),
+    trashSource = (await trashSourceCreate.json()).data,
+    trashAttachmentBytes = Buffer.from("trash-attachment-fixture", "utf8"),
+    trashAttachmentUpload = await context.request.post(
+      `${baseUrl}/api/attachments`,
+      {
+        multipart: {
+          page_id: trashTarget.page_id,
+          operation_id: crypto.randomUUID(),
+          file: {
+            name: "trash-fixture.txt",
+            mimeType: "text/plain",
+            buffer: trashAttachmentBytes,
+          },
+        },
+      },
+    );
+  if (
+    trashTargetCreate.status() !== 201 ||
+    !trashTargetUpdate.ok() ||
+    trashSourceCreate.status() !== 201 ||
+    trashAttachmentUpload.status() !== 201
+  )
+    throw new Error("Could not prepare the isolated trash fixture.");
+  const trashIngestPlanResponse = await context.request.post(
+      `${baseUrl}/api/ingest/plans`,
+      {
+        data: {
+          source: {
+            title: `Trash evidence ${trashStamp}`,
+            markdown: `# Trash evidence ${trashStamp}\n\nGrounding fixture.`,
+            parent_id: null,
+            source_url: `https://example.com/trash-fixture/${trashStamp}`,
+            retrieval_status: "success",
+            retrieved_at: new Date().toISOString(),
+            extraction_method: "direct-html",
+            confidence: 0.95,
+          },
+          pages: [],
+          claims: [
+            {
+              subject: { page_id: trashTarget.page_id },
+              predicate: "has fixture status",
+              object: { value: "temporary" },
+              evidence_fragment: "Grounding fixture evidence.",
+              confidence: 0.95,
+            },
+          ],
+          knowledge_map_patch: {
+            expected_version: 0,
+            topics: [
+              {
+                client_key: "trash-fixture",
+                topic_id: null,
+                parent: null,
+                title: `Trash fixture ${trashStamp}`,
+                summary: "Isolated permanent deletion coverage.",
+                presentation: "cluster",
+                sort_order: 0,
+              },
+            ],
+            placements: [
+              {
+                placement_id: null,
+                topic: { client_key: "trash-fixture" },
+                page: { page_id: trashTarget.page_id },
+                role: "primary",
+                summary: "Temporary placement for purge coverage.",
+                sort_order: 0,
+              },
+            ],
+            remove_placement_ids: [],
+          },
+        },
+      },
+    ),
+    trashIngestPlan = (await trashIngestPlanResponse.json()).data,
+    trashIngestApply = await context.request.post(
+      `${baseUrl}/api/ingest/plans/${trashIngestPlan.plan_id}/apply`,
+      {
+        data: {
+          plan_hash: trashIngestPlan.plan_hash,
+          approved: true,
+          operation_id: crypto.randomUUID(),
+        },
+      },
+    );
+  if (!trashIngestPlanResponse.ok() || !trashIngestApply.ok())
+    throw new Error("Could not prepare trash claim and placement fixtures.");
+  const purgedClaimList = await context.request
+      .get(
+        `${baseUrl}/api/claims?subject_page_id=${trashTarget.page_id}&limit=20`,
+      )
+      .then((response) => response.json()),
+    purgedClaimId = purgedClaimList.data.claims[0]?.id,
+    survivorClaimPlanResponse = await context.request.post(
+      `${baseUrl}/api/ingest/plans`,
+      {
+        data: {
+          source: {
+            title: `Trash successor evidence ${trashStamp}`,
+            markdown: `# Trash successor evidence ${trashStamp}\n\nSurviving claim fixture.`,
+            parent_id: null,
+            source_url: `https://example.com/trash-successor/${trashStamp}`,
+            retrieval_status: "success",
+            retrieved_at: new Date().toISOString(),
+            extraction_method: "direct-html",
+            confidence: 0.95,
+          },
+          pages: [],
+          claims: [
+            {
+              subject: { page_id: trashSource.page_id },
+              predicate: "has surviving status",
+              object: { value: "retained" },
+              evidence_fragment: "Surviving supersession fixture evidence.",
+              confidence: 0.95,
+              supersedes_claim_id: purgedClaimId,
+            },
+          ],
+        },
+      },
+    ),
+    survivorClaimPlan = (await survivorClaimPlanResponse.json()).data,
+    survivorClaimApply = await context.request.post(
+      `${baseUrl}/api/ingest/plans/${survivorClaimPlan.plan_id}/apply`,
+      {
+        data: {
+          plan_hash: survivorClaimPlan.plan_hash,
+          approved: true,
+          operation_id: crypto.randomUUID(),
+        },
+      },
+    );
+  if (
+    !purgedClaimId ||
+    !survivorClaimPlanResponse.ok() ||
+    !survivorClaimApply.ok()
+  )
+    throw new Error("Could not prepare the surviving supersession fixture.");
+  const trashTargetDelete = await context.request.delete(
+    `${baseUrl}/api/pages/${trashTarget.page_id}`,
+    {
+      data: {
+        expected_version: updatedTrashTarget.version,
+        confirmation: `DELETE ${trashTargetTitle}`,
+        reason: "Trash integration fixture",
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (!trashTargetDelete.ok())
+    throw new Error("Could not soft-delete the isolated trash fixture.");
+  const deletedMetadataResponse = await context.request.get(
+      `${baseUrl}/api/pages?deleted=only&depth=64&limit=200&include_markdown=false`,
+    ),
+    deletedMetadata = (await deletedMetadataResponse.json()).data;
+  if (
+    !deletedMetadataResponse.ok() ||
+    deletedMetadata.total !== 1 ||
+    deletedMetadata.include_markdown !== false ||
+    deletedMetadata.pages.some((item) => "markdown" in item)
+  )
+    throw new Error("Deleted-page metadata listing leaked Markdown or totals.");
+  const trashSummaryResponse = await context.request.get(
+      `${baseUrl}/api/trash`,
+    ),
+    trashSummary = (await trashSummaryResponse.json()).data;
+  if (
+    !trashSummaryResponse.ok() ||
+    trashSummary.deleted_page_count !== 1 ||
+    trashSummary.revision_count < 3 ||
+    trashSummary.claim_count !== 1 ||
+    trashSummary.placement_count !== 1 ||
+    trashSummary.attachment_count !== 1 ||
+    trashSummary.estimated_bytes < trashAttachmentBytes.byteLength ||
+    typeof trashSummary.trash_token !== "string"
+  )
+    throw new Error("Trash impact summary did not include the fixture scope.");
+  const wrongTrashConfirmation = await context.request.delete(
+    `${baseUrl}/api/trash`,
+    {
+      data: {
+        trash_token: trashSummary.trash_token,
+        confirmation: "EMPTY TRASH wrong wiki",
+        operation_id: crypto.randomUUID(),
+      },
+    },
+  );
+  if (wrongTrashConfirmation.status() !== 400)
+    throw new Error("Trash emptying accepted an incorrect phrase.");
+  const staleTrashToken = await context.request.delete(`${baseUrl}/api/trash`, {
+    data: {
+      trash_token: `${trashSummary.trash_token.slice(0, 63)}${
+        trashSummary.trash_token.endsWith("0") ? "1" : "0"
+      }`,
+      confirmation: trashSummary.confirmation_phrase,
+      operation_id: crypto.randomUUID(),
+    },
+  });
+  if (staleTrashToken.status() !== 409)
+    throw new Error("Trash emptying accepted a stale token.");
+  const emptyTrashOperationId = crypto.randomUUID(),
+    emptyTrashRequest = {
+      data: {
+        trash_token: trashSummary.trash_token,
+        confirmation: trashSummary.confirmation_phrase,
+        operation_id: emptyTrashOperationId,
+      },
+    },
+    emptyTrashResponse = await context.request.delete(
+      `${baseUrl}/api/trash`,
+      emptyTrashRequest,
+    ),
+    emptyTrashResult = (await emptyTrashResponse.json()).data;
+  if (
+    !emptyTrashResponse.ok() ||
+    emptyTrashResult.purged_page_count !== 1 ||
+    emptyTrashResult.purged_revision_count < 3 ||
+    emptyTrashResult.purged_claim_count !== 1 ||
+    emptyTrashResult.purged_placement_count !== 1 ||
+    emptyTrashResult.purged_attachment_count !== 1 ||
+    emptyTrashResult.storage_cleanup_pending !== 0 ||
+    !emptyTrashResult.change_set.deleted_pages_changed
+  )
+    throw new Error("Trash emptying did not report the committed purge.");
+  const emptyTrashReplay = await context.request.delete(
+    `${baseUrl}/api/trash`,
+    emptyTrashRequest,
+  );
+  if (
+    !emptyTrashReplay.ok() ||
+    JSON.stringify((await emptyTrashReplay.json()).data) !==
+      JSON.stringify(emptyTrashResult)
+  )
+    throw new Error("Trash emptying idempotency replay changed the result.");
+  const purgedTargetRead = await context.request.get(
+      `${baseUrl}/api/pages/${trashTarget.page_id}`,
+    ),
+    survivingSourceRead = await context.request.get(
+      `${baseUrl}/api/pages/${trashSource.page_id}`,
+    ),
+    survivingSourceNeighbors = await context.request
+      .get(
+        `${baseUrl}/api/pages/${trashSource.page_id}/neighbors?depth=1&limit=20`,
+      )
+      .then((response) => response.json()),
+    survivingClaims = await context.request
+      .get(
+        `${baseUrl}/api/claims?subject_page_id=${trashSource.page_id}&limit=20`,
+      )
+      .then((response) => response.json()),
+    finalTrashSummary = await context.request
+      .get(`${baseUrl}/api/trash`)
+      .then((response) => response.json());
+  if (
+    purgedTargetRead.status() !== 404 ||
+    !survivingSourceRead.ok() ||
+    finalTrashSummary.data.deleted_page_count !== 0 ||
+    survivingClaims.data.claims.length !== 1 ||
+    survivingClaims.data.claims[0].supersedes_claim_id !== null ||
+    !survivingSourceNeighbors.data.neighbors.some(
+      (neighbor) =>
+        neighbor.source_page_id === trashSource.page_id &&
+        neighbor.target_page_id === null &&
+        neighbor.target_text === trashTargetTitle,
+    )
+  )
+    throw new Error(
+      "Trash cascade or surviving unresolved link was incorrect.",
+    );
+  const uiTrashTitle = `UI trash fixture ${trashStamp}`,
+    uiTrashCreate = await context.request.post(`${baseUrl}/api/pages`, {
+      data: {
+        title: uiTrashTitle,
+        page_type: "note",
+        markdown: `# ${uiTrashTitle}\n\nOwner-only UI fixture.`,
+        parent_id: null,
+        operation_id: crypto.randomUUID(),
+      },
+    }),
+    uiTrashPage = (await uiTrashCreate.json()).data,
+    uiTrashDelete = await context.request.delete(
+      `${baseUrl}/api/pages/${uiTrashPage.page_id}`,
+      {
+        data: {
+          expected_version: uiTrashPage.version,
+          confirmation: `DELETE ${uiTrashTitle}`,
+          reason: "Trash UI fixture",
+          operation_id: crypto.randomUUID(),
+        },
+      },
+    );
+  if (uiTrashCreate.status() !== 201 || !uiTrashDelete.ok())
+    throw new Error("Could not prepare the trash UI fixture.");
+  await page.goto(`${baseUrl}/?wiki=${lifecycleWiki.id}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.locator(".knowledge-tree-shell").waitFor();
+  const emptyTrashUiButton = page.getByRole("button", {
+    name: "휴지통의 페이지 1개 영구 삭제",
+  });
+  await emptyTrashUiButton.waitFor();
+  const trashUiUrl = page.url();
+  await emptyTrashUiButton.click();
+  const trashUiDialog = page.getByRole("dialog", {
+    name: "휴지통을 영구적으로 비울까요?",
+  });
+  await trashUiDialog.waitFor();
+  const trashUiConfirm = trashUiDialog.getByRole("button", {
+    name: "휴지통 비우기",
+  });
+  if (!(await trashUiConfirm.isDisabled()))
+    throw new Error("Trash UI enabled permanent deletion before confirmation.");
+  await trashUiDialog
+    .getByPlaceholder(`EMPTY TRASH ${lifecycleTitle}`)
+    .fill(`EMPTY TRASH ${lifecycleTitle}`);
+  if (await trashUiConfirm.isDisabled())
+    throw new Error("Trash UI did not accept the exact confirmation phrase.");
+  await trashUiConfirm.click();
+  await trashUiDialog.waitFor({ state: "detached" });
+  if (page.url() !== trashUiUrl)
+    throw new Error("Emptying trash changed the current Wiki or page URL.");
+  const uiTrashFinalSummary = await context.request
+    .get(`${baseUrl}/api/trash`)
+    .then((response) => response.json());
+  if (uiTrashFinalSummary.data.deleted_page_count !== 0)
+    throw new Error("Trash UI did not clear its isolated fixture.");
+  await page.close();
   const rejectedWithoutBackup = await context.request.delete(
     `${baseUrl}/api/wikis/${lifecycleWiki.id}`,
     {
@@ -510,6 +896,12 @@ let activeBrowser;
     lifecycleCleanupResult.data.next_wiki_id
   )
     throw new Error("Wiki deletion did not switch back to an active wiki.");
+  page = await context.newPage();
+  monitorPage(page);
+  await page.goto(`${baseUrl}/?wiki=${restoredOwnerSession.data.wiki.id}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.locator(".knowledge-tree-shell").waitFor();
   const telemetryCorrelation = `ui-smoke-${roleStamp}`;
   const telemetryRecord = await viewerContext.request.post(
     `${baseUrl}/api/telemetry/webmcp`,
@@ -1614,12 +2006,8 @@ let activeBrowser;
     .locator(".graph-accessible-node")
     .first()
     .waitFor({ state: "attached" });
-  const graphFocusRefresh = page.waitForResponse(
-    (response) =>
-      response.url().includes("/api/session/capabilities") && response.ok(),
-  );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await graphFocusRefresh;
+  await page.waitForTimeout(150);
   await page.locator(".graph-view").waitFor();
   const graphAccessibility = await new AxeBuilder({ page }).analyze();
 
@@ -1661,12 +2049,8 @@ let activeBrowser;
   const auditEventCount = await page.locator(".audit-list article").count();
   if (auditEventCount < 1)
     throw new Error("The operations view did not render the audit trail.");
-  const operationsFocusRefresh = page.waitForResponse(
-    (response) =>
-      response.url().includes("/api/session/capabilities") && response.ok(),
-  );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await operationsFocusRefresh;
+  await page.waitForTimeout(150);
   await page.locator(".operations-stage").waitFor();
   const operationsAccessibility = await new AxeBuilder({ page }).analyze();
 

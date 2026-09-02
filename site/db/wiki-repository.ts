@@ -26,6 +26,10 @@ import {
 import { safeOperationalErrorTag } from "../lib/security-policy";
 import { assertActiveAttachmentCapacity } from "../lib/storage-quota";
 import { idempotencyDisposition } from "../lib/idempotency-policy";
+import type {
+  WorkspaceSyncCursor,
+  WorkspaceSyncEvent,
+} from "../lib/workspace-sync";
 import {
   isLegacyPublicDemoSlug,
   personalWikiIdentifiers,
@@ -673,6 +677,43 @@ export async function listAuditEvents(wikiId: string, limit: number) {
   }));
 }
 
+export async function getLatestWorkspaceSyncCursor(
+  wikiId: string,
+): Promise<WorkspaceSyncCursor | null> {
+  await ensureWikiSchema();
+  const row = await db()
+    .prepare(
+      `SELECT id,created_at FROM audit_events WHERE wiki_id=? AND outcome='success' ORDER BY created_at DESC,id DESC LIMIT 1`,
+    )
+    .bind(wikiId)
+    .first<WorkspaceSyncCursor>();
+  return row ?? null;
+}
+
+export async function listWorkspaceSyncEvents(input: {
+  wikiId: string;
+  cursor: WorkspaceSyncCursor;
+  limit: number;
+}): Promise<{ events: WorkspaceSyncEvent[]; hasMore: boolean }> {
+  await ensureWikiSchema();
+  const result = await db()
+    .prepare(
+      `SELECT e.id,e.action,e.target_type,e.target_id,e.metadata_json,e.created_at,a.page_id AS attachment_page_id FROM audit_events e LEFT JOIN attachments a ON e.target_type='attachment' AND a.id=e.target_id AND a.wiki_id=e.wiki_id WHERE e.wiki_id=? AND e.outcome='success' AND (e.created_at>? OR (e.created_at=? AND e.id>?)) ORDER BY e.created_at ASC,e.id ASC LIMIT ?`,
+    )
+    .bind(
+      input.wikiId,
+      input.cursor.created_at,
+      input.cursor.created_at,
+      input.cursor.id,
+      input.limit + 1,
+    )
+    .all<WorkspaceSyncEvent>();
+  return {
+    events: result.results.slice(0, input.limit),
+    hasMore: result.results.length > input.limit,
+  };
+}
+
 async function ensureWebMcpTelemetrySchema() {
   telemetrySchemaReady ??= (async () => {
     const d = db();
@@ -1265,6 +1306,146 @@ export async function listDeletedPages(wikiId: string, limit = 100) {
     .bind(wikiId, limit)
     .all<PageRow>();
   return Promise.all(result.results.map(mapPage));
+}
+
+export async function countDeletedPages(wikiId: string) {
+  const row = await db()
+    .prepare(
+      `SELECT COUNT(*) AS total FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL`,
+    )
+    .bind(wikiId)
+    .first<{ total: number }>();
+  return Number(row?.total ?? 0);
+}
+
+type TrashPageSnapshot = {
+  id: string;
+  version: number;
+  deleted_at: string;
+};
+
+export type TrashSummary = {
+  wiki_id: string;
+  deleted_page_count: number;
+  revision_count: number;
+  claim_count: number;
+  placement_count: number;
+  attachment_count: number;
+  estimated_bytes: number;
+  trash_token: string | null;
+  confirmation_phrase: string;
+};
+
+async function readTrashSnapshot(wikiId: string) {
+  const rows = await db()
+    .prepare(
+      `SELECT id,version,deleted_at FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL ORDER BY id`,
+    )
+    .bind(wikiId)
+    .all<TrashPageSnapshot>();
+  return rows.results;
+}
+
+function trashSnapshotGuard(rows: TrashPageSnapshot[]) {
+  return rows
+    .map((row) => `${row.id}:${row.version}:${row.deleted_at}`)
+    .join("|");
+}
+
+async function trashToken(wikiId: string, rows: TrashPageSnapshot[]) {
+  if (rows.length === 0) return null;
+  return sha256(
+    stableJson({
+      wiki_id: wikiId,
+      pages: rows.map((row) => ({
+        id: row.id,
+        version: row.version,
+        deleted_at: row.deleted_at,
+      })),
+    }),
+  );
+}
+
+export async function getTrashSummary(wikiId: string): Promise<TrashSummary> {
+  const d = db(),
+    [wiki, pages, revisionStats, claimStats, placementStats, attachmentStats] =
+      await Promise.all([
+        d
+          .prepare(
+            `SELECT title FROM wikis WHERE id=? AND status='active' AND deleted_at IS NULL`,
+          )
+          .bind(wikiId)
+          .first<{ title: string }>(),
+        readTrashSnapshot(wikiId),
+        d
+          .prepare(
+            `SELECT COUNT(*) AS count,COALESCE(SUM(LENGTH(CAST(r.snapshot_inline AS BLOB))),0) AS inline_bytes FROM page_revisions r JOIN pages p ON p.id=r.page_id WHERE p.wiki_id=? AND p.deleted_at IS NOT NULL`,
+          )
+          .bind(wikiId)
+          .first<{ count: number; inline_bytes: number }>(),
+        d
+          .prepare(
+            `SELECT COUNT(*) AS count FROM knowledge_claims c WHERE c.wiki_id=? AND (c.subject_page_id IN (SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL) OR c.source_page_id IN (SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL) OR c.object_page_id IN (SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL))`,
+          )
+          .bind(wikiId, wikiId, wikiId, wikiId)
+          .first<{ count: number }>(),
+        d
+          .prepare(
+            `SELECT COUNT(*) AS count FROM knowledge_placements kp WHERE kp.wiki_id=? AND kp.page_id IN (SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL)`,
+          )
+          .bind(wikiId, wikiId)
+          .first<{ count: number }>(),
+        d
+          .prepare(
+            `SELECT COUNT(*) AS count,COALESCE(SUM(a.size_bytes),0) AS bytes FROM attachments a WHERE a.wiki_id=? AND a.page_id IN (SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL)`,
+          )
+          .bind(wikiId, wikiId)
+          .first<{ count: number; bytes: number }>(),
+      ]);
+  if (!wiki)
+    throw new AppError("not_found", "The current wiki was not found.", 404);
+  const pageBytes = await d
+    .prepare(
+      `SELECT COALESCE(SUM(LENGTH(CAST(markdown AS BLOB))),0) AS bytes FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL`,
+    )
+    .bind(wikiId)
+    .first<{ bytes: number }>();
+  const revisionObjects = await d
+    .prepare(
+      `SELECT r.snapshot_object_key FROM page_revisions r JOIN pages p ON p.id=r.page_id WHERE p.wiki_id=? AND p.deleted_at IS NOT NULL AND r.status='ready' AND r.snapshot_object_key IS NOT NULL`,
+    )
+    .bind(wikiId)
+    .all<{ snapshot_object_key: string }>();
+  let revisionObjectBytes = 0;
+  for (let offset = 0; offset < revisionObjects.results.length; offset += 50) {
+    const sizes = await Promise.all(
+      revisionObjects.results.slice(offset, offset + 50).map(async (row) => {
+        try {
+          return Number(
+            (await env.FILES.head(row.snapshot_object_key))?.size ?? 0,
+          );
+        } catch {
+          return 0;
+        }
+      }),
+    );
+    revisionObjectBytes += sizes.reduce((total, size) => total + size, 0);
+  }
+  return {
+    wiki_id: wikiId,
+    deleted_page_count: pages.length,
+    revision_count: Number(revisionStats?.count ?? 0),
+    claim_count: Number(claimStats?.count ?? 0),
+    placement_count: Number(placementStats?.count ?? 0),
+    attachment_count: Number(attachmentStats?.count ?? 0),
+    estimated_bytes:
+      Number(pageBytes?.bytes ?? 0) +
+      Number(revisionStats?.inline_bytes ?? 0) +
+      revisionObjectBytes +
+      Number(attachmentStats?.bytes ?? 0),
+    trash_token: await trashToken(wikiId, pages),
+    confirmation_phrase: `EMPTY TRASH ${wiki.title}`,
+  };
 }
 export async function getPage(wikiId: string, pageId: string) {
   const row = await db()
@@ -3392,6 +3573,389 @@ export async function restoreDeletedPage(input: {
       await failIdempotency({ ...input, operationName, error: appError });
     throw appError;
   }
+}
+
+export async function emptyTrash(input: {
+  wikiId: string;
+  email: string;
+  trashToken: string;
+  confirmation: string;
+  operationId: string;
+  requestId: string;
+  origin: "human" | "webmcp";
+}) {
+  const operationName = "wiki_empty_trash",
+    payload = {
+      trash_token: input.trashToken,
+      confirmation: input.confirmation,
+    },
+    reservation = await reserveIdempotency({
+      ...input,
+      operationName,
+      payload,
+    });
+  if (reservation.cached)
+    return reservation.cached as unknown as {
+      purged_page_count: number;
+      purged_revision_count: number;
+      purged_claim_count: number;
+      purged_placement_count: number;
+      purged_attachment_count: number;
+      purged_estimated_bytes: number;
+      storage_objects_deleted: number;
+      storage_cleanup_pending: number;
+      change_set: ChangeSet;
+    };
+
+  const pages = await readTrashSnapshot(input.wikiId),
+    currentToken = await trashToken(input.wikiId, pages),
+    summary = await getTrashSummary(input.wikiId);
+  if (pages.length === 0 || !currentToken) {
+    const error = new AppError(
+      "validation_error",
+      "The trash is already empty.",
+      409,
+      { reason: "trash_empty" },
+    );
+    await failIdempotency({ ...input, operationName, error });
+    throw error;
+  }
+  if (input.trashToken !== currentToken) {
+    const error = new AppError(
+      "version_conflict",
+      "The trash changed after it was reviewed.",
+      409,
+      {
+        current_trash_token: currentToken,
+        next_action: "Read the current trash summary and confirm again.",
+      },
+    );
+    await failIdempotency({ ...input, operationName, error });
+    throw error;
+  }
+  if (input.confirmation !== summary.confirmation_phrase) {
+    const error = new AppError(
+      "validation_error",
+      `Type ${summary.confirmation_phrase} to permanently empty the trash.`,
+      400,
+      { confirmation_expected: summary.confirmation_phrase },
+    );
+    await failIdempotency({ ...input, operationName, error });
+    throw error;
+  }
+
+  const d = db(),
+    revisionRows = await d
+      .prepare(
+        `SELECT r.snapshot_inline,r.snapshot_object_key,r.status FROM page_revisions r JOIN pages p ON p.id=r.page_id WHERE p.wiki_id=? AND p.deleted_at IS NOT NULL`,
+      )
+      .bind(input.wikiId)
+      .all<{
+        snapshot_inline: string | null;
+        snapshot_object_key: string | null;
+        status: string;
+      }>(),
+    attachmentRows = await d
+      .prepare(
+        `SELECT a.object_key,a.size_bytes,a.status FROM attachments a WHERE a.wiki_id=? AND a.page_id IN (SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL)`,
+      )
+      .bind(input.wikiId, input.wikiId)
+      .all<{ object_key: string; size_bytes: number; status: string }>(),
+    revisionObjectRows = revisionRows.results.filter(
+      (row) => row.snapshot_object_key,
+    ),
+    revisionObjectSizes = new Map<string, number>();
+  for (let offset = 0; offset < revisionObjectRows.length; offset += 50) {
+    const chunk = revisionObjectRows.slice(offset, offset + 50);
+    await Promise.all(
+      chunk.map(async (row) => {
+        const key = row.snapshot_object_key!;
+        try {
+          revisionObjectSizes.set(
+            key,
+            Number((await env.FILES.head(key))?.size ?? 0),
+          );
+        } catch {
+          revisionObjectSizes.set(key, 0);
+        }
+      }),
+    );
+  }
+  const revisionInlineBytes = revisionRows.results.reduce(
+      (total, row) =>
+        total + (row.snapshot_inline ? bytes(row.snapshot_inline) : 0),
+      0,
+    ),
+    revisionObjectBytes = [...revisionObjectSizes.values()].reduce(
+      (total, size) => total + size,
+      0,
+    ),
+    countedRevisions = revisionRows.results.filter(
+      (row) =>
+        row.status === "ready" &&
+        (row.snapshot_inline !== null || row.snapshot_object_key !== null),
+    ).length,
+    readyAttachments = attachmentRows.results.filter(
+      (row) => row.status === "ready",
+    ),
+    softDeletedAttachments = attachmentRows.results.filter(
+      (row) => row.status === "soft_deleted",
+    ),
+    readyAttachmentBytes = readyAttachments.reduce(
+      (total, row) => total + Number(row.size_bytes),
+      0,
+    ),
+    softDeletedAttachmentBytes = softDeletedAttachments.reduce(
+      (total, row) => total + Number(row.size_bytes),
+      0,
+    ),
+    objectSizes = new Map<string, number>(revisionObjectSizes);
+  for (const attachment of attachmentRows.results)
+    objectSizes.set(attachment.object_key, Number(attachment.size_bytes));
+  const objectKeys = [...objectSizes.keys()],
+    timestamp = now(),
+    auditId = uuid(),
+    changeSet: ChangeSet = {
+      pages_changed: [],
+      tree_changed: true,
+      links_changed: true,
+      search_changed: true,
+      graph_changed: true,
+      knowledge_changed: true,
+      attachments_changed: [],
+      deleted_pages_changed: true,
+    },
+    baseResult = {
+      purged_page_count: summary.deleted_page_count,
+      purged_revision_count: summary.revision_count,
+      purged_claim_count: summary.claim_count,
+      purged_placement_count: summary.placement_count,
+      purged_attachment_count: summary.attachment_count,
+      purged_estimated_bytes: summary.estimated_bytes,
+      storage_objects_deleted: 0,
+      storage_cleanup_pending: objectKeys.length,
+      change_set: changeSet,
+    },
+    snapshotGuard = trashSnapshotGuard(pages),
+    targetPages = `SELECT id FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL AND last_operation_id=?`,
+    purgedClaims = `SELECT c.id FROM knowledge_claims c WHERE c.wiki_id=? AND (c.subject_page_id IN (${targetPages}) OR c.source_page_id IN (${targetPages}) OR c.object_page_id IN (${targetPages}))`;
+  try {
+    const batch = await d.batch([
+      d
+        .prepare(
+          `UPDATE pages SET last_operation_id=? WHERE wiki_id=? AND deleted_at IS NOT NULL AND (SELECT COALESCE(GROUP_CONCAT(id||':'||version||':'||deleted_at,'|'),'') FROM (SELECT id,version,deleted_at FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL ORDER BY id))=?`,
+        )
+        .bind(input.operationId, input.wikiId, input.wikiId, snapshotGuard),
+      d
+        .prepare(
+          `UPDATE knowledge_claims SET supersedes_claim_id=NULL,updated_at=? WHERE wiki_id=? AND supersedes_claim_id IN (${purgedClaims})`,
+        )
+        .bind(
+          timestamp,
+          input.wikiId,
+          input.wikiId,
+          input.wikiId,
+          input.operationId,
+          input.wikiId,
+          input.operationId,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `UPDATE page_links SET target_page_id=NULL WHERE wiki_id=? AND target_page_id IN (${targetPages}) AND source_page_id NOT IN (${targetPages})`,
+        )
+        .bind(
+          input.wikiId,
+          input.wikiId,
+          input.operationId,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `DELETE FROM page_links WHERE wiki_id=? AND source_page_id IN (${targetPages})`,
+        )
+        .bind(input.wikiId, input.wikiId, input.operationId),
+      d
+        .prepare(
+          `DELETE FROM knowledge_claims WHERE wiki_id=? AND (subject_page_id IN (${targetPages}) OR source_page_id IN (${targetPages}) OR object_page_id IN (${targetPages}))`,
+        )
+        .bind(
+          input.wikiId,
+          input.wikiId,
+          input.operationId,
+          input.wikiId,
+          input.operationId,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `DELETE FROM knowledge_placements WHERE wiki_id=? AND page_id IN (${targetPages})`,
+        )
+        .bind(input.wikiId, input.wikiId, input.operationId),
+      d
+        .prepare(
+          `DELETE FROM backup_revision_coverage WHERE revision_id IN (SELECT r.id FROM page_revisions r WHERE r.page_id IN (${targetPages}))`,
+        )
+        .bind(input.wikiId, input.operationId),
+      d
+        .prepare(
+          `DELETE FROM attachments WHERE wiki_id=? AND page_id IN (${targetPages})`,
+        )
+        .bind(input.wikiId, input.wikiId, input.operationId),
+      d
+        .prepare(`DELETE FROM page_revisions WHERE page_id IN (${targetPages})`)
+        .bind(input.wikiId, input.operationId),
+      d
+        .prepare(
+          `UPDATE wiki_usage SET revision_inline_bytes=MAX(revision_inline_bytes-?,0),r2_ready_revision_bytes=MAX(r2_ready_revision_bytes-?,0),r2_ready_attachment_bytes=MAX(r2_ready_attachment_bytes-?,0),r2_soft_deleted_bytes=MAX(r2_soft_deleted_bytes-?,0),revision_count=MAX(revision_count-?,0),attachment_count=MAX(attachment_count-?,0),updated_at=? WHERE wiki_id=? AND EXISTS(${targetPages})`,
+        )
+        .bind(
+          revisionInlineBytes,
+          revisionObjectBytes,
+          readyAttachmentBytes,
+          softDeletedAttachmentBytes,
+          countedRevisions,
+          readyAttachments.length,
+          timestamp,
+          input.wikiId,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `INSERT INTO audit_events(id,wiki_id,actor_email,origin,action,target_type,target_id,outcome,request_id,metadata_json,created_at) SELECT ?,?,?,?,'page.trash_empty','wiki',?,'success',?,?,? WHERE EXISTS(${targetPages})`,
+        )
+        .bind(
+          auditId,
+          input.wikiId,
+          input.email,
+          input.origin,
+          input.wikiId,
+          input.requestId,
+          JSON.stringify({
+            operation_id: input.operationId,
+            purged_page_count: summary.deleted_page_count,
+            purged_revision_count: summary.revision_count,
+            purged_claim_count: summary.claim_count,
+            purged_placement_count: summary.placement_count,
+            purged_attachment_count: summary.attachment_count,
+            purged_estimated_bytes: summary.estimated_bytes,
+            storage_object_count: objectKeys.length,
+          }),
+          timestamp,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `UPDATE idempotency_keys SET status='completed',result_json=?,completed_at=? WHERE wiki_id=? AND actor_email=? AND operation_name=? AND operation_id=? AND EXISTS(${targetPages})`,
+        )
+        .bind(
+          JSON.stringify(baseResult),
+          timestamp,
+          input.wikiId,
+          input.email,
+          operationName,
+          input.operationId,
+          input.wikiId,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `DELETE FROM pages WHERE wiki_id=? AND deleted_at IS NOT NULL AND last_operation_id=?`,
+        )
+        .bind(input.wikiId, input.operationId),
+    ]);
+    if (Number(batch[0].meta.changes ?? 0) !== pages.length) {
+      const error = new AppError(
+        "version_conflict",
+        "The trash changed before it could be emptied.",
+        409,
+        { next_action: "Read the current trash summary and confirm again." },
+      );
+      await failIdempotency({ ...input, operationName, error });
+      throw error;
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    const appError = new AppError(
+      "internal_error",
+      "The trash could not be emptied.",
+      500,
+      {},
+      true,
+    );
+    await failIdempotency({ ...input, operationName, error: appError });
+    throw appError;
+  }
+
+  let storageObjectsDeleted = 0,
+    storageCleanupPending = 0,
+    storageCleanupPendingBytes = 0;
+  for (let offset = 0; offset < objectKeys.length; offset += 1000) {
+    const chunk = objectKeys.slice(offset, offset + 1000);
+    try {
+      await env.FILES.delete(chunk);
+      storageObjectsDeleted += chunk.length;
+    } catch {
+      storageCleanupPending += chunk.length;
+      storageCleanupPendingBytes += chunk.reduce(
+        (total, key) => total + Number(objectSizes.get(key) ?? 0),
+        0,
+      );
+    }
+  }
+  const result = {
+    ...baseResult,
+    storage_objects_deleted: storageObjectsDeleted,
+    storage_cleanup_pending: storageCleanupPending,
+  };
+  try {
+    await d.batch([
+      d
+        .prepare(
+          `UPDATE idempotency_keys SET result_json=? WHERE wiki_id=? AND actor_email=? AND operation_name=? AND operation_id=?`,
+        )
+        .bind(
+          JSON.stringify(result),
+          input.wikiId,
+          input.email,
+          operationName,
+          input.operationId,
+        ),
+      d
+        .prepare(
+          `UPDATE audit_events SET metadata_json=? WHERE id=? AND wiki_id=?`,
+        )
+        .bind(
+          JSON.stringify({
+            operation_id: input.operationId,
+            purged_page_count: summary.deleted_page_count,
+            purged_revision_count: summary.revision_count,
+            purged_claim_count: summary.claim_count,
+            purged_placement_count: summary.placement_count,
+            purged_attachment_count: summary.attachment_count,
+            purged_estimated_bytes: summary.estimated_bytes,
+            storage_objects_deleted: storageObjectsDeleted,
+            storage_cleanup_pending: storageCleanupPending,
+          }),
+          auditId,
+          input.wikiId,
+        ),
+      d
+        .prepare(
+          `UPDATE wiki_usage SET r2_orphan_estimate_bytes=r2_orphan_estimate_bytes+?,updated_at=? WHERE wiki_id=?`,
+        )
+        .bind(storageCleanupPendingBytes, now(), input.wikiId),
+    ]);
+  } catch {
+    // The logical purge is already committed. Keep the conservative cached
+    // result so storage maintenance can reconcile any remaining objects.
+  }
+  return result;
 }
 
 export async function getRevisionSnapshot(

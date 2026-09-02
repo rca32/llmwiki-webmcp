@@ -67,6 +67,7 @@ const en = {
   "status.creatingWiki": "Creating wiki…",
   "status.wikiCreated": "Wiki created",
   "status.wikiDeleted": "{{title}} deleted · recoverable for 30 days",
+  "status.trashEmptied": "Permanently deleted {{count}} trashed pages",
   "status.pageDeleted": "Page deleted",
   "status.uploadingAttachment": "Uploading attachment…",
   "status.attachmentUploaded": "Attachment uploaded",
@@ -270,6 +271,8 @@ const en = {
   "tree.collapse": "Collapse",
   "tree.restore": "Restore",
   "tree.trash": "Trash",
+  "tree.emptyTrash": "Empty",
+  "tree.emptyTrashAria": "Permanently empty {{count}} trashed pages",
   "tree.footer": "Browse by topic or folder",
   "tree.allTopics": "All topics",
   "tree.needsOrganizing": "Needs organizing",
@@ -441,6 +444,22 @@ const en = {
   "dialog.vaultName": "Wiki name",
   "dialog.vaultExample": "e.g. Product Research",
   "dialog.deleteWikiTitle": "Delete “{{title}}”?",
+  "dialog.emptyTrashTitle": "Empty trash permanently?",
+  "dialog.emptyTrashDescription":
+    "Every deleted page in this Wiki will be permanently removed. This cannot be undone.",
+  "dialog.emptyTrashLoading": "Checking the current trash…",
+  "dialog.emptyTrashPages": "Pages",
+  "dialog.emptyTrashRevisions": "Revisions",
+  "dialog.emptyTrashClaims": "Claims",
+  "dialog.emptyTrashAttachments": "Attachments",
+  "dialog.emptyTrashImpact":
+    "About {{size}} will be removed. This action cannot be undone.",
+  "dialog.emptyTrashConfirm": "Type {{phrase}} to confirm.",
+  "dialog.emptyTrashAction": "Empty trash",
+  "dialog.emptyTrashPending": "Emptying trash…",
+  "dialog.emptyTrashFailed": "Could not empty the trash.",
+  "dialog.emptyTrashCleanupPending":
+    "{{count}} storage objects remain queued for background cleanup.",
   "dialog.deleteWikiDescription":
     "This wiki will disappear for every member and switch you to another wiki. It can be restored for 30 days.",
   "dialog.deleteWikiBackupNotice":
@@ -511,6 +530,7 @@ const ko: Dictionary = {
   "status.creatingWiki": "Wiki 만드는 중…",
   "status.wikiCreated": "새 Wiki를 만들었습니다.",
   "status.wikiDeleted": "{{title}} 삭제됨 · 30일 동안 복구 가능",
+  "status.trashEmptied": "휴지통의 페이지 {{count}}개를 영구 삭제했습니다",
   "status.pageDeleted": "페이지를 삭제했습니다.",
   "status.uploadingAttachment": "첨부 업로드 중…",
   "status.attachmentUploaded": "첨부 업로드됨",
@@ -703,6 +723,8 @@ const ko: Dictionary = {
   "tree.collapse": "접기",
   "tree.restore": "복구",
   "tree.trash": "휴지통",
+  "tree.emptyTrash": "비우기",
+  "tree.emptyTrashAria": "휴지통의 페이지 {{count}}개 영구 삭제",
   "tree.footer": "주제별 또는 폴더별로 둘러보기",
   "tree.allTopics": "모든 주제",
   "tree.needsOrganizing": "정리 필요",
@@ -865,6 +887,22 @@ const ko: Dictionary = {
   "dialog.vaultName": "위키 이름",
   "dialog.vaultExample": "예: Product Research",
   "dialog.deleteWikiTitle": "“{{title}}” 위키를 삭제할까요?",
+  "dialog.emptyTrashTitle": "휴지통을 영구적으로 비울까요?",
+  "dialog.emptyTrashDescription":
+    "이 위키에서 삭제된 모든 페이지를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
+  "dialog.emptyTrashLoading": "현재 휴지통을 확인하는 중…",
+  "dialog.emptyTrashPages": "페이지",
+  "dialog.emptyTrashRevisions": "리비전",
+  "dialog.emptyTrashClaims": "클레임",
+  "dialog.emptyTrashAttachments": "첨부",
+  "dialog.emptyTrashImpact":
+    "약 {{size}}가 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
+  "dialog.emptyTrashConfirm": "확인하려면 {{phrase}}을(를) 입력하세요.",
+  "dialog.emptyTrashAction": "휴지통 비우기",
+  "dialog.emptyTrashPending": "휴지통을 비우는 중…",
+  "dialog.emptyTrashFailed": "휴지통을 비우지 못했습니다.",
+  "dialog.emptyTrashCleanupPending":
+    "저장소 객체 {{count}}개가 백그라운드 정리 대기 중입니다.",
   "dialog.deleteWikiDescription":
     "모든 사용자에게서 이 위키가 숨겨지고 다른 위키로 전환됩니다. 30일 동안 복구할 수 있습니다.",
   "dialog.deleteWikiBackupNotice":
@@ -932,6 +970,9 @@ const ja: Dictionary = {
   "status.creatingWiki": "Wikiを作成中…",
   "status.wikiCreated": "Wikiを作成しました",
   "status.wikiDeleted": "{{title}}を削除しました · 30日間復元可能",
+  "status.trashEmptied": "ゴミ箱の{{count}}ページを完全に削除しました",
+  "tree.emptyTrash": "空にする",
+  "tree.emptyTrashAria": "ゴミ箱の{{count}}ページを完全に削除",
   "status.pageDeleted": "ページを削除しました",
   "status.uploadingAttachment": "添付ファイルをアップロード中…",
   "status.attachmentUploaded": "添付ファイルをアップロードしました",
@@ -1239,6 +1280,22 @@ const ja: Dictionary = {
   "dialog.vaultName": "Wiki名",
   "dialog.vaultExample": "例：Product Research",
   "dialog.deleteWikiTitle": "「{{title}}」を削除しますか？",
+  "dialog.emptyTrashTitle": "ゴミ箱を完全に空にしますか？",
+  "dialog.emptyTrashDescription":
+    "このWikiで削除されたすべてのページを完全に削除します。この操作は取り消せません。",
+  "dialog.emptyTrashLoading": "現在のゴミ箱を確認しています…",
+  "dialog.emptyTrashPages": "ページ",
+  "dialog.emptyTrashRevisions": "リビジョン",
+  "dialog.emptyTrashClaims": "クレーム",
+  "dialog.emptyTrashAttachments": "添付ファイル",
+  "dialog.emptyTrashImpact":
+    "約{{size}}が削除されます。この操作は取り消せません。",
+  "dialog.emptyTrashConfirm": "確認するには {{phrase}} と入力してください。",
+  "dialog.emptyTrashAction": "ゴミ箱を空にする",
+  "dialog.emptyTrashPending": "ゴミ箱を空にしています…",
+  "dialog.emptyTrashFailed": "ゴミ箱を空にできませんでした。",
+  "dialog.emptyTrashCleanupPending":
+    "{{count}}個のストレージオブジェクトがバックグラウンド削除待ちです。",
   "dialog.deleteWikiDescription":
     "このWikiはすべてのメンバーから非表示になり、別のWikiへ切り替わります。30日間復元できます。",
   "dialog.deleteWikiBackupNotice":
@@ -1306,6 +1363,9 @@ const zh: Dictionary = {
   "status.creatingWiki": "正在创建 Wiki…",
   "status.wikiCreated": "Wiki 已创建",
   "status.wikiDeleted": "已删除 {{title}} · 30 天内可恢复",
+  "status.trashEmptied": "已永久删除回收站中的 {{count}} 个页面",
+  "tree.emptyTrash": "清空",
+  "tree.emptyTrashAria": "永久删除回收站中的 {{count}} 个页面",
   "status.pageDeleted": "页面已删除",
   "status.uploadingAttachment": "正在上传附件…",
   "status.attachmentUploaded": "附件已上传",
@@ -1608,6 +1668,20 @@ const zh: Dictionary = {
   "dialog.vaultName": "Wiki名称",
   "dialog.vaultExample": "例如：Product Research",
   "dialog.deleteWikiTitle": "删除“{{title}}”？",
+  "dialog.emptyTrashTitle": "永久清空回收站？",
+  "dialog.emptyTrashDescription":
+    "此 Wiki 中所有已删除页面都将被永久删除。此操作无法撤销。",
+  "dialog.emptyTrashLoading": "正在检查当前回收站…",
+  "dialog.emptyTrashPages": "页面",
+  "dialog.emptyTrashRevisions": "修订",
+  "dialog.emptyTrashClaims": "声明",
+  "dialog.emptyTrashAttachments": "附件",
+  "dialog.emptyTrashImpact": "将删除约 {{size}}。此操作无法撤销。",
+  "dialog.emptyTrashConfirm": "请输入 {{phrase}} 以确认。",
+  "dialog.emptyTrashAction": "清空回收站",
+  "dialog.emptyTrashPending": "正在清空回收站…",
+  "dialog.emptyTrashFailed": "无法清空回收站。",
+  "dialog.emptyTrashCleanupPending": "仍有 {{count}} 个存储对象等待后台清理。",
   "dialog.deleteWikiDescription":
     "此 Wiki 将对所有成员隐藏，并切换到另一个 Wiki。30 天内可以恢复。",
   "dialog.deleteWikiBackupNotice":

@@ -82,7 +82,7 @@ Read → Request → Verify → Apply → Review
 
 ## 2. Devpost 제출용 영문 원고
 
-아래 블록은 현재 로컬 제품 메시지와 `Project Aurora Launch Review` 데모에 맞춘
+아래 블록은 현재 로컬 제품 메시지와 `Nancy Grace Roman Space Telescope` 데모에 맞춘
 붙여넣기용 문안이다.
 
 ### Project title
@@ -325,135 +325,134 @@ read-only product interface.
 ### 데모의 한 문장 이야기
 
 ```text
-A product lead turns fictional launch-review notes into the canonical Project
-Aurora decision page without opening an editor. A WebMCP agent reuses the live
-page, preserves unmet conditions, links the source, and leaves the result and
-revision history in the same wiki.
+A person asks for a wiki about the newly launched Roman Space Telescope. They
+read the result, ask one natural follow-up question, and explore the connected
+pages and sources. The knowledge grows inside the wiki instead of ending as a
+chat answer.
 ```
 
 ### 연출 원칙
 
-- 정보량보다 interaction model을 먼저 보여준다. 첫 14초 안에 편집기가 없고 사람이
-  결과와 범위를 요청한다는 점을 설명한다.
-- source packet은 자체 제작한 비식별 fixture만 사용한다. 외부 네트워크, 상표,
-  저작권 자료나 실제 회사 데이터에 의존하지 않는다.
-- 도구 목록 전체를 스크롤하지 않는다. discovery, live context, canonical search,
-  plan, apply와 같은 page 결과만 읽을 수 있게 보여준다.
-- plan hash와 permission 같은 기술 필드는 화면으로 증명하고, 음성은 사용자 경험을
-  설명한다.
-- 목표 길이는 2분 35초다. 대기 시간만 편집하고 실제 request, discovery, context,
-  plan/apply와 결과 확인은 유지한다.
+- 제품을 처음 보는 사람도 바로 이해할 수 있는 이야기만 남긴다: **요청한다 →
+  읽는다 → 더 물어본다 → 탐색한다.**
+- 첫 요청은 “Roman 발사 위키를 만들어줘”처럼 짧고 자연스럽게 쓴다.
+- plan, hash, version, claim, operation ID 같은 내부 용어는 내레이션에서 말하지
+  않는다.
+- 공식 출처를 사용했다는 사실은 결과 문서의 Sources 영역으로 보여준다. 출처 관리
+  방식을 길게 설명하지 않는다.
+- WebMCP는 에이전트가 열린 위키에 실제 문서를 만들고 다시 읽는 장면으로 증명한다.
+  도구 이름이나 전체 catalog를 설명하지 않는다.
+- 목표 길이는 2분 35초다. 생성 대기 시간만 편집하고 첫 요청, 결과 검토, 추가 요청,
+  탐색 장면은 유지한다.
 
 ### 녹화 fixture
 
-녹화 전에 비식별 개인 wiki를 준비한다.
+녹화 전에 Roman 문서가 없는 깨끗한 개인 wiki를 준비한다. UI는 영어로 설정하고
+[Roman research dossier](fixtures/roman-space-telescope-research-dossier.md)를 agent
+대화에 첨부한다.
 
-1. `Project Aurora Launch Review` entity page를 만들고 아래 한 문장만 둔다.
+첫 요청은 다음 문장만 사용한다.
 
-   ```text
-   Project Aurora is preparing for a limited pilot.
-   ```
+```text
+Create a wiki page about the launch of the Nancy Grace Roman Space Telescope.
+Explain when it launched, where it is going, what it will study, and what
+happens next. Use the attached sources and make it easy to understand.
+```
 
-2. source page, active claim, 같은 제목의 다른 canonical page가 없는지 확인한다.
-3. UI를 영어로 설정하고 `Request change`와 `Research and expand`가 보이는지
-   확인한다.
-4. [Project Aurora fixture](fixtures/project-aurora-launch-review.md)를 agent 대화에
-   첨부할 수 있게 준비한다.
-5. 요청에는 다음 문장을 사용한다.
+한국어 음성에서 요청을 소개할 때는 더 짧게 말한다.
 
-   ```text
-   Turn the attached launch-review notes into the canonical decision page for
-   Project Aurora. Reuse this existing page. Separate the decision, launch
-   conditions, current evidence, and open questions. Link the source, preserve
-   uncertainty, and do not describe unmet conditions as completed.
-   ```
+```text
+로먼 우주망원경 발사 위키를 만들어줘. 언제 발사됐고, 지금 어디로 가고 있으며,
+무엇을 연구할지 쉽게 설명해줘.
+```
 
-6. source metadata는 다음 기준을 사용한다.
+첫 결과에는 다음 다섯 부분이 있으면 충분하다.
 
-   ```text
-   Source title: Project Aurora Launch Review — source notes
-   Source URL: urn:liminal-demo:project-aurora-launch-review
-   Retrieved at: <RECORDING_TIME_IN_ISO_8601>
-   Retrieval status: success
-   Extraction method: user-provided-attachment
-   Confidence: 0.99
-   ```
+- **Launch** — 2026-08-30 발사
+- **Where Roman is now** — L2로 이동하며 commissioning 중
+- **What Roman will study** — 암흑에너지, 외계행성, 넓은 적외선 우주
+- **What happens next** — commissioning과 첫 이미지
+- **Sources** — 사용한 NASA·STScI 자료
 
-7. plan은 기존 page update, source page와 아래 사실을 분리해 보여야 한다.
-   - 결정: 2026-09-15에 eligible users 10%를 대상으로 limited pilot 진행
-   - 충족 근거: latest load test는 430 ms p95로 500 ms 조건 이내
-   - 미충족 조건: rollback drill은 scheduled이지만 not completed
-   - 미충족 조건: support owner는 not assigned
+결과를 읽은 뒤 두 번째 요청을 보낸다.
+
+```text
+Add a simple explanation of how Roman is different from Hubble, and create a
+linked page about Roman's two instruments.
+```
+
+이 요청으로 기존 발사 문서는 보강되고 `Roman’s instruments` 문서가 연결되면 된다.
+촬영자는 내부적으로 source metadata와 version-safe apply가 정상인지 확인하지만,
+영상에서는 이를 설명하지 않는다.
 
 ### 장면별 한·영 대본
 
-| 시간      | 화면과 조작                                                                                                                                                                                | 한국어 내레이션                                                                                                                                                                         | English subtitle                                                                                                                                                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0:00–0:14 | `Project Aurora Launch Review`의 얇은 본문과 `Request change`만 보여준다. 제목 주변에 Edit나 Save가 없음을 비춘다.                                                                        | 이건 위키 문서지만 Edit 버튼이 없습니다. Liminal Wiki의 계약은 다릅니다. 사람은 무엇이 달라져야 할지 결정하고, 에이전트는 지식 원본을 관리합니다.                                      | This is a wiki page, but there is no Edit button. Liminal Wiki uses a different contract: people decide what should change, and agents maintain the source of truth.                                        |
-| 0:14–0:36 | `Request change → Research and expand`를 열고 Aurora 요청을 입력한다. fixture 파일을 agent 대화에 첨부하는 장면까지 보여준다.                                                           | 사람은 출시 메모를 직접 옮겨 쓰지 않습니다. 이 기존 문서를 정본 결정 페이지로 만들고, 아직 충족되지 않은 조건은 완료된 것처럼 쓰지 말라고 요청합니다.                                   | The person does not rewrite the launch notes by hand. They ask for this existing page to become the canonical decision record—and for unmet conditions to remain visibly unmet.                              |
-| 0:36–0:54 | preview에서 wiki ID, page ID, version, permalink, request type과 authorization을 차례로 강조하고 `Copy request`를 실행한다.                                                            | 변경 요청은 의견함이 아닙니다. 평범한 문장을 지금 보고 있는 위키, 문서 버전과 허용 범위가 들어간 구조화된 인계로 바꿉니다.                                                            | Request change is not a feedback form. It turns a plain-language instruction into a structured handoff with the current wiki, page version, and authorized scope.                                           |
-| 0:54–1:13 | 실제 tool discovery 후 `wiki_get_context`와 `wiki_get_operating_contract`를 호출한다. UI의 active wiki, page, role과 결과를 나란히 보여준다.                                           | 열린 페이지는 현재 로그인과 권한에 맞는 도구를 제공합니다. 에이전트는 복사된 본문이 아니라 실제 위키에서 대상, 역할과 작업 규칙을 읽습니다.                                           | The open page exposes tools for the current session and permissions. The agent reads the target, role, and operating rules from the live wiki instead of relying on pasted page content.                      |
-| 1:13–1:36 | `wiki_search`에서 기존 Aurora page를 재사용하는 결과를 강조한다. `wiki_plan_ingest`의 existing page update, source, claims, exact evidence와 unmet conditions를 보여준다.                  | 먼저 검색해 정본 문서를 재사용합니다. 계획은 결정, 조건, 현재 근거와 열린 질문을 나누고, 완료되지 않은 rollback drill과 support owner를 그대로 보존합니다.                                | Search reuses the canonical page. The plan separates the decision, conditions, evidence, and open questions while preserving the incomplete rollback drill and unassigned support owner.                     |
-| 1:36–1:55 | 구조화 요청과 plan scope를 나란히 보여준다. host 확인이 있으면 실행한 뒤 같은 `plan_id`와 hash, `approved: true`, 새 operation ID로 `wiki_apply_ingest`를 호출한다.                       | 구조화된 요청은 제품 수준의 범위 승인입니다. host 확인은 그대로 따르고, 서버가 권한과 plan에 고정된 버전, 같은 plan hash를 다시 확인한 뒤에만 적용합니다.                              | The structured request authorizes the product scope; it does not bypass host confirmation. The server rechecks permissions, the versions captured by the plan, and the plan hash before committing the change. |
-| 1:55–2:20 | 같은 Documents page를 새로고침해 Decision, Launch conditions, Current evidence, Open questions와 linked source를 보여준다. 새 revision과 unmet 상태를 강조한다.                            | 결과는 채팅에 남지 않습니다. 같은 위키 문서에 결정과 근거, 아직 충족되지 않은 조건, 출처와 새 revision이 함께 나타납니다.                                                              | The result does not stay in chat. The same wiki page now holds the decision, evidence, visibly unmet conditions, linked source, and a new revision.                                                          |
-| 2:20–2:35 | `Human intent is the write interface`를 크게 표시하고 `Read → Request → Verify → Apply → Review`로 끝낸다.                                                                            | 이것이 Liminal Wiki의 모델입니다. 사람의 의도가 쓰기 인터페이스가 되고, 열린 페이지는 에이전트가 지식 원본을 안전하게 관리하는 데 필요한 구조화된 도구를 제공합니다.                  | That is the Liminal Wiki model: human intent is the write interface, and the open page gives agents the structured, session-aware tools required to maintain the source of truth safely.                     |
+| 시간      | 화면과 조작                                                                                                      | 한국어 내레이션                                                                                                                     | English subtitle                                                                                                                      |
+| --------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 0:00–0:18 | Roman 문서가 없는 위키와 agent 대화를 나란히 보여준다. dossier를 첨부하고 첫 요청을 입력한다.                  | 로먼 우주망원경이 막 발사됐습니다. 그래서 에이전트에게 아주 간단히 부탁합니다. “로먼 발사 위키를 만들어줘.”                          | Roman has just launched, so I make a simple request: “Create a wiki about the Roman Space Telescope launch.”                           |
+| 0:18–0:40 | 에이전트가 열린 Liminal Wiki를 확인하고 작업하는 모습을 보여준다. 기술 결과는 빠르게 지나가고 완료 메시지에서 멈춘다. | 에이전트는 열린 위키와 첨부한 공식 자료를 확인하고, 내용을 채팅 답변으로만 쓰지 않고 실제 위키 문서로 만듭니다.                       | The agent checks the open wiki and official source packet, then creates a real wiki page instead of leaving the result in chat.         |
+| 0:40–1:10 | 새로 생긴 `Nancy Grace Roman Space Telescope` 문서를 연다. Launch, Where Roman is now, What it will study를 읽는다. | 이제 문서를 읽어봅니다. 언제 발사됐는지, 지금 어디로 가는지, 무엇을 연구할지가 한눈에 정리되어 있습니다.                              | Now I read the page. It clearly explains when Roman launched, where it is going, and what it will study.                                |
+| 1:10–1:30 | What happens next와 Sources까지 내려가 NASA·STScI 링크를 연다.                                                   | 아직 일어나지 않은 일은 다음 단계로 따로 표시되고, 궁금하면 바로 원래 출처를 확인할 수 있습니다.                                     | Future milestones are shown separately, and I can open the original sources whenever I want to check them.                             |
+| 1:30–1:50 | agent에게 두 번째 요청을 입력한다: Hubble과의 차이, 두 장비 설명을 추가해 달라고 한다.                           | 읽다 보니 새 질문이 생겼습니다. “허블과는 무엇이 다르고, 두 장비는 무슨 일을 해?” 편집기를 열지 않고 그대로 다시 물어봅니다.         | Reading the page raises another question: “How is Roman different from Hubble, and what do its two instruments do?” I simply ask again. |
+| 1:50–2:15 | 보강된 hub에서 Hubble 비교 문단을 보고 linked page `Roman’s instruments`를 연다.                                 | 기존 문서는 더 풍부해지고, 장비 설명은 연결된 새 문서로 정리됩니다. 처음 만든 지식 위에 다음 질문의 답이 쌓입니다.                    | The original page becomes richer, and the instrument details live in a connected page. The next answer builds on the knowledge already there. |
+| 2:15–2:35 | Explore topics와 Connections에서 Roman hub, instruments, source의 연결을 탐색하고 Documents로 돌아온다.          | 이제 검색하고, 연결을 따라가고, 출처로 돌아갈 수 있습니다. 답변을 모은 채팅이 아니라 계속 읽고 키워가는 위키가 만들어졌습니다.       | I can now search, follow connections, and return to the sources. This is not a pile of chat answers; it is a wiki that keeps growing.   |
 
-### 영상에서 보여줄 핵심 WebMCP 흐름
+### 영상에서 보여줄 핵심 흐름
 
 ```text
-tool discovery
-→ wiki_get_context
-→ wiki_get_operating_contract
-→ wiki_search
-→ wiki_plan_ingest
-→ wiki_apply_ingest
+Ask for a wiki
+→ Read the created page
+→ Ask a follow-up question
+→ Explore the updated pages and sources
 ```
 
-`wiki_get_page`, neighbors, claims, knowledge map, revisions와 lint는 에이전트가 실제
-작업에 필요하면 호출하되, 영상의 메인 내레이션에서 목록을 일일이 읽지 않는다. apply
-후에는 같은 UI의 linked source와 revision을 제품 결과로 보여준다.
+WebMCP는 이 흐름 뒤에서 열린 위키를 읽고 실제 문서를 만드는 실행 경로다. 영상에는
+도구가 실제 호출되는 화면을 짧게 남기되, 내레이션은 도구 이름을 읽지 않는다.
+심사위원이 확인해야 할 결과는 “대화에서 요청한 내용이 같은 Site의 Documents,
+Explore topics와 Connections에 나타난다”는 사실이다.
 
-### 녹화 전 기술 확인
+### 촬영자용 기술 확인
 
 - ChatGPT 데스크톱 앱의 built-in browser 또는 공식 규정이 허용하는 WebMCP test
   host에서 정확한 live URL로 로그인한다.
-- `fetchTools()`로 실제 catalog의 names, schemas, annotations와 origin을 확인한다.
-  영상에는 전체 숫자를 강조하지 않는다.
+- `fetchTools()`로 실제 catalog와 origin을 확인하되 영상에서는 설명하지 않는다.
 - `wiki_get_context` 결과의 active wiki, page와 role이 화면과 일치하는지 확인한다.
 - viewer, owner와 operational read-only 상태의 catalog가 capability에 맞게 달라지는지
   별도 리허설한다.
-- `wiki_plan_ingest`가 plan만 저장하고 page와 claim을 즉시 변경하지 않는지 확인한다.
+- 첫 요청이 Roman hub와 source를 만들고, 두 번째 요청이 기존 hub를 중복 생성하지
+  않고 보강하는지 확인한다.
+- `Roman’s instruments`가 hub에서 열리는 linked page인지 확인한다.
+- 날짜와 숫자는 dossier의 2026-09-02 snapshot을 기준으로 녹화 직전에 공식 URL과
+  한 번 더 대조한다. 이후 바뀐 live status를 fixture의 과거 시점에 덮어쓰지 않는다.
 - 이메일, profile identifier, cookie, token, secret과 다른 wiki 데이터가 화면에
   나오지 않게 한다.
-- request, tool name, plan scope, hash, version, unmet conditions와 결과가 1080p에서
-  읽히는지 확인한다.
+- 요청 문장, 문서 제목, 섹션 제목과 source link가 1080p에서 읽히는지 확인한다.
+- plan/apply, version, hash와 idempotency 검증은 정상 동작해야 하지만 본편에서는
+  설명하지 않는다.
 
 ### 촬영 성공 기준
 
 - 공개 YouTube 영상이며 설명 음성이 있고 최종 길이가 **2분 35초 안팎**, 반드시
   3분 미만이다.
 - 앱 UI는 영어로 표시하고, 한국어 음성을 쓰면 의미가 일치하는 영문 자막을 넣는다.
-- 첫 14초 안에 편집기가 없고 사람이 결과와 범위를 요청한다는 점이 보인다.
-- `Request change`에서 생성한 실제 prompt가 agent 대화의 시작점으로 보인다.
-- tool discovery와 실제 `wiki_get_context` 호출이 화면에 보인다.
-- search 결과가 기존 `Project Aurora Launch Review`를 재사용한다.
-- plan에 existing page update, source, decision, conditions, evidence, uncertainty와
-  64자리 hash가 보인다.
+- 첫 18초 안에 “Roman 발사 위키를 만들어줘”라는 요청이 보인다.
+- 실제 agent 대화에서 요청하고, 같은 Site의 Documents에 결과가 생긴다.
+- 완성된 문서에서 launch, current journey, science, next steps와 sources를 읽는다.
+- 첫 결과를 읽다가 생긴 자연스러운 질문을 두 번째 요청으로 보낸다.
+- 두 번째 요청 후 기존 문서가 보강되고 linked instruments page가 열린다.
+- Explore topics 또는 Connections에서 문서와 출처의 연결을 탐색한다.
 - host 확인이 표시되면 숨기거나 우회하지 않는다.
-- apply는 같은 `plan_id`와 hash, `approved: true`, 새 operation ID를 사용하고,
-  서버는 plan에 고정된 page version이 여전히 최신인지 확인한다.
-- 같은 UI에서 decision, unmet conditions, source와 새 revision을 확인한다.
 - issue나 warning이 있다면 숨기지 않고 결과와 남은 위험을 짧게 설명한다.
 
 ### 실패 시 대체
 
-| 문제                        | 대응                                                                                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 도구가 발견되지 않음        | 녹화를 중단하고 host 지원, 로그인 세션, 정확한 URL과 client registration을 확인한다. 코드 화면으로 성공 장면을 대체하지 않는다.     |
-| fixture title이 이미 존재함 | 중복 page를 만들지 말고 녹화용 wiki를 초기화하거나 정확한 기존 fixture를 원래 상태로 복원한다.                                      |
-| plan warning이 범위를 넓힘  | 자동 apply하지 않는다. warning을 설명하고 깨끗한 fixture에서 다시 촬영한다.                                                          |
-| version 또는 hash conflict  | 오래된 쓰기를 막은 안전장치로 짧게 설명한 뒤 최신 상태에서 새 request와 plan으로 재촬영한다.                                       |
-| 2분 35초를 크게 넘김        | 대기 시간만 편집한다. request, discovery, context, plan/apply와 같은 page의 결과는 유지한다.                                        |
+| 문제                                  | 대응                                                                                                                           |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 도구가 발견되지 않음                  | 녹화를 중단하고 host, 로그인과 URL을 확인한다. 코드 화면으로 성공 장면을 대체하지 않는다.                                      |
+| Roman 문서나 source가 이미 존재함     | 중복 문서를 만들지 말고 깨끗한 녹화용 wiki에서 다시 시작한다.                                                                  |
+| dossier 이후 mission status가 바뀜    | 최신 상태가 결론을 바꾸면 dossier와 대본을 함께 갱신한 뒤 다시 촬영한다.                                                       |
+| 두 번째 요청이 새 hub를 중복 생성함   | 기존 문서를 찾고 보강하도록 요청을 다시 실행한다. 중복된 결과를 성공 장면으로 사용하지 않는다.                                 |
+| 2분 35초를 크게 넘김                  | 생성 대기 시간만 편집한다. 첫 요청, 결과 검토, 추가 요청과 탐색 장면은 유지한다.                                                |
 
 ## 5. 심사위원용 라이브 테스트 안내
 
@@ -553,7 +552,8 @@ tag·deployment를 유지하고 별도 branch, fork 또는 deployment에서 진�
       통과한다.
 - [ ] 정확한 deployment에서 실제 tool discovery와 `wiki_get_context` 호출을
       기록한다.
-- [ ] read-only smoke test와 Aurora mutation demo를 깨끗한 개인 wiki에서 완주한다.
+- [ ] read-only smoke test와 Roman research-wiki mutation demo를 깨끗한 개인 wiki에서
+      완주한다.
 - [ ] viewer/owner/read-only capability projection을 확인한다.
 - [ ] search → plan → apply → claims/revisions/lint workflow를 검증한다.
 - [ ] 영상과 제출 원고의 UI 명칭, fixture, 승인 경계와 tool 설명이 실제 배포본과
@@ -604,7 +604,7 @@ Verified by:
 - Public repository: <https://github.com/rca32/llmwiki-webmcp>
 - WebMCP registration: `site/app/site-tools.tsx`
 - Current tool names: `site/lib/webmcp-tool-names.ts`
-- Aurora fixture: `docs/fixtures/project-aurora-launch-review.md`
+- Roman research dossier: `docs/fixtures/roman-space-telescope-research-dossier.md`
 - System design and acceptance: `docs/SYSTEM_DESIGN.md`
 - Technical guide: `docs/TECHNICAL_GUIDE.md`
 - Production Site guide: `site/README.md`

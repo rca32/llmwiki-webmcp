@@ -99,6 +99,7 @@ export function KnowledgeTree({
   treeMode,
   pages,
   deletedPages,
+  deletedPageTotal,
   vaults,
   activeVaultId,
   activeVaultTitle,
@@ -110,10 +111,13 @@ export function KnowledgeTree({
   onOpenKnowledgeTopic,
   onSwitchVault,
   onRequestRestore,
+  canEmptyTrash,
+  onEmptyTrash,
 }: {
   treeMode: "knowledge" | "files";
   pages: KnowledgeTreePage[];
   deletedPages: KnowledgeTreePage[];
+  deletedPageTotal: number;
   vaults: VaultSummary[];
   activeVaultId: string | null;
   activeVaultTitle: string;
@@ -125,6 +129,8 @@ export function KnowledgeTree({
   onOpenKnowledgeTopic: (topicId: string | null) => void;
   onSwitchVault: (wikiId: string) => void;
   onRequestRestore: (page: KnowledgeTreePage) => void;
+  canEmptyTrash: boolean;
+  onEmptyTrash: () => void;
 }) {
   const { language, t } = useI18n();
   const [expandedTypes, setExpandedTypes] = useState(() => new Set(typeOrder));
@@ -410,19 +416,34 @@ export function KnowledgeTree({
                 </div>
               );
             })}
-          {deletedPages.length > 0 && (
+          {deletedPageTotal > 0 && (
             <div className="tree-group tree-trash">
-              <button
-                type="button"
-                className="tree-group-heading"
-                onClick={() => setTrashOpen((value) => !value)}
-                aria-expanded={trashOpen}
-              >
-                {trashOpen ? <ChevronDown /> : <ChevronRight />}
-                <Trash2 />
-                <span>{t("tree.trash")}</span>
-                <b>{deletedPages.length}</b>
-              </button>
+              <div className="tree-trash-heading">
+                <button
+                  type="button"
+                  className="tree-group-heading"
+                  onClick={() => setTrashOpen((value) => !value)}
+                  aria-expanded={trashOpen}
+                >
+                  {trashOpen ? <ChevronDown /> : <ChevronRight />}
+                  <Trash2 />
+                  <span>{t("tree.trash")}</span>
+                  <b>{deletedPageTotal}</b>
+                </button>
+                {canEmptyTrash && (
+                  <button
+                    type="button"
+                    className="tree-trash-empty"
+                    onClick={onEmptyTrash}
+                    title={t("tree.emptyTrash")}
+                    aria-label={t("tree.emptyTrashAria", {
+                      count: deletedPageTotal,
+                    })}
+                  >
+                    {t("tree.emptyTrash")}
+                  </button>
+                )}
+              </div>
               {trashOpen && (
                 <div className="tree-group-items">
                   {deletedPages.map((page) => (

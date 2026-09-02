@@ -5,6 +5,7 @@ import {
 } from "../../../lib/contracts";
 import {
   countPagesForList,
+  countDeletedPages,
   appendPage,
   createPage,
   listDeletedPages,
@@ -49,12 +50,46 @@ export async function GET(request: Request) {
         1,
         200,
       );
-    const deleted = url.searchParams.get("deleted") === "only";
+    const deleted = url.searchParams.get("deleted") === "only",
+      includeMarkdown = url.searchParams.get("include_markdown") === "true";
     if (deleted) {
-      const pages = await listDeletedPages(session.wikiId!, limit);
-      return Response.json(success({ pages }, id), {
-        headers: { "cache-control": "no-store" },
-      });
+      const [pages, total] = await Promise.all([
+          listDeletedPages(session.wikiId!, limit),
+          countDeletedPages(session.wikiId!),
+        ]),
+        projected = includeMarkdown
+          ? pages
+          : pages.map((page) => ({
+              id: page.id,
+              wiki_id: page.wiki_id,
+              parent_id: page.parent_id,
+              slug: page.slug,
+              path: page.path,
+              title: page.title,
+              page_type: page.page_type,
+              version: page.version,
+              sort_order: page.sort_order,
+              updated_at: page.updated_at,
+              deleted_at: page.deleted_at,
+              source_url: page.source_url,
+              retrieval_status: page.retrieval_status,
+              retrieved_at: page.retrieved_at,
+              extraction_method: page.extraction_method,
+              confidence: page.confidence,
+            }));
+      return Response.json(
+        success(
+          {
+            pages: projected,
+            total,
+            has_more: pages.length < total,
+            next_cursor: null,
+            include_markdown: includeMarkdown,
+          },
+          id,
+        ),
+        { headers: { "cache-control": "no-store" } },
+      );
     }
     const parentValue = url.searchParams.get("parent_id"),
       parentId = parentValue ? parentValue : null,
@@ -64,8 +99,7 @@ export async function GET(request: Request) {
         0,
         64,
       );
-    const includeMarkdown = url.searchParams.get("include_markdown") === "true",
-      scope = `pages:${session.wikiId}:${parentId ?? "root"}:${depth}`,
+    const scope = `pages:${session.wikiId}:${parentId ?? "root"}:${depth}`,
       offset = decodeCursor(url.searchParams.get("cursor"), scope),
       [pages, total] = await Promise.all([
         listPages(session.wikiId!, parentId, limit, depth, offset),

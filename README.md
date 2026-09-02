@@ -27,25 +27,25 @@ _Ask for an outcome. Review a maintained source of truth._
 
 ## One request. A maintained source of truth.
 
-Imagine opening a thin page for Project Aurora's launch review. Its decision,
-launch conditions, and supporting evidence have not yet been integrated.
+Imagine opening a two-sentence page about the newly launched Nancy Grace Roman
+Space Telescope. It records the launch, but not how the instruments, surveys,
+public data, and scientific questions fit together.
 
 Instead of opening an editor, request the result you want:
 
 ```text
-Turn the attached launch-review notes into the canonical decision page for
-Project Aurora. Reuse this existing page. Separate the decision, launch
-conditions, current evidence, and open questions. Link the source, preserve
-uncertainty, and do not describe unmet conditions as completed.
+Create a wiki page about the launch of the Nancy Grace Roman Space Telescope.
+Explain when it launched, where it is going, what it will study, and what
+happens next. Use the attached sources and make it easy to understand.
 ```
 
 The agent then:
 
-- inspects the current page, version, and authorized scope;
-- searches the wiki before creating or duplicating knowledge;
-- checks related pages, sources, and connections;
-- applies the change through the live page's WebMCP tools;
-- returns the result to the same wiki with evidence and revision history.
+- checks the open wiki and the official source packet;
+- creates the Roman launch page in the live wiki;
+- links the sources and related pages;
+- updates the same wiki when you ask a follow-up question;
+- keeps the result and its revision history in one place.
 
 You review maintained knowledge—not a block of text waiting to be copied out of
 chat.

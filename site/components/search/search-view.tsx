@@ -5,7 +5,10 @@ import { ArrowUpRight, FileText, Search, X } from "lucide-react";
 import type { KnowledgeTreePage } from "@/components/layout/knowledge-tree";
 import { useI18n, type TranslationKey } from "@/components/i18n-provider";
 
-type SearchPage = KnowledgeTreePage & { markdown: string; updated_at: string };
+type SearchPage = KnowledgeTreePage & {
+  snippet?: string;
+  updated_at: string;
+};
 
 const pageTypeKeys: Record<string, TranslationKey> = {
   overview: "type.overview",
@@ -20,8 +23,8 @@ const pageTypeKeys: Record<string, TranslationKey> = {
   other: "type.other",
 };
 
-function excerpt(markdown: string, query: string) {
-  const plain = markdown
+function excerpt(markdown: string | undefined, query: string) {
+  const plain = (markdown ?? "")
     .replace(/^---[\s\S]*?---/m, "")
     .replace(/[#>*_`\[\]()!-]/g, " ")
     .replace(/\s+/g, " ")
@@ -92,7 +95,7 @@ export function SearchView({
                 {t(pageTypeKeys[page.page_type] ?? "type.other")} ·{" "}
                 {t("common.version", { version: page.version })}
               </small>
-              <p>{excerpt(page.markdown, query)}</p>
+              {page.snippet && <p>{excerpt(page.snippet, query)}</p>}
             </span>
             <ArrowUpRight />
           </button>

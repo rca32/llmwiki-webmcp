@@ -14,6 +14,7 @@ describe("role capability matrix", () => {
       can_restore: false,
       can_manage_attachments: false,
       can_soft_delete: false,
+      can_empty_trash: false,
     });
   });
 
@@ -27,6 +28,7 @@ describe("role capability matrix", () => {
     expect(owner.can_restore).toBe(false);
     expect(owner.can_manage_attachments).toBe(false);
     expect(owner.can_soft_delete).toBe(false);
+    expect(owner.can_empty_trash).toBe(false);
     expect(owner.can_import).toBe(false);
   });
   it("allows editors to mutate content but not members or full backups", () => {
@@ -36,6 +38,7 @@ describe("role capability matrix", () => {
       can_restore: true,
       can_manage_attachments: true,
       can_soft_delete: true,
+      can_empty_trash: false,
       can_manage_members: false,
       can_full_backup: false,
       can_import: false,
@@ -47,6 +50,7 @@ describe("role capability matrix", () => {
       can_manage_members: true,
       can_full_backup: true,
       can_import: true,
+      can_empty_trash: true,
     });
   });
   it("grants bootstrap separately from active-wiki permissions", () => {

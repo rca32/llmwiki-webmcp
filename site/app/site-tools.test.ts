@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LLM_WIKI_CORE_IDEA } from "../lib/llm-wiki-core";
 import { WEBMCP_TOOL_NAMES } from "../lib/webmcp-tool-names";
 import {
+  emptyTrashTools,
   readTools,
   softDeleteTools,
   toolsForCapabilities,
@@ -11,7 +12,12 @@ import {
 type JsonObject = Record<string, unknown>;
 
 describe("WebMCP descriptor contract", () => {
-  const tools = [...readTools(), ...writeTools(), ...softDeleteTools()];
+  const tools = [
+    ...readTools(),
+    ...writeTools(),
+    ...softDeleteTools(),
+    ...emptyTrashTools(),
+  ];
   it("has stable unique names", () => {
     const names = tools.map((tool) => tool.name);
     expect(new Set(names).size).toBe(names.length);
@@ -42,6 +48,8 @@ describe("WebMCP descriptor contract", () => {
       "wiki_restore_revision",
       "wiki_soft_delete_page",
       "wiki_restore_deleted_page",
+      "wiki_get_trash",
+      "wiki_empty_trash",
     ]);
   });
   it("closes every top-level input schema", () => {
@@ -70,6 +78,15 @@ describe("WebMCP descriptor contract", () => {
       (tool) => tool.name === "wiki_soft_delete_page",
     )!;
     expect(deletion.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    const emptyTrash = emptyTrashTools().find(
+      (tool) => tool.name === "wiki_empty_trash",
+    )!;
+    expect(emptyTrash.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -161,6 +178,72 @@ describe("WebMCP descriptor contract", () => {
     );
   });
 
+  it("reads and permanently empties trash through the shared API", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn(),
+      trashToken = "a".repeat(64),
+      operationId = "22222222-2222-4222-8222-222222222222",
+      changeSet = {
+        pages_changed: [],
+        tree_changed: true,
+        links_changed: true,
+        search_changed: true,
+        graph_changed: true,
+        knowledge_changed: true,
+        deleted_pages_changed: true,
+      },
+      fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, data: { trash_token: trashToken } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, data: {}, change_set: changeSet }),
+        });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class {
+        constructor(
+          public type: string,
+          public init: { detail: unknown },
+        ) {}
+      },
+    );
+    await emptyTrashTools()
+      .find((tool) => tool.name === "wiki_get_trash")!
+      .execute({});
+    await emptyTrashTools()
+      .find((tool) => tool.name === "wiki_empty_trash")!
+      .execute({
+        trash_token: trashToken,
+        confirmation: "EMPTY TRASH Example",
+        operation_id: operationId,
+      });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/trash");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/trash");
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)),
+    ).toEqual({
+      trash_token: trashToken,
+      confirmation: "EMPTY TRASH Example",
+      operation_id: operationId,
+    });
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchEvent.mock.calls[0][0]).toMatchObject({
+      type: "wiki:changed",
+      init: { detail: changeSet },
+    });
+  });
+
   it("exposes cursor pagination and metadata-only page lists by default", () => {
     const list = readTools().find((tool) => tool.name === "wiki_list_pages")!;
     const search = readTools().find((tool) => tool.name === "wiki_search")!;
@@ -245,7 +328,7 @@ describe("WebMCP descriptor contract", () => {
     ).toEqual(readTools().map((tool) => tool.name));
     expect(
       toolsForCapabilities({ can_read: true, can_write: true }),
-    ).toHaveLength(24);
+    ).toHaveLength(readTools().length + writeTools().length);
     expect(
       toolsForCapabilities({
         can_read: true,
@@ -258,6 +341,7 @@ describe("WebMCP descriptor contract", () => {
         can_read: true,
         can_write: true,
         can_soft_delete: true,
+        can_empty_trash: true,
       }).map((tool) => tool.name),
     ).toEqual(
       expect.arrayContaining([
@@ -285,6 +369,7 @@ describe("WebMCP descriptor contract", () => {
         can_write: true,
         can_create_wiki: true,
         can_soft_delete: true,
+        can_empty_trash: true,
       }).map((tool) => tool.name),
     ).toEqual(WEBMCP_TOOL_NAMES);
     expect(
@@ -535,6 +620,58 @@ describe("WebMCP descriptor contract", () => {
       JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)),
     ).toMatchObject({ approved: true, plan_hash: "a".repeat(64) });
   });
+
+  it("emits the committed change set after the write executor resolves", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn(),
+      changeSet = {
+        pages_changed: ["11111111-1111-4111-8111-111111111111"],
+        tree_changed: false,
+        links_changed: true,
+        search_changed: true,
+        graph_changed: true,
+        knowledge_changed: false,
+      };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, data: {}, change_set: changeSet }),
+      }),
+    );
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class {
+        constructor(
+          public type: string,
+          public init: { detail: unknown },
+        ) {}
+      },
+    );
+    const execution = writeTools()
+      .find((tool) => tool.name === "wiki_update_page")!
+      .execute({
+        page_id: "11111111-1111-4111-8111-111111111111",
+        expected_version: 7,
+        markdown: "# Updated",
+        change_summary: "event timing test",
+        operation_id: "22222222-2222-4222-8222-222222222222",
+      });
+    await expect(execution).resolves.toMatchObject({ ok: true });
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchEvent.mock.calls[0][0]).toMatchObject({
+      type: "wiki:changed",
+      init: { detail: changeSet },
+    });
+    vi.useRealTimers();
+  });
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});

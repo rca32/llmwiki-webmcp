@@ -1148,12 +1148,54 @@ export function softDeleteTools(): SiteTool[] {
   ];
 }
 
+export function emptyTrashTools(): SiteTool[] {
+  return [
+    {
+      name: "wiki_get_trash",
+      title: "Review permanently deletable trash",
+      description:
+        "Read the owner-only impact summary, concurrency token, and exact confirmation phrase before permanently emptying the active Wiki trash. This changes nothing.",
+      inputSchema: closed({}),
+      annotations: readAnnotations,
+      execute: async () => requestJson("/api/trash"),
+    },
+    {
+      name: "wiki_empty_trash",
+      title: "Permanently empty the Wiki trash",
+      description:
+        "Permanently delete every soft-deleted page in the active Wiki only after an explicit user request and a fresh wiki_get_trash review. Requires the unchanged trash token, the exact server-provided confirmation phrase, and a fresh operation UUID. This cannot be undone.",
+      inputSchema: closed(
+        {
+          trash_token: {
+            type: "string",
+            minLength: 64,
+            maxLength: 64,
+            pattern: "^[0-9a-f]{64}$",
+            description: "Opaque SHA-256 token returned by wiki_get_trash",
+          },
+          confirmation: { type: "string", minLength: 1, maxLength: 300 },
+          operation_id: operationSchema,
+        },
+        ["trash_token", "confirmation", "operation_id"],
+      ),
+      annotations: destructiveAnnotations,
+      execute: async (input) =>
+        writeRequest("/api/trash", "DELETE", {
+          trash_token: requiredHash(input, "trash_token"),
+          confirmation: requiredText(input, "confirmation", 300),
+          operation_id: requiredUuid(input, "operation_id"),
+        }),
+    },
+  ];
+}
+
 export function toolsForCapabilities(capabilities: {
   can_read?: boolean;
   can_write?: boolean;
   can_create_wiki?: boolean;
   can_restore?: boolean;
   can_soft_delete?: boolean;
+  can_empty_trash?: boolean;
 }) {
   const tools: SiteTool[] = [];
   if (capabilities.can_read) tools.push(...readTools());
@@ -1167,6 +1209,8 @@ export function toolsForCapabilities(capabilities: {
     );
   if (capabilities.can_write && capabilities.can_soft_delete)
     tools.push(...softDeleteTools());
+  if (capabilities.can_write && capabilities.can_empty_trash)
+    tools.push(...emptyTrashTools());
   if (capabilities.can_create_wiki)
     tools.push({
       name: "wiki_create_vault",
@@ -1232,6 +1276,7 @@ export function SiteTools() {
           can_create_wiki?: boolean;
           can_restore?: boolean;
           can_soft_delete?: boolean;
+          can_empty_trash?: boolean;
         };
       }>("/api/session/capabilities");
       const tools = toolsForCapabilities(
@@ -1603,9 +1648,17 @@ async function writeRequest(path: string, method: string, body: JsonObject) {
       document.documentElement.dataset.wikiId = activeWikiId;
       delete document.documentElement.dataset.pageId;
     }
-    window.dispatchEvent(
-      new CustomEvent("wiki:changed", { detail: result.change_set ?? null }),
-    );
+    const target = window,
+      sessionChanged =
+        path === "/api/session/active-wiki" || path === "/api/wikis",
+      detail = sessionChanged
+        ? {
+            ...((result.change_set as JsonObject | null) ?? {}),
+            session_changed: true,
+          }
+        : (result.change_set ?? null),
+      event = new CustomEvent("wiki:changed", { detail });
+    setTimeout(() => target.dispatchEvent(event), 0);
   }
   return result;
 }
