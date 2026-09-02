@@ -1140,6 +1140,18 @@ textarea {
   font-size: 11px;
 }
 
+.change-request-scope-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in oklch, var(--primary) 24%, var(--border));
+  border-radius: 7px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--primary) 7%, var(--background));
+  font-size: 10px;
+  line-height: 1.55;
+}
+
 .change-request-fields label:last-child {
   grid-column: 1 / -1;
 }

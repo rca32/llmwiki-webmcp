@@ -415,11 +415,15 @@ const en = {
   "request.kind": "What should change?",
   "request.details": "Additional instructions",
   "request.detailsPlaceholder":
-    "Describe the intended outcome, destination, concern, or source to inspect…",
+    "Describe the topic, intended audience, coverage, freshness cutoff, and any preferred sources…",
   "request.detailsCount": "{{count}} / 2,000 characters",
+  "request.researchScopeWiki":
+    "Whole-Wiki research may create multiple source and canonical pages and a semantic Knowledge Map.",
+  "request.researchScopePage":
+    "Current-page research strengthens this canonical page and adds only the source pages needed for provenance.",
   "request.preview": "Preview the Codex request",
   "request.copyHint":
-    "Paste the copied request into your Codex conversation. Attach a local file there when the request uses source material.",
+    "Paste the copied request into your Codex conversation. Attach local source files if useful; research requests may also gather external evidence with available Codex tools.",
   "request.copy": "Copy request",
   "request.copied": "Copied",
   "request.copySuccess": "The change request was copied for Codex.",
@@ -858,11 +862,15 @@ const ko: Dictionary = {
   "request.kind": "무엇을 변경할까요?",
   "request.details": "추가 설명",
   "request.detailsPlaceholder":
-    "원하는 결과, 이동 위치, 확인할 문제나 조사할 출처를 적어주세요…",
+    "주제, 독자, 포함할 영역, 최신성 기준과 선호 출처가 있으면 적어주세요…",
   "request.detailsCount": "{{count}} / 2,000자",
+  "request.researchScopeWiki":
+    "위키 전체 조사는 여러 source·canonical 페이지와 의미 중심 Knowledge Map을 만들 수 있습니다.",
+  "request.researchScopePage":
+    "현재 문서 조사는 이 canonical 페이지를 보강하고 provenance에 필요한 source 페이지만 추가합니다.",
   "request.preview": "Codex 요청 미리보기",
   "request.copyHint":
-    "복사한 요청을 현재 Codex 대화에 붙여넣으세요. 로컬 자료가 필요하면 그 대화에 파일을 첨부하세요.",
+    "복사한 요청을 현재 Codex 대화에 붙여넣으세요. 필요한 로컬 자료는 첨부할 수 있으며, 조사 요청은 Codex의 사용 가능한 도구로 외부 근거도 수집합니다.",
   "request.copy": "요청 복사",
   "request.copied": "복사됨",
   "request.copySuccess": "Codex에 전달할 변경 요청을 복사했습니다.",
@@ -1251,11 +1259,15 @@ const ja: Dictionary = {
   "request.kind": "何を変更しますか？",
   "request.details": "追加の指示",
   "request.detailsPlaceholder":
-    "希望する結果、移動先、確認事項、調査する出典を入力してください…",
+    "テーマ、対象読者、含める領域、情報の鮮度基準、希望する出典があれば入力してください…",
   "request.detailsCount": "{{count}} / 2,000文字",
+  "request.researchScopeWiki":
+    "Wiki全体の調査では、複数のsource・canonicalページと意味中心のKnowledge Mapを作成できます。",
+  "request.researchScopePage":
+    "現在のページの調査では、このcanonicalページを補強し、provenanceに必要なsourceページだけを追加します。",
   "request.preview": "Codex依頼をプレビュー",
   "request.copyHint":
-    "コピーした依頼を現在のCodex会話に貼り付けてください。ローカル資料が必要な場合は、その会話にファイルを添付してください。",
+    "コピーした依頼を現在のCodex会話に貼り付けてください。必要に応じてローカル資料を添付でき、調査依頼ではCodexで利用可能なツールから外部根拠も収集します。",
   "request.copy": "依頼をコピー",
   "request.copied": "コピー済み",
   "request.copySuccess": "Codexに渡す変更依頼をコピーしました。",
@@ -1640,11 +1652,16 @@ const zh: Dictionary = {
   "request.scopeDeletedPage": "已删除页面",
   "request.kind": "需要更改什么？",
   "request.details": "补充说明",
-  "request.detailsPlaceholder": "说明预期结果、移动位置、需要核实的问题或来源…",
+  "request.detailsPlaceholder":
+    "请说明主题、目标读者、覆盖范围、时效标准，以及偏好的来源（如有）…",
   "request.detailsCount": "{{count}} / 2,000字",
+  "request.researchScopeWiki":
+    "整个Wiki的研究可以创建多个source与canonical页面，以及按语义组织的Knowledge Map。",
+  "request.researchScopePage":
+    "当前页面研究会强化这个canonical页面，并只添加provenance所需的source页面。",
   "request.preview": "预览Codex请求",
   "request.copyHint":
-    "将复制的请求粘贴到当前Codex对话。需要本地资料时，请在该对话中附加文件。",
+    "将复制的请求粘贴到当前Codex对话。可按需附加本地资料；研究请求也会用Codex中可用的工具收集外部证据。",
   "request.copy": "复制请求",
   "request.copied": "已复制",
   "request.copySuccess": "已复制要交给Codex的更改请求。",

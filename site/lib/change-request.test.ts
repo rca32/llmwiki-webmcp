@@ -50,7 +50,7 @@ describe("change request prompts", () => {
       expect(prompt).toContain("https://wiki.test/?wiki=wiki-123");
       expect(prompt).toContain("WebMCP");
       expect(prompt).toMatch(
-        /not a remote MCP server|원격 MCP 서버가 아닙니다|リモート MCP サーバーではありません|不是远程 MCP 服务器/,
+        /not a remote MCP server|원격 MCP 서버가 아닙니다|リモート MCP サーバーではありません|并非远程 MCP 服务器/,
       );
       expect(prompt).toContain("DOM");
       expect(prompt).toMatch(
@@ -126,6 +126,75 @@ describe("change request prompts", () => {
     expect(insights).toContain("wiki_plan_knowledge_map");
     expect(insights).not.toContain("wiki_plan_ingest");
   });
+
+  it("allows external research tools while reserving Wiki access for Site tools", () => {
+    const prompt = buildChangeRequestPrompt({
+      context: { ...context("en"), scope: "wiki", page: undefined },
+      kind: "research",
+      details: "Find all information about lakehouse architecture.",
+    });
+
+    expect(prompt).toContain("Use any authorized research and analysis tools");
+    expect(prompt).toContain(
+      "External evidence retrieval with research tools is allowed",
+    );
+    expect(prompt).toContain("Do not bypass the Site tools");
+    expect(prompt).not.toContain("Discover and use only");
+  });
+
+  it("requires a complete source-grounded LLM Wiki workflow", () => {
+    const prompt = buildChangeRequestPrompt({
+      context: { ...context("en"), scope: "wiki", page: undefined },
+      kind: "research",
+      details: "Find all information about lakehouse architecture.",
+    });
+
+    expect(prompt).toContain("compounding, human-readable LLM Wiki");
+    expect(prompt).toContain("bounded coverage checklist");
+    expect(prompt).toContain("multiple canonical knowledge pages");
+    expect(prompt).toContain("exactly one source record");
+    expect(prompt).toContain("contradictions and superseding claims");
+    expect(prompt).toContain("rather than page-type folders");
+    expect(prompt).toContain("one synthesis overview");
+    expect(prompt).toContain("plan-only result");
+    expect(prompt).toContain("wiki_plan_ingest");
+    expect(prompt).toContain("wiki_apply_ingest");
+    expect(prompt).toContain("wiki_lint");
+  });
+
+  it("keeps current-page research focused on the target canonical page", () => {
+    const prompt = buildChangeRequestPrompt({
+      context: context("en"),
+      kind: "research",
+      details: "Research and expand this page.",
+    });
+
+    expect(prompt).toContain("current-page research scope");
+    expect(prompt).toContain(
+      "Center the synthesis on the target canonical page",
+    );
+    expect(prompt).toContain("only the source pages needed for its provenance");
+    expect(prompt).toContain("do not create unrelated canonical sibling pages");
+    expect(prompt).not.toContain("multiple canonical knowledge pages");
+  });
+
+  it.each(languages)(
+    "includes the external-research boundary and LLM Wiki rules in %s",
+    (language) => {
+      const prompt = buildChangeRequestPrompt({
+        context: { ...context(language), scope: "wiki", page: undefined },
+        kind: "research",
+      });
+
+      expect(prompt).toMatch(/web search|웹 검색|Web 検索|Web 搜索/);
+      expect(prompt).toMatch(
+        /source page|source 페이지|source ページ|source 页面/,
+      );
+      expect(prompt).toMatch(/canonical/);
+      expect(prompt).toMatch(/Knowledge Map/);
+      expect(prompt).toContain("wiki_lint");
+    },
+  );
 
   it("does not copy page Markdown into the prompt", () => {
     const prompt = buildChangeRequestPrompt({

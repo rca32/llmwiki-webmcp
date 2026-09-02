@@ -1657,6 +1657,36 @@ let activeBrowser;
     throw new Error(
       "The structured request prompt is incomplete or copied the body.",
     );
+  await requestDialog.getByRole("combobox").last().selectOption("research");
+  const pageResearchScopeHint = await requestDialog
+    .locator(".change-request-scope-hint")
+    .innerText();
+  if (
+    !pageResearchScopeHint.includes("현재 문서 조사") ||
+    !pageResearchScopeHint.includes("canonical 페이지")
+  )
+    throw new Error(
+      "Current-page research guidance is missing from the request dialog.",
+    );
+  await requestDialog.getByRole("combobox").first().selectOption("wiki");
+  const researchScopeHint = await requestDialog
+    .locator(".change-request-scope-hint")
+    .innerText();
+  const researchPrompt = await requestDialog.locator("pre").innerText();
+  if (
+    !researchScopeHint.includes("위키 전체 조사") ||
+    !researchScopeHint.includes("source·canonical") ||
+    !researchPrompt.includes("승인된 조사·분석 도구") ||
+    !researchPrompt.includes("외부 근거 수집은 허용") ||
+    !researchPrompt.includes("위키 전체 조사 범위") ||
+    !researchPrompt.includes("source record를 정확히 하나") ||
+    !researchPrompt.includes("canonical 지식 페이지") ||
+    !researchPrompt.includes("wiki_apply_ingest") ||
+    !researchPrompt.includes("wiki_lint")
+  )
+    throw new Error(
+      "Whole-Wiki research guidance is missing from the request dialog.",
+    );
   await page.keyboard.press("Escape");
   await requestDialog.waitFor({ state: "detached" });
   if (

@@ -175,6 +175,15 @@ export function ChangeRequestDialog({
                   : context.wiki.id}
             </small>
           </div>
+          {kind === "research" && (scope === "wiki" || scope === "page") && (
+            <p className="change-request-scope-hint">
+              {t(
+                scope === "wiki"
+                  ? "request.researchScopeWiki"
+                  : "request.researchScopePage",
+              )}
+            </p>
+          )}
           <label>
             <span>{t("request.kind")}</span>
             <select
